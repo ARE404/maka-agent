@@ -50,7 +50,7 @@ type SettingsNavItem = {
   comingSoon?: boolean;
 };
 
-const SETTINGS_NAV: SettingsNavItem[] = [
+export const SETTINGS_NAV: SettingsNavItem[] = [
   { id: 'general', label: '通用', Icon: SettingsIcon, enabled: true },
   { id: 'personalization', label: '个性化', Icon: User, enabled: true },
   { id: 'theme', label: '主题', Icon: Palette, enabled: true },
@@ -216,6 +216,12 @@ export function SettingsModal(props: {
   density: UiDensity;
   onDensityChange(density: UiDensity): void;
   onUserLabelChange?(label: string): void;
+  /**
+   * Force the modal to a specific section when it (re-)mounts or when the
+   * value changes while already open. Used by the command palette so
+   * ⌘K → "网络" jumps straight to the section without an extra click.
+   */
+  requestedSection?: SettingsSection;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   // Escape closes the modal, Tab/Shift+Tab cycles inside the dialog,
@@ -242,6 +248,7 @@ export function SettingsModal(props: {
           density={props.density}
           onDensityChange={props.onDensityChange}
           onUserLabelChange={props.onUserLabelChange}
+          requestedSection={props.requestedSection}
         />
       </div>
     </div>
@@ -258,8 +265,19 @@ function SettingsSurface(props: {
   density: UiDensity;
   onDensityChange(density: UiDensity): void;
   onUserLabelChange?(label: string): void;
+  requestedSection?: SettingsSection;
 }) {
-  const [section, setSection] = useState<SettingsSection>(() => readLastSettingsSection());
+  const [section, setSection] = useState<SettingsSection>(() => props.requestedSection ?? readLastSettingsSection());
+
+  // When the parent updates requestedSection (e.g. the palette opens
+  // Settings with a different section while it's already mounted), reflect
+  // that into the local state.
+  useEffect(() => {
+    if (props.requestedSection && props.requestedSection !== section) {
+      setSection(props.requestedSection);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.requestedSection]);
 
   useEffect(() => {
     try {
@@ -426,7 +444,13 @@ function SettingsPage(props: {
     case 'data':
       return <DataSettingsPage />;
     case 'account':
-      return <AccountSettingsPage connections={props.connections} defaultSlug={props.defaultSlug} />;
+      return (
+        <AccountSettingsPage
+          connections={props.connections}
+          defaultSlug={props.defaultSlug}
+          onRefresh={props.onRefreshConnections}
+        />
+      );
     default: {
       const copy = COMING_SOON_PAGES[props.section];
       if (copy) {
@@ -645,12 +669,18 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; help: string
   { value: 'auto', label: '跟随系统', help: '匹配 macOS 的当前 Light/Dark 偏好。' },
 ];
 
-function AccountSettingsPage(props: { connections: LlmConnection[]; defaultSlug: string | null }) {
+function AccountSettingsPage(props: {
+  connections: LlmConnection[];
+  defaultSlug: string | null;
+  onRefresh(): Promise<void>;
+}) {
   // Backend (xuan, 5ca1f8a) persists per-connection lastTestStatus. UI
   // derives the display status from `enabled + hasSecret + defaultModel +
   // lastTestStatus + authKind` per @kenji's status-contract priority list,
   // so we never produce mixed labels like "disabled + verified".
   const [secretMap, setSecretMap] = useState<Record<string, boolean>>({});
+  const [testingSlug, setTestingSlug] = useState<string | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     let cancelled = false;
@@ -671,6 +701,27 @@ function AccountSettingsPage(props: { connections: LlmConnection[]; defaultSlug:
       cancelled = true;
     };
   }, [props.connections]);
+
+  async function testConnection(slug: string) {
+    setTestingSlug(slug);
+    try {
+      const result = await window.maka.connections.test(slug);
+      if (result.ok) {
+        toast.success('连接已验证', `延迟 ${result.latencyMs ?? '?'} ms${result.modelTested ? ' · ' + result.modelTested : ''}`);
+      } else {
+        toast.error('连接测试失败', result.errorMessage ?? '未知错误');
+      }
+    } catch (error) {
+      // Main is supposed to return a structured result; if something escapes
+      // to throw form, surface the generalized message anyway.
+      toast.error('测试出错', error instanceof Error ? error.message : String(error));
+    } finally {
+      setTestingSlug(null);
+      // Pull the freshest lastTestStatus/lastTestAt/lastTestMessage so the
+      // row re-renders with the new derived status without a Settings reopen.
+      await props.onRefresh();
+    }
+  }
 
   const enabledCount = props.connections.filter((connection) => connection.enabled).length;
   const totalCount = props.connections.length;
@@ -705,6 +756,9 @@ function AccountSettingsPage(props: { connections: LlmConnection[]; defaultSlug:
               connection={connection}
               hasSecret={secretMap[connection.slug] ?? false}
               isDefault={connection.slug === props.defaultSlug}
+              testing={testingSlug === connection.slug}
+              canTest={testingSlug === null}
+              onTest={() => void testConnection(connection.slug)}
             />
           ))}
         </div>
@@ -721,6 +775,9 @@ function AccountConnectionRow(props: {
   connection: LlmConnection;
   hasSecret: boolean;
   isDefault: boolean;
+  testing: boolean;
+  canTest: boolean;
+  onTest(): void;
 }) {
   const status: ConnectionUiStatus = connectionUiStatusFromRecord(props.connection, props.hasSecret);
   const presentation = presentConnectionUiStatus(status);
@@ -757,6 +814,17 @@ function AccountConnectionRow(props: {
           {lastTestAt && <time dateTime={props.connection.lastTestAt}>{lastTestAt}</time>}
         </p>
       )}
+      <div className="settingsConnectionActions">
+        <button
+          type="button"
+          className="maka-button"
+          data-size="sm"
+          disabled={!props.connection.enabled || !props.canTest}
+          onClick={props.onTest}
+        >
+          {props.testing ? '测试中…' : '测试连接'}
+        </button>
+      </div>
     </div>
   );
 }
