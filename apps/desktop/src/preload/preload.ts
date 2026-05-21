@@ -168,8 +168,16 @@ contextBridge.exposeInMainWorld('maka', {
     }> {
       return ipcRenderer.invoke('app:info');
     },
-    openPath(target: string): Promise<string> {
-      return ipcRenderer.invoke('app:openPath', target);
+    openPath(
+      key: 'workspace' | 'skills',
+    ): Promise<
+      | { ok: true; opened: string }
+      | {
+          ok: false;
+          reason: 'unknown-key' | 'not-allowed' | 'missing' | 'not-a-directory' | 'open-failed';
+        }
+    > {
+      return ipcRenderer.invoke('app:openPath', key);
     },
   },
   skills: {

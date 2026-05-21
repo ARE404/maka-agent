@@ -33,6 +33,7 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import { BOT_PROVIDERS, createDefaultSettings } from '@maka/core/settings';
 import { useModalA11y, useToast } from '@maka/ui';
 import { ProvidersPanel } from './ProvidersPanel';
+import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 
 type SettingsNavItem = {
   id: SettingsSection;
@@ -638,12 +639,9 @@ function DataSettingsPage() {
 
   async function openWorkspace() {
     if (!info) return;
-    try {
-      const result = await window.maka.app.openPath(info.workspacePath);
-      if (result) toast.error('打开失败', result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toast.error('打开失败', message);
+    const result = await window.maka.app.openPath('workspace');
+    if (!result.ok) {
+      toast.error(`无法打开${openPathActionLabel('workspace')}`, openPathFailureCopy(result.reason));
     }
   }
 
