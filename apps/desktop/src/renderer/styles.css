@@ -80,8 +80,17 @@ button:active {
 
 .appFrame {
   height: 100dvh;
-  padding: 12px;
-  background: var(--foreground-5);
+  /* PR-UI-LAYOUT-1: tightened 12 → 10 to match 牛马AI screenshot 1
+   * where the floating panels sit closer to the window edge. Same
+   * value all sides keeps the gap visually consistent. */
+  padding: 10px;
+  /* PR-UI-LAYOUT-1: shell canvas is now the warm-cream
+   * `--surface-canvas` (defined in maka-tokens.css). Sidebar + main
+   * floating panels use `--background` which is slightly lighter so
+   * the canvas-vs-card separation comes from this subtle delta plus
+   * the hairline border, instead of the previous heavy
+   * `--foreground-5` shell behind near-white cards. */
+  background: var(--surface-canvas);
   color: var(--foreground);
   font-size: var(--font-size-base);
   box-sizing: border-box;
@@ -93,6 +102,10 @@ button:active {
 
 .maka-shell-2col {
   display: grid;
+  /* PR-UI-LAYOUT-1: the middle column is the resize handle. We
+   * keep it at 8px so the keyboard separator still works, but it
+   * doubles as the visible gap between the two floating panels —
+   * 牛马AI runs ~6-8px between cards, which Maka now matches. */
   grid-template-columns:
     var(--maka-session-list-width, var(--w-sessionlist))
     8px
@@ -109,13 +122,20 @@ button:active {
 }
 
 .maka-floating-panel {
-  border: 1px solid var(--border-strong);
-  border-radius: 14px;
+  /* PR-UI-LAYOUT-1: softened panel chrome to match 牛马AI screenshot 1.
+   * Was: 14px radius + `--border-strong` + 3-layer shadow that read
+   * as "lifted card on a different surface".
+   * Now: 12px radius + thin `--border` + much lighter shadow that
+   * reads as "rounded subsection of the same warm sheet". This is
+   * what makes the sidebar feel integrated with the main area
+   * instead of a separate panel hovering over a darker shell. */
+  border: 1px solid var(--border);
+  border-radius: 12px;
   background: var(--background);
   box-shadow:
-    rgba(var(--foreground-rgb), 0.06) 0 0 0 1px,
-    rgba(0, 0, 0, 0.06) 0 2px 4px -1px,
-    rgba(0, 0, 0, 0.04) 0 6px 12px -3px;
+    rgba(var(--foreground-rgb), 0.03) 0 0 0 1px,
+    rgba(0, 0, 0, 0.03) 0 1px 2px 0,
+    rgba(0, 0, 0, 0.02) 0 3px 6px -2px;
 }
 
 .maka-resize-handle {
@@ -688,13 +708,20 @@ button:active {
 .maka-prompt-chip {
   flex: 1;
   display: grid;
-  gap: 4px;
+  gap: 3px;
+  /* PR-UI-LAYOUT-5 (@yuejing): tighter chip chrome — was 12px
+   * radius + var(--background-elevated) bg + 12/14px padding. 牛马AI
+   * uses lighter pills; we keep two-line content (label + hint)
+   * but pull the visual weight down so the grid feels lighter and
+   * less card-like. Border drops to hairline `--border`,
+   * background to transparent (inherits warm panel bg) — accent
+   * tint only appears on hover. */
   border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--background-elevated);
+  border-radius: 10px;
+  background: transparent;
   color: var(--foreground);
   cursor: pointer;
-  padding: 12px 14px;
+  padding: 10px 12px;
   text-align: left;
   transition:
     border-color 140ms ease,
@@ -703,8 +730,8 @@ button:active {
 }
 
 .maka-prompt-chip:hover {
-  border-color: oklch(from var(--accent) l c h / 0.4);
-  background: oklch(from var(--accent) l c h / 0.05);
+  border-color: oklch(from var(--accent) l c h / 0.32);
+  background: oklch(from var(--accent) l c h / 0.04);
   transform: translateY(-1px);
 }
 
@@ -936,21 +963,43 @@ button:active {
 
 /* PR110c: extended OnboardingHero variants. The setup variants
    reuse the base `.maka-onboarding` chrome but skip the provider
-   grid; we add a compact body + a single CTA. */
+   grid; we add a compact body + a single CTA.
+   PR-UI-LAYOUT-25: clearer tone treatment on the warm canvas.
+   - Headline color stays neutral for `setup` (default), shifts
+     warm/amber for `warning` (info family), shifts destructive
+     for `blocked` so a stranded user immediately sees gravity. */
 .maka-onboarding-setup header h1 {
   font-size: 22px;
 }
 .maka-onboarding-setup header p {
   margin-top: 8px;
+  color: var(--foreground-70);
+  line-height: 1.55;
 }
 .maka-onboarding-setup[data-tone="warning"] header h1 {
-  color: var(--warning, var(--foreground));
+  color: var(--warning, var(--info-text));
 }
+.maka-onboarding-setup[data-tone="destructive"] header h1 {
+  color: var(--destructive-text);
+}
+
+/* PR-UI-LAYOUT-25: setup hero eyebrow icon picks up the tone for
+ * each variant so the visual hierarchy reads (icon tone → headline
+ * tone → body) instead of relying on copy alone. */
+.maka-onboarding-setup[data-tone="warning"] .maka-onboarding-eyebrow {
+  color: var(--info-text);
+}
+.maka-onboarding-setup[data-tone="destructive"] .maka-onboarding-eyebrow {
+  color: var(--destructive-text);
+}
+
 .maka-onboarding-slug {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 13px;
   padding: 2px 6px;
-  border-radius: 6px;
+  /* PR-UI-LAYOUT-25: slug radius 6 → 8 to join the form input
+   * family (same chrome as inline code badges). */
+  border-radius: 8px;
   background: var(--foreground-5, oklch(from var(--foreground) l c h / 0.06));
   color: var(--foreground-80, oklch(from var(--foreground) l c h / 0.80));
 }
@@ -1313,7 +1362,14 @@ button:active {
   align-items: flex-end;
   gap: 4px;
   padding: 0 14px;
-  background: var(--foreground-5);
+  /* PR-UI-LAYOUT-5: chat header now blends with the surrounding
+   * floating panel's `--background` instead of carrying its own
+   * `--foreground-5` tint. Matches 牛马AI screenshot 1 where the tab
+   * strip reads as part of the main panel, not a separate header
+   * band. The active tab still pops because it owns `--background`
+   * with a thin border and rounded top corners — the contrast
+   * comes from the tab chrome, not from the surrounding band. */
+  background: transparent;
   border-bottom: 1px solid var(--border);
   -webkit-app-region: drag;
 }
@@ -2185,6 +2241,32 @@ button:active {
   text-wrap: pretty;
 }
 
+/* PR-UI-LAYOUT-5: command-palette discoverability pill in
+ * EmptyChatHero — analog of 牛马AI's "Space 可以随时唤起 AI 输入"
+ * hint. Calm muted styling so it reads as a hint, not a CTA;
+ * gap between kbd glyphs uses the existing kbd token chrome
+ * (PR-UI-10). Hidden from a11y tree because the actual
+ * shortcut is exposed via the command palette dialog. */
+.maka-hero-palette-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 6px 10px 6px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  background: oklch(from var(--foreground) l c h / 0.03);
+  color: var(--foreground-60);
+  font-size: 12px;
+  width: fit-content;
+}
+.maka-hero-palette-hint kbd {
+  font-size: 11px;
+}
+.maka-hero-palette-hint > span {
+  white-space: nowrap;
+}
+
 .message > span {
   display: block;
   margin-bottom: 6px;
@@ -2758,9 +2840,16 @@ button:active {
   z-index: var(--z-modal);
   display: grid;
   place-items: center;
-  background: oklch(0.45 0.01 92 / 0.34);
-  backdrop-filter: blur(8px) saturate(0.9);
-  -webkit-backdrop-filter: blur(8px) saturate(0.9);
+  /* PR-UI-LAYOUT-2: stronger backdrop blur + slightly darker scrim
+   * so the underlying chat reads as "paused behind a dialog"
+   * (matches 牛马AI's settings screenshot 2/3/4 where the chat is
+   * still semi-visible but clearly dimmed). Was: blur 8px + 0.34
+   * scrim. Now: blur 14px + 0.42 scrim. The dialog itself shrinks
+   * (see .settingsModal below) so the visible "frame" of chat
+   * around the dialog grows — that gives the modal feeling. */
+  background: oklch(0.40 0.01 80 / 0.42);
+  backdrop-filter: blur(14px) saturate(0.85);
+  -webkit-backdrop-filter: blur(14px) saturate(0.85);
   padding: 34px;
   /* Modern @starting-style entrance — emil-design-eng prefers transitions
      over keyframes for modals so the animation is interruptible. */
@@ -2776,18 +2865,30 @@ button:active {
 }
 
 .settingsModal {
-  width: min(96vw, 1380px);
-  max-width: calc(100vw - 42px);
-  height: min(82vh, 760px);
-  min-width: min(860px, calc(100vw - 42px));
-  min-height: 560px;
+  /* PR-UI-LAYOUT-2 (@yuejing 2026-05-22): shrunk from near-full-screen
+   * to ~88vw / 76vh max to match 牛马AI screenshots 2/3/4 where the
+   * dialog occupies ~75% of the viewport with the chat clearly
+   * visible behind it. Was: 96vw / 82vh / 1380×760 cap.
+   * Now: 88vw / 76vh / 1100×680 cap.
+   *
+   * Min sizes also relaxed (820 → 760 width, 560 → 520 height) so
+   * users on smaller laptops aren't forced into "almost full screen"
+   * just because their viewport is short. */
+  width: min(88vw, 1100px);
+  max-width: calc(100vw - 64px);
+  height: min(76vh, 680px);
+  min-width: min(760px, calc(100vw - 64px));
+  min-height: 520px;
   overflow: hidden;
   border: 1px solid oklch(0 0 0 / 0.08);
-  border-radius: 22px;
+  /* Slight radius reduction (22 → 18) keeps the dialog feeling like
+   * a card rather than a soft pillow. 牛马's settings dialog reads
+   * ~16-18px radius. */
+  border-radius: 18px;
   background: var(--background);
   box-shadow:
-    0 34px 80px oklch(0 0 0 / 0.2),
-    0 10px 28px oklch(0 0 0 / 0.12);
+    0 28px 64px oklch(0 0 0 / 0.18),
+    0 8px 22px oklch(0 0 0 / 0.10);
   transform: scale(1);
   opacity: 1;
   /* Modals keep transform-origin: center by default. */
@@ -2859,17 +2960,23 @@ button:active {
   /* PR-UI-11 (@yuejing 2026-05-22): group label polish — bump
    * letter-spacing for SECTION feel, slightly bolder, faint divider
    * line on the bottom so the 4 groups read as clearly separated
-   * chunks rather than just "uppercase text". */
+   * chunks rather than just "uppercase text".
+   *
+   * PR-UI-LAYOUT-3 (@yuejing 2026-05-22 night, per @WAWQAQ 牛马AI
+   * comparison): softened the label so it doesn't dominate the
+   * sidebar visual. 牛马 has no group labels at all; we keep them
+   * for @kenji's review-gate ("nav doubles as map") but pull
+   * weight/letter-spacing down so they read as labels, not headings. */
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
+  gap: 6px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
   text-transform: uppercase;
-  color: var(--foreground-50);
-  padding: 4px 6px 4px;
-  margin-bottom: 2px;
+  color: var(--foreground-40);
+  padding: 6px 6px 2px;
+  margin-bottom: 0;
 }
 
 .settingsNavGroupLabel::after {
@@ -2882,19 +2989,44 @@ button:active {
   background: linear-gradient(
     to right,
     var(--border) 0%,
-    transparent 80%
+    transparent 60%
   );
 }
 
 /* Per @kenji's PR75 review: group labels should also act as navigation
  * summaries (live state, not just visual dividers). Single short line in
  * the foreground-60 default, tinted info/warning/destructive when the
- * group has actionable state. */
+ * group has actionable state.
+ *
+ * PR-UI-LAYOUT-3: summary is now collapsed by default (kept in DOM for
+ * screen readers) and reveals on hover/focus-within the group so the
+ * sidebar stays calm at rest. @kenji's "nav as map" intent is preserved
+ * for keyboard users (focus reveals it) and for any group with a
+ * destructive tone (always visible — see below). */
 .settingsNavGroupSummary {
   font-size: 11px;
   line-height: 1.4;
   color: var(--foreground-60);
   padding: 0 6px 2px;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 160ms ease, opacity 120ms ease, padding 160ms ease;
+}
+
+.settingsNavGroup:hover .settingsNavGroupSummary,
+.settingsNavGroup:focus-within .settingsNavGroupSummary,
+.settingsNavGroupSummary[data-tone="destructive"],
+.settingsNavGroupSummary[data-tone="warning"] {
+  max-height: 32px;
+  opacity: 1;
+  padding-bottom: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settingsNavGroupSummary {
+    transition: none;
+  }
 }
 
 .settingsNavGroupSummary[data-tone="info"] {
