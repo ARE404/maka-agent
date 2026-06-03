@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { X } from 'lucide-react';
 import { nextRadioId } from './model-table-keyboard';
 import {
   CATALOG_PROVIDER_TYPES,
@@ -69,7 +70,11 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
     setConnections(list);
     setDefaultSlug(defaultConnection);
     setLoading(false);
-    setSelectedSlug((current) => current ?? list[0]?.slug ?? null);
+    setSelectedSlug((current) =>
+      current && list.some((connection) => connection.slug === current)
+        ? current
+        : null,
+    );
   }
 
   useEffect(() => {
@@ -294,6 +299,14 @@ function ProviderConfigSheetOverlay(props: { onClose(): void; children: ReactNod
         aria-label="模型供应商配置"
         onMouseDown={(event) => event.stopPropagation()}
       >
+        <button
+          type="button"
+          className="providerConfigSheetClose"
+          aria-label="关闭模型配置"
+          onClick={props.onClose}
+        >
+          <X strokeWidth={1.75} aria-hidden="true" />
+        </button>
         {props.children}
       </section>
     </div>
@@ -350,19 +363,23 @@ function ProviderCatalogCard(props: { type: ProviderType; count: number; onSelec
 }
 
 function providerDisabledStatus(type: ProviderType): 'unavailable' | 'experimental' {
-  return type === 'claude-subscription' ? 'experimental' : 'unavailable';
+  return isWiredOAuthProvider(type) ? 'experimental' : 'unavailable';
 }
 
 function providerDisabledTitle(type: ProviderType): string {
-  if (type === 'claude-subscription') {
-    return '内部实验：账号认证已隔离，默认关闭；当前请使用 API key 连接聊天模型。';
+  if (isWiredOAuthProvider(type)) {
+    return '请在 OAuth 分类完成账号登录；登录成功后会自动出现在已启用模型。';
   }
-  return '账号登录不作为模型连接；当前请使用同一家厂商的 API key。';
+  return '该账号登录暂未接入聊天发送；当前请使用同一家厂商的 API key。';
 }
 
 function providerDisabledAriaLabel(type: ProviderType, name: string): string {
-  if (type === 'claude-subscription') return `${name}（内部实验，默认关闭）`;
-  return `${name}（账号登录不作为模型连接）`;
+  if (isWiredOAuthProvider(type)) return `${name}（请从 OAuth 分类登录）`;
+  return `${name}（账号登录暂未接入聊天发送）`;
+}
+
+function isWiredOAuthProvider(type: ProviderType): boolean {
+  return type === 'claude-subscription' || type === 'codex-subscription';
 }
 
 export function ProviderLogo(props: { type: ProviderType; compact?: boolean }) {
@@ -931,6 +948,7 @@ function AddProviderForm(props: {
 
   const requiresBaseUrl = !defaults.baseUrl;
   const isExperimental = defaults.status === 'phase3-experimental';
+  const isWiredOAuth = isWiredOAuthProvider(props.providerType);
 
   async function submit() {
     setError(null);
@@ -939,9 +957,9 @@ function AddProviderForm(props: {
     if (props.existingSlugs.includes(slug)) return setError('Slug 已存在');
     if (requiresBaseUrl && !baseUrl.trim()) return setError('这个供应商需要填写 Base URL');
     if (isExperimental) {
-      return setError(props.providerType === 'claude-subscription'
-        ? 'Claude 订阅账号是内部实验，默认关闭；当前请使用 API key 连接聊天模型。'
-        : '该账号登录不作为模型连接；请先使用同一家厂商的 API key。');
+      return setError(isWiredOAuth
+        ? '请到 OAuth 分类完成账号登录；登录成功后会自动创建模型连接。'
+        : '该账号登录暂未接入聊天发送；请先使用同一家厂商的 API key。');
     }
     setBusy(true);
     try {
@@ -964,19 +982,19 @@ function AddProviderForm(props: {
     <div className="providerEditor">
       <header>
         <div>
-          <h3>{isExperimental && props.providerType === 'claude-subscription'
-            ? 'Claude 订阅账号为内部实验'
-            : isExperimental ? '账号登录不作为模型连接' : `添加 ${display.name}`}</h3>
+          <h3>{isExperimental && isWiredOAuth
+            ? `${display.name} 通过 OAuth 登录`
+            : isExperimental ? '账号登录暂未接入聊天发送' : `添加 ${display.name}`}</h3>
           <p>{display.description}</p>
         </div>
         <span className="settingsBadge">{categoryLabel(defaults.category)}</span>
       </header>
       {isExperimental && (
         <div className="providerUnavailableNotice">
-          <strong>{props.providerType === 'claude-subscription' ? '内部实验' : '账号登录'}</strong>
-          <span>{props.providerType === 'claude-subscription'
-            ? '账号认证路径已隔离在实验开关后；默认隐藏。当前请使用 Anthropic API key 连接聊天模型。'
-            : '这类账号登录不会出现在模型连接入口。当前请先使用同一家厂商的 API key。'}</span>
+          <strong>{isWiredOAuth ? '使用 OAuth 分类登录' : '账号登录暂未接入'}</strong>
+          <span>{isWiredOAuth
+            ? '不要在这里手动添加；请回到 OAuth 分类完成登录，Maka 会自动创建并刷新模型连接。'
+            : '这类账号登录暂未接入聊天发送。当前请先使用同一家厂商的 API key。'}</span>
         </div>
       )}
       <label>
@@ -1062,16 +1080,17 @@ function ConnectionDetail(props: {
       : fallbackModels.map((id) => ({ id }));
   const needsApiKey = defaults.authKind === 'api_key';
   const needsOAuth = defaults.authKind === 'oauth_token';
+  const hasFixedOAuthBaseUrl = needsOAuth && Boolean(defaults.baseUrl);
   const requiresCredential = defaults.authKind !== 'none';
   const credentialTroubleshootingCopy = needsOAuth
-    ? 'OAuth 登录 / Base URL / 代理设置'
+    ? 'OAuth 登录 / 代理设置'
     : 'API key / Base URL / 代理设置';
 
   async function save() {
     setBusy(true);
     try {
       await props.bridge.update(connection.slug, {
-        baseUrl: baseUrl || undefined,
+        baseUrl: hasFixedOAuthBaseUrl ? defaults.baseUrl : baseUrl || undefined,
         defaultModel,
         ...(apiKey ? { apiKey } : {}),
       });
@@ -1175,11 +1194,13 @@ function ConnectionDetail(props: {
         <input value={connection.slug} disabled />
       </label>
       <label>
-        <span>Base URL</span>
+        <span>Base URL {hasFixedOAuthBaseUrl ? '（OAuth 固定）' : ''}</span>
         <input
-          value={baseUrl}
+          value={hasFixedOAuthBaseUrl ? defaults.baseUrl : baseUrl}
           onChange={(event) => setBaseUrl(event.currentTarget.value)}
           placeholder={defaults.baseUrl}
+          readOnly={hasFixedOAuthBaseUrl}
+          aria-readonly={hasFixedOAuthBaseUrl ? 'true' : undefined}
         />
       </label>
       {needsApiKey && (
@@ -1270,7 +1291,7 @@ function ModelTable(props: {
     props.modelSource === 'fetched'
       ? props.modelChoices.length > 0
         ? `实时拉取的 ${props.modelChoices.length} 个模型${formatFetchedAtSuffix(props.modelsFetchedAt)}`
-        : '已成功调用 provider，但返回 0 个模型 — 该 provider 可能未对当前 API key 开放任何模型。'
+        : '已成功调用供应商接口，但返回 0 个模型 — 该供应商可能未对当前 API key 开放任何模型。'
       : `静态备用列表（${props.fallbackCount} 项）。点「从 API 刷新」拉取该 provider 的真实模型清单。`;
 
   // ARIA radiogroup keyboard pattern: arrow keys move focus AND select.
@@ -1445,11 +1466,11 @@ export function providerDisplay(type: ProviderType): { name: string; description
     case 'openai-compatible':
       return { name: 'OpenAI Compatible', description: '中转站、代理服务或自部署网关。', badge: 'Custom' };
     case 'claude-subscription':
-      return { name: 'Claude Subscription', description: 'Claude Pro / Max 订阅账号认证为内部实验；默认隐藏。' };
+      return { name: 'Claude Subscription', description: 'Claude Pro / Max 订阅账号登录；登录后自动成为可用模型连接。' };
     case 'codex-subscription':
-      return { name: 'Codex Subscription', description: 'ChatGPT / Codex 账号登录不作为模型连接。' };
+      return { name: 'Codex Subscription', description: 'ChatGPT / Codex 账号登录；登录后自动成为可用模型连接。' };
     case 'gemini-cli':
-      return { name: 'Gemini CLI', description: 'Google 账号登录不作为模型连接。' };
+      return { name: 'Gemini CLI', description: 'Google 账号登录暂未接入聊天发送。' };
   }
 }
 

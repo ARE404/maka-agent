@@ -48,6 +48,33 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.doesNotMatch(src, /providerOAuthHeader/, 'OAuth tab must not carry a second standalone section header');
   });
 
+  it('provider config sheets expose their own accessible close button', async () => {
+    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const styles = await readFile(resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css'), 'utf8');
+    const overlay = src.match(/function ProviderConfigSheetOverlay[\s\S]*?function ProviderCatalogCard/)?.[0] ?? '';
+
+    assert.match(overlay, /className="providerConfigSheetClose"/);
+    assert.match(overlay, /aria-label="关闭模型配置"/);
+    assert.match(overlay, /<X strokeWidth=\{1\.75\} aria-hidden="true" \/>/);
+    assert.match(styles, /\.providerConfigSheet\s*\{[\s\S]*position:\s*relative;/);
+    assert.match(styles, /\.providerConfigSheetClose\s*\{[\s\S]*position:\s*absolute;[\s\S]*right:\s*14px;/);
+    assert.match(styles, /\.providerConfigSheetClose:focus-visible\s*\{[\s\S]*outline:\s*2px solid var\(--accent\);/);
+  });
+
+  it('does not auto-open the first provider config sheet after loading connections', async () => {
+    // WAWQAQ goal sweep: Settings -> 模型 kept reopening the first
+    // provider config sheet on every Settings open because reload()
+    // defaulted selectedSlug to list[0]. A model list refresh should
+    // preserve an already-open sheet if that connection still exists,
+    // but it must not select the first provider by default.
+    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const reloadBlock = src.match(/async function reload\(\)[\s\S]*?^\s*\}/m)?.[0] ?? '';
+
+    assert.match(reloadBlock, /setSelectedSlug\(\(current\) =>[\s\S]*list\.some\(\(connection\) => connection\.slug === current\)/);
+    assert.match(reloadBlock, /\?\s*current\s*:\s*null/);
+    assert.doesNotMatch(reloadBlock, /current\s*\?\?\s*list\[0\]\?\.slug/, 'reload must not auto-select the first provider');
+  });
+
   it('exposes exactly four equal OAuth cards: claude, codex, antigravity, cursor', async () => {
     // WAWQAQ msg 8bb7e186: Claude must not be a huge standalone
     // inline card while the other OAuth providers are compact
@@ -75,6 +102,61 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       assert.equal(s, 'available', `card status must be 'available', got '${s}'`);
     }
     assert.doesNotMatch(body, /'planned'/, 'no card may still claim "planned" status');
+  });
+
+  it('wired OAuth provider copy does not say account login is separate from model connections', async () => {
+    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    assert.doesNotMatch(
+      src,
+      /账号登录不作为模型连接|这类账号登录不会出现在模型连接入口|当前请使用 API key 连接聊天模型|默认隐藏/,
+      'Claude/Codex OAuth copy must reflect that successful login creates a usable model connection',
+    );
+    assert.match(
+      src,
+      /Claude Pro \/ Max 订阅账号登录；登录后自动成为可用模型连接/,
+      'Claude provider display copy must point to the wired OAuth model connection path',
+    );
+    assert.match(
+      src,
+      /ChatGPT \/ Codex 账号登录；登录后自动成为可用模型连接/,
+      'Codex provider display copy must point to the wired OAuth model connection path',
+    );
+    assert.match(
+      src,
+      /Google 账号登录暂未接入聊天发送/,
+      'unwired OAuth providers must still fail closed without claiming they are wired',
+    );
+  });
+
+  it('OAuth model connection detail treats Base URL as fixed provider metadata, not an editable endpoint', async () => {
+    const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
+    const detail = src.match(/function ConnectionDetail[\s\S]*?function ModelTable/)?.[0] ?? '';
+
+    assert.match(
+      detail,
+      /const hasFixedOAuthBaseUrl = needsOAuth && Boolean\(defaults\.baseUrl\)/,
+      'ConnectionDetail must detect fixed OAuth provider endpoints',
+    );
+    assert.match(
+      detail,
+      /baseUrl:\s*hasFixedOAuthBaseUrl\s*\?\s*defaults\.baseUrl\s*:\s*baseUrl \|\| undefined/,
+      'saving an OAuth connection must submit the provider default endpoint, not renderer-edited text',
+    );
+    assert.match(
+      detail,
+      /value=\{hasFixedOAuthBaseUrl \? defaults\.baseUrl : baseUrl\}/,
+      'OAuth Base URL input must display the canonical provider endpoint',
+    );
+    assert.match(
+      detail,
+      /readOnly=\{hasFixedOAuthBaseUrl\}/,
+      'OAuth Base URL must be read-only in the provider detail sheet',
+    );
+    assert.match(
+      detail,
+      /aria-readonly=\{hasFixedOAuthBaseUrl \? 'true' : undefined\}/,
+      'the fixed OAuth Base URL state must be exposed to assistive tech',
+    );
   });
 
   it('claude opens a modal from the equal-size card instead of rendering a full inline card above the grid', async () => {
