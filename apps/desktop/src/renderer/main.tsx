@@ -207,6 +207,14 @@ function AppShell() {
     turnId: string;
     nonce: number;
   } | null>(null);
+  function closeSearchModal() {
+    setSearchModalOpen(false);
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLButtonElement>('[data-maka-search-trigger="true"]')
+        ?.focus({ preventScroll: true });
+    });
+  }
   const composerRef = useRef<ComposerHandle>(null);
   const activeIdRef = useRef<string | undefined>(undefined);
   const activeStreamingSlot = activeId ? streamingBySession[activeId] : undefined;
@@ -2308,7 +2316,7 @@ function AppShell() {
       */}
       {searchModalOpen && (
         <SearchModal
-          onClose={() => setSearchModalOpen(false)}
+          onClose={closeSearchModal}
           deps={{ searchThread: (request) => window.maka.search.thread(request) }}
           onNavigateToSession={(sessionId, turnId) => {
             setNavSelection({ section: 'sessions', filter: 'chats' });

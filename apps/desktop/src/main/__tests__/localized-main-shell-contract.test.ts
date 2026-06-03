@@ -44,6 +44,42 @@ describe('localized main shell contract', () => {
     assert.match(commandPalette, /权限 · 只读[\s\S]*权限 · 确认[\s\S]*权限 · 执行/);
   });
 
+  it('keeps the idle Composer shortcut hint visual-only in the accessibility tree', async () => {
+    const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+
+    assert.match(
+      components,
+      /className="maka-composer-shortcut-hint" aria-hidden="true"/,
+      'the idle Enter / Shift+Enter visual shortcut hint should not be announced as scattered text nodes',
+    );
+    assert.match(
+      components,
+      /copy\.awaitingPermission/,
+      'permission waiting status must stay visible to assistive technology',
+    );
+    assert.match(
+      components,
+      /copy\.sending/,
+      'sending status must stay visible to assistive technology',
+    );
+  });
+
+  it('exposes the selected Daily Review range in the segmented control', async () => {
+    const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+    const dailyReviewRange = components.match(/<nav className="maka-daily-review-range"[\s\S]*?\{summary && summary\.totals/)?.[0] ?? '';
+
+    assert.match(
+      dailyReviewRange,
+      /data-active=\{range === option \? 'true' : undefined\}/,
+      'Daily Review range buttons must keep their visual selected state',
+    );
+    assert.match(
+      dailyReviewRange,
+      /aria-pressed=\{range === option\}/,
+      'Daily Review range buttons must expose the selected segment to assistive technology',
+    );
+  });
+
   it('clears drag-active composer state when the drag leaves the window', async () => {
     const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
     const composerBlock = components.match(/export const Composer[\s\S]*?if \(props\.hidden\) return null;/)?.[0] ?? '';
@@ -96,6 +132,63 @@ describe('localized main shell contract', () => {
 
     assert.match(settingsNavButton, /data-active=\{section === item\.id\}/, 'Settings nav must keep its visual active state');
     assert.match(settingsNavButton, /aria-current=\{section === item\.id \? 'page' : undefined\}/, 'Settings nav must expose the current page to accessibility APIs');
+  });
+
+  it('exposes the active main sidebar section to assistive technology', async () => {
+    const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+
+    assert.match(
+      components,
+      /data-active=\{isModuleActive\('sessions'\)\}[\s\S]{0,160}aria-current=\{isModuleActive\('sessions'\) \? 'page' : undefined\}/,
+      'the active Sessions nav row must expose aria-current, not only data-active styling',
+    );
+    assert.match(
+      components,
+      /data-active=\{isModuleActive\('automations'\)\}[\s\S]{0,160}aria-current=\{isModuleActive\('automations'\) \? 'page' : undefined\}/,
+      'the active Plans nav row must expose aria-current, not only data-active styling',
+    );
+    assert.match(
+      components,
+      /data-active=\{isModuleActive\('skills'\)\}[\s\S]{0,160}aria-current=\{isModuleActive\('skills'\) \? 'page' : undefined\}/,
+      'the active Skills nav row must expose aria-current, not only data-active styling',
+    );
+    assert.match(
+      components,
+      /data-active=\{isModuleActive\('daily-review'\)\}[\s\S]{0,160}aria-current=\{isModuleActive\('daily-review'\) \? 'page' : undefined\}/,
+      'the active Daily Review nav row must expose aria-current, not only data-active styling',
+    );
+  });
+
+  it('does not announce the session module heading twice in the sidebar', async () => {
+    const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+    const sessionList = components.match(/<section className="maka-session-list"[\s\S]*?<div className="maka-session-list-title"[\s\S]*?>/)?.[0] ?? '';
+
+    assert.match(
+      sessionList,
+      /<section className="maka-session-list" aria-label=\{title\}>/,
+      'the sidebar module region should keep a single semantic section label',
+    );
+    assert.match(
+      sessionList,
+      /className="maka-session-list-title" aria-hidden="true"/,
+      'the visible module title is duplicate orientation copy and must not be announced before the group label',
+    );
+  });
+
+  it('keeps the project badge accessibility help concise instead of exposing the absolute workspace path', async () => {
+    const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+    const projectBadge = components.match(/className="maka-project-badge"[\s\S]*?aria-label=\{props\.projectBadge\.branch[\s\S]*?>/)?.[0] ?? '';
+
+    assert.match(
+      projectBadge,
+      /title=\{props\.projectBadge\.branch \? `打开项目目录 · \$\{props\.projectBadge\.branch\}` : '打开项目目录'\}/,
+      'project badge title should stay concise because native title is exposed as Accessibility Help',
+    );
+    assert.doesNotMatch(
+      projectBadge,
+      /title=\{props\.projectBadge\.branch \? `\$\{props\.projectBadge\.path\}/,
+      'project badge must not expose absolute workspace paths through native title / AX Help',
+    );
   });
 
   it('hides the app shell from the accessibility tree while a top-level modal is open', async () => {
@@ -189,6 +282,19 @@ describe('localized main shell contract', () => {
     assert.match(formatter, /创建、编辑、检查演示文稿。/);
     assert.match(formatter, /创建、编辑、分析表格数据。/);
     assert.match(formatter, /打开技能文件查看适用场景。/);
+  });
+
+  it('does not leak absolute skill paths through row hover or accessibility help', async () => {
+    const components = await readFile(resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'), 'utf8');
+    const skillPanel = components.match(/function SkillLibraryPanel[\s\S]*?function formatSkillLibraryDescription/)?.[0] ?? '';
+
+    assert.doesNotMatch(
+      skillPanel,
+      /const hoverText[\s\S]{0,240}skill\.path/,
+      'Skill row title becomes Accessibility Help, so it must not expose absolute local paths',
+    );
+    assert.match(skillPanel, /打开技能文件：\$\{skill\.id\}/);
+    assert.match(skillPanel, /title=\{hoverText\}/);
   });
 
   it('surfaces permission denial in Chinese instead of raw English backend text', async () => {
