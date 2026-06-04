@@ -1924,6 +1924,11 @@ export function SearchModal(props: {
     props.onClose();
   }
 
+  function selectKeyboardResult() {
+    if (!showResults) return;
+    selectResult(results[activeResultIndex >= 0 ? activeResultIndex : 0]!);
+  }
+
   function clearSearchState() {
     ticketRef.current += 1;
     setResults([]);
@@ -1945,19 +1950,66 @@ export function SearchModal(props: {
     inputRef.current?.focus();
   }
 
-  function moveActiveResult(delta: 1 | -1) {
-    if (results.length === 0) return;
-    setActiveResultIndex((current) => {
-      const next = current < 0
-        ? (delta > 0 ? 0 : results.length - 1)
-        : (current + delta + results.length) % results.length;
-      return next;
+  function focusSearchResult(index: number) {
+    window.requestAnimationFrame(() => {
+      resultRefs.current[index]?.focus({ preventScroll: true });
     });
   }
 
-  function jumpActiveResult(index: number) {
+  function moveActiveResult(delta: 1 | -1, options?: { focusResult?: boolean }) {
     if (results.length === 0) return;
-    setActiveResultIndex(Math.max(0, Math.min(results.length - 1, index)));
+    const next = activeResultIndex < 0
+      ? (delta > 0 ? 0 : results.length - 1)
+      : (activeResultIndex + delta + results.length) % results.length;
+    setActiveResultIndex(next);
+    if (options?.focusResult) focusSearchResult(next);
+  }
+
+  function jumpActiveResult(index: number, options?: { focusResult?: boolean }) {
+    if (results.length === 0) return;
+    const next = Math.max(0, Math.min(results.length - 1, index));
+    setActiveResultIndex(next);
+    if (options?.focusResult) focusSearchResult(next);
+  }
+
+  function keyboardKey(event: KeyboardEvent, keys: string[]) {
+    return keys.includes(event.key) || keys.includes(event.code);
+  }
+
+  function handleResultKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number, result: SearchResult) {
+    if (keyboardKey(event, ['Enter', 'Return', 'Space', ' '])) {
+      event.preventDefault();
+      selectResult(result);
+      return;
+    }
+    if (keyboardKey(event, ['ArrowDown', 'Down'])) {
+      event.preventDefault();
+      moveActiveResult(1, { focusResult: true });
+      return;
+    }
+    if (keyboardKey(event, ['ArrowUp', 'Up'])) {
+      event.preventDefault();
+      moveActiveResult(-1, { focusResult: true });
+      return;
+    }
+    if (keyboardKey(event, ['Home'])) {
+      event.preventDefault();
+      jumpActiveResult(0, { focusResult: true });
+      return;
+    }
+    if (keyboardKey(event, ['End'])) {
+      event.preventDefault();
+      jumpActiveResult(results.length - 1, { focusResult: true });
+      return;
+    }
+    if (keyboardKey(event, ['Escape'])) {
+      event.preventDefault();
+      props.onClose();
+      return;
+    }
+    if (index !== activeResultIndex) {
+      setActiveResultIndex(index);
+    }
   }
 
   const incognitoBlocked = error?.reason === 'incognito_active';
@@ -2005,34 +2057,40 @@ export function SearchModal(props: {
             value={query}
             onChange={(event) => updateSearchQuery(event.currentTarget.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Escape' && query) {
+              if (keyboardKey(event, ['Escape']) && query) {
                 event.preventDefault();
                 clearSearchQuery();
                 return;
               }
-              if (event.key === 'ArrowDown' && showResults) {
+              if (keyboardKey(event, ['ArrowDown', 'Down']) && showResults) {
                 event.preventDefault();
-                moveActiveResult(1);
+                moveActiveResult(1, { focusResult: true });
                 return;
               }
-              if (event.key === 'ArrowUp' && showResults) {
+              if (keyboardKey(event, ['ArrowUp', 'Up']) && showResults) {
                 event.preventDefault();
-                moveActiveResult(-1);
+                moveActiveResult(-1, { focusResult: true });
                 return;
               }
-              if (event.key === 'Home' && showResults) {
+              if (keyboardKey(event, ['Home']) && showResults) {
                 event.preventDefault();
-                jumpActiveResult(0);
+                jumpActiveResult(0, { focusResult: true });
                 return;
               }
-              if (event.key === 'End' && showResults) {
+              if (keyboardKey(event, ['End']) && showResults) {
                 event.preventDefault();
-                jumpActiveResult(results.length - 1);
+                jumpActiveResult(results.length - 1, { focusResult: true });
                 return;
               }
-              if (event.key === 'Enter' && showResults && activeResultIndex >= 0) {
+              if (keyboardKey(event, ['Enter', 'Return']) && showResults) {
                 event.preventDefault();
-                selectResult(results[activeResultIndex]!);
+                selectKeyboardResult();
+              }
+            }}
+            onKeyUp={(event) => {
+              if (keyboardKey(event, ['Enter', 'Return']) && showResults) {
+                event.preventDefault();
+                selectKeyboardResult();
               }
             }}
             autoComplete="off"
@@ -2099,9 +2157,12 @@ export function SearchModal(props: {
                       type="button"
                       role="option"
                       aria-selected={activeResultIndex === index}
+                      tabIndex={-1}
                       className="maka-search-modal-result"
                       data-active={activeResultIndex === index ? 'true' : undefined}
                       onClick={() => selectResult(result)}
+                      onKeyDown={(event) => handleResultKeyDown(event, index, result)}
+                      onFocus={() => setActiveResultIndex(index)}
                       onMouseEnter={() => setActiveResultIndex(index)}
                       disabled={!props.onNavigateToSession || result.target?.kind !== 'thread'}
                     >
@@ -3914,6 +3975,40 @@ function PermissionModeSwitcher(props: {
   onChange?(mode: PermissionMode): void;
 }) {
   const active = PERMISSION_MODE_META[props.mode];
+  const changeModeByKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (props.disabled || !props.onChange) return;
+    const currentIndex = PERMISSION_MODE_ORDER.indexOf(props.mode);
+    if (currentIndex === -1) return;
+    let nextIndex: number | null = null;
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        nextIndex = (currentIndex + 1) % PERMISSION_MODE_ORDER.length;
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        nextIndex = (currentIndex - 1 + PERMISSION_MODE_ORDER.length) % PERMISSION_MODE_ORDER.length;
+        break;
+      case 'Home':
+        nextIndex = 0;
+        break;
+      case 'End':
+        nextIndex = PERMISSION_MODE_ORDER.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    const group = event.currentTarget;
+    const nextMode = PERMISSION_MODE_ORDER[nextIndex];
+    if (!nextMode || nextMode === props.mode) return;
+    props.onChange(nextMode);
+    requestAnimationFrame(() => {
+      group
+        .querySelector<HTMLButtonElement>(`[data-mode="${nextMode}"]`)
+        ?.focus({ preventScroll: true });
+    });
+  };
   return (
     <div
       className="maka-mode-switcher"
@@ -3921,6 +4016,7 @@ function PermissionModeSwitcher(props: {
       aria-label="权限模式"
       data-disabled={props.disabled || undefined}
       title={props.disabledReason ?? active.hint}
+      onKeyDown={changeModeByKeyboard}
     >
       {PERMISSION_MODE_ORDER.map((mode) => {
         const meta = PERMISSION_MODE_META[mode];
@@ -3933,6 +4029,7 @@ function PermissionModeSwitcher(props: {
             aria-checked={isActive}
             disabled={props.disabled || !props.onChange}
             data-active={isActive}
+            data-mode={mode}
             data-tone={meta.tone}
             className="maka-mode-switcher-option"
             onClick={() => {
