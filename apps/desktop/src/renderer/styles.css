@@ -6987,33 +6987,31 @@ button:active {
 }
 
 .settingsModal {
-  /* PR-UI-LAYOUT-2 (@yuejing 2026-05-22): shrunk from near-full-screen
-   * to ~88vw / 76vh max to match the reference design screenshots 2/3/4 where the
-   * dialog occupies ~75% of the viewport with the chat clearly
-   * visible behind it. Was: 96vw / 82vh / 1380×760 cap.
-   * Now: 88vw / 76vh / 1100×680 cap.
-   *
-   * Min sizes also relaxed (820 → 760 width, 560 → 520 height) so
-   * users on smaller laptops aren't forced into "almost full screen"
-   * just because their viewport is short. */
+  /* Modal-mode Settings (when the page mode override below is not set). Sized
+     to match the upstream reference layout's settings dialog (~88vw / 76vh,
+     ~1100×680 cap). */
   width: min(88vw, 1100px);
   max-width: calc(100vw - 64px);
   height: min(76vh, 680px);
   min-width: min(760px, calc(100vw - 64px));
   min-height: 520px;
   overflow: hidden;
-  border: 1px solid oklch(0 0 0 / 0.08);
-  /* Slight radius reduction (22 → 18) keeps the dialog feeling like
-   * a card rather than a soft pillow. the reference settings dialog reads
-   * ~16-18px radius. */
-  border-radius: 18px;
-  background: var(--background);
+  /* Chrome derived from --card-* tokens (atlas §4 + Phase 2A recipe). The
+     dialog edge is now a tight 8px reference-aligned radius with a single
+     1px hairline border, a Doppelrand inner highlight and a soft 4% lift —
+     the same recipe used by every other page card, scaled to a bigger
+     surface. The previous double 28px / 8px black shadows read as "modal
+     popup heavy"; the new single lift reads as "premium card sitting on a
+     dimmed canvas". */
+  border: 1px solid var(--card-border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
   box-shadow:
-    0 28px 64px oklch(0 0 0 / 0.18),
-    0 8px 22px oklch(0 0 0 / 0.10);
+    var(--card-shadow),
+    var(--card-highlight),
+    0 28px 64px oklch(0 0 0 / 0.10);
   transform: scale(1);
   opacity: 1;
-  /* Modals keep transform-origin: center by default. */
   transition:
     transform 240ms var(--ease-out-strong),
     opacity 200ms var(--ease-out-strong);
@@ -8771,14 +8769,14 @@ button:active {
 }
 
 .settingsHeader {
-  min-height: 52px;
+  min-height: 60px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 16px 10px;
-  border-bottom: 1px solid var(--border);
-  background: var(--foreground-2);
+  padding: 18px 22px 16px;
+  border-bottom: 1px solid var(--card-border-color);
+  background: var(--background);
 }
 
 .settingsSurface[data-modal="true"] .settingsHeader {
@@ -8801,8 +8799,10 @@ button:active {
 .settingsHeader h1 {
   margin: 0;
   color: var(--foreground);
-  font-size: 16px;
+  font-size: 30px;
   font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.15;
 }
 
 .settingsCloseButton {
