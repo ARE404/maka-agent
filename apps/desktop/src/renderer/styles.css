@@ -10074,25 +10074,12 @@ button:active {
 }
 
 .enabledStrip {
-  /* Even grid instead of a sideways scroller: the old horizontal scroll
-   * clipped chips mid-word, and a plain flex-wrap left every chip a
-   * different width (sized to its own text), so rows never lined up.
-   * Equal-width tracks keep the chips aligned; the header spans the full
-   * width on top, and long lists scroll vertically rather than hiding any
-   * model off the right edge. */
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
-  gap: 8px;
-  max-height: 232px;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--foreground-3);
-  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .enabledStripHeader {
-  grid-column: 1 / -1;
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -10116,112 +10103,156 @@ button:active {
   line-height: 1.35;
 }
 
-.enabledEmptyChip,
-.enabledProviderChip {
-  min-width: 0;
+/* Empty / load-error CTA shown when there are no connections yet. */
+.enabledEmptyChip {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   border: 1px dashed var(--border);
-  /* PR-UI-LAYOUT-19: enabledProviderChip radius 13 → 12 to sit
-   * cleanly in the card family (12 for chip-ish surfaces). */
   border-radius: 12px;
   background: var(--background);
   color: var(--foreground);
-  padding: 10px 12px;
+  padding: 12px 14px;
   text-align: left;
 }
 
-.enabledProviderChip {
-  border-style: solid;
-  transition:
-    transform 140ms ease,
-    background-color 140ms ease,
-    border-color 140ms ease;
-}
-
-.enabledProviderChip:hover,
 .enabledEmptyChip:hover {
   border-color: oklch(from var(--accent) l c h / 0.16);
   background: var(--background-elevated);
 }
 
-.enabledProviderChip:active,
-.enabledEmptyChip:active {
-  transform: translateY(1px);
+.enabledEmptyChip strong { font-size: 12px; font-weight: 700; }
+.enabledEmptyChip small { margin-top: 2px; color: var(--foreground-50); font-size: 11px; }
+
+/* ---- Enabled models: provider → connection hierarchy (Base UI Accordion).
+ * Each provider is a collapsible row; its connections live in the panel, so
+ * the list reads as provider over connection instead of a flat peer list.
+ * Problem providers open by default (see defaultOpenGroups). ---- */
+.enabledAccordion {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--foreground-3);
+  overflow: hidden;
+  max-height: 360px;
+  overflow-y: auto;
 }
 
-.enabledProviderChip[data-default="true"] {
-  border-color: oklch(from var(--accent) l c h / 0.22);
-  background: oklch(from var(--accent) l c h / 0.06);
+.enabledProvider + .enabledProvider {
+  border-top: 1px solid var(--border);
 }
 
-.enabledProviderChip[data-disabled="true"] {
-  opacity: 0.6;
-  filter: grayscale(0.4);
+.enabledProviderHead { margin: 0; }
+
+.enabledProviderTrigger {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 11px 14px;
+  background: transparent;
+  border: 0;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  transition: background-color 130ms ease;
 }
 
-/* Status dot on each chip — peer to the chip name. data-test-status comes
- * from `lastTestStatus` (PR61 schema). 'untested' shows a quiet neutral
- * dot; 'verified' goes success; 'needs_reauth' warns; 'error' destructive.
- * Sits at the chip's top-right, above the provider name. */
-.enabledProviderChip {
-  position: relative;
-}
+.enabledProviderTrigger:hover { background: var(--hover); }
 
-.enabledProviderChipStatus {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--foreground-20);
-}
-
-.enabledProviderChip[data-test-status="verified"] .enabledProviderChipStatus {
-  background: var(--success);
-  box-shadow: 0 0 0 3px oklch(from var(--success) l c h / 0.18);
-}
-
-.enabledProviderChip[data-test-status="needs_reauth"] .enabledProviderChipStatus {
-  background: var(--info);
-  box-shadow: 0 0 0 3px oklch(from var(--info) l c h / 0.20);
-}
-
-.enabledProviderChip[data-test-status="error"] .enabledProviderChipStatus {
-  background: var(--destructive);
-  box-shadow: 0 0 0 3px oklch(from var(--destructive) l c h / 0.20);
-}
-
-/* Text column flexes and may shrink below its content so names truncate
- * instead of stretching the chip; padding-right keeps the name clear of
- * the absolutely-positioned status dot. */
-.enabledProviderChipText {
+.enabledProviderName {
+  font-size: 13.5px;
+  font-weight: 620;
+  letter-spacing: -0.002em;
   min-width: 0;
-  flex: 1 1 auto;
-  padding-right: 10px;
-}
-
-.enabledEmptyChip strong,
-.enabledProviderChip strong {
-  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.enabledProviderMeta {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.enabledChevron {
+  color: var(--foreground-40);
+  transition: transform 160ms var(--ease-out-strong);
+}
+
+.enabledProviderTrigger[data-panel-open] .enabledChevron,
+.enabledProvider[data-open] .enabledChevron {
+  transform: rotate(90deg);
+}
+
+/* status line, shared by the provider rollup and each connection row;
+ * the dot inherits the text color via currentColor. */
+.enabledRollup,
+.enabledConnStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
-  font-weight: 700;
+  white-space: nowrap;
+  color: var(--foreground-50);
 }
 
-.enabledEmptyChip small,
-.enabledProviderChip small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  margin-top: 2px;
-  color: var(--foreground-50);
+.enabledStatusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.enabledRollup.is-ok,
+.enabledConnStatus.is-verified { color: var(--success); }
+.enabledRollup.is-warn,
+.enabledConnStatus.is-needs_reauth { color: var(--info); }
+.enabledRollup.is-err,
+.enabledConnStatus.is-error { color: var(--destructive); }
+.enabledRollup.is-idle,
+.enabledConnStatus.is-untested { color: var(--foreground-50); }
+
+.enabledProviderPanel {
+  background: oklch(from var(--foreground) l c h / 0.02);
+  border-top: 1px solid oklch(from var(--foreground) l c h / 0.07);
+}
+
+.enabledProviderPanel ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.enabledProviderPanel li + li .enabledConnRow {
+  border-top: 1px solid oklch(from var(--foreground) l c h / 0.07);
+}
+
+.enabledConnRow[data-default="true"] {
+  background: oklch(from var(--accent) l c h / 0.07);
+}
+
+.enabledConnRow[data-disabled="true"] {
+  opacity: 0.6;
+}
+
+.enabledConnTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.enabledDefaultTag {
   font-size: 11px;
+  font-weight: 650;
+  color: var(--accent);
+  background: oklch(from var(--accent) l c h / 0.14);
+  border-radius: 999px;
+  padding: 1px 8px;
 }
 
 .providerMarketHeader {

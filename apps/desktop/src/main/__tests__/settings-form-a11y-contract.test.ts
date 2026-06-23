@@ -107,7 +107,12 @@ describe('Settings form accessibility labels', () => {
 
     assert.match(settings, /SelectItem,[\s\S]*SelectPopup,[\s\S]*SelectPortal,[\s\S]*SelectPositioner,[\s\S]*SelectRoot,[\s\S]*SelectTrigger,[\s\S]*SelectValue,/);
     assert.match(passwordInput, /import \{ Button, Input, useToast \} from '@maka\/ui';/);
-    assert.match(providersPanel, /import \{ Button, PrimitiveTabs, PrimitiveTabsList, PrimitiveTabsTrigger, Input, RelativeTime, Textarea, useToast, useModalA11y \} from '@maka\/ui';/);
+    // ProvidersPanel sources its UI from the shared @maka/ui primitives;
+    // tolerant of single- vs multi-line import formatting.
+    const providersPanelUiImport = providersPanel.match(/import \{[^}]*\} from '@maka\/ui';/)?.[0] ?? '';
+    for (const name of ['Button', 'PrimitiveTabs', 'PrimitiveTabsList', 'PrimitiveTabsTrigger', 'Input', 'RelativeTime', 'Textarea', 'useToast', 'useModalA11y']) {
+      assert.ok(providersPanelUiImport.includes(name), `ProvidersPanel should import ${name} from @maka/ui`);
+    }
     assert.match(settings, /function SettingsSelect<T extends string>/);
     assert.match(settings, /<SelectPositioner alignItemWithTrigger=\{false\} sideOffset=\{6\}>/);
 
@@ -143,7 +148,12 @@ describe('Settings form accessibility labels', () => {
     assert.doesNotMatch(providersPanel, /<input\b/, 'ProvidersPanel must use the shared Input primitive for Settings text fields');
     assert.doesNotMatch(providersPanel, /<textarea\b/, 'ProvidersPanel must use the shared Textarea primitive for Settings text areas');
     assert.doesNotMatch(providersPanel, /<select\b/, 'ProvidersPanel must use the Base UI Select primitive for Settings selects');
-    assert.doesNotMatch(providersPanel, /<button\b/, 'ProvidersPanel must use the shared Button primitive for Settings buttons');
+    // `Item` rows become real buttons through Base UI's polymorphic
+    // `render={<button .../>}` prop, which is a primitive render target rather
+    // than a hand-rolled control. Strip those before asserting no raw <button>
+    // so the rule still catches bespoke buttons everywhere else.
+    const providersPanelButtons = providersPanel.replace(/render=\{\s*<button[\s\S]*?\/>\s*\}/g, 'render={<primitiveTarget/>}');
+    assert.doesNotMatch(providersPanelButtons, /<button\b/, 'ProvidersPanel must use the shared Button / Item primitives (raw <button> only allowed as a Base UI render target)');
   });
 
   it('keeps shared Settings password copy actions guarded and failure-visible', async () => {

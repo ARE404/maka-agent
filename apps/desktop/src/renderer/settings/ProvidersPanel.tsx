@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
-import { X } from 'lucide-react';
+import { ChevronRight, X } from 'lucide-react';
 import { nextRadioId } from './model-table-keyboard';
 import {
   CATALOG_PROVIDER_TYPES,
@@ -17,7 +17,13 @@ import {
   type SubscriptionAccountState,
   type UpdateConnectionInput,
 } from '@maka/core';
-import { Button, PrimitiveTabs, PrimitiveTabsList, PrimitiveTabsTrigger, Input, RelativeTime, Textarea, useToast, useModalA11y } from '@maka/ui';
+import {
+  Button,
+  PrimitiveTabs, PrimitiveTabsList, PrimitiveTabsTrigger,
+  PrimitiveAccordion, PrimitiveAccordionItem, PrimitiveAccordionHeader, PrimitiveAccordionTrigger, PrimitiveAccordionPanel,
+  Item, ItemContent, ItemTitle, ItemActions,
+  Input, RelativeTime, Textarea, useToast, useModalA11y,
+} from '@maka/ui';
 import { formatRelativeTimestamp } from '@maka/core';
 import { PasswordInput } from './password-input';
 import { ProviderBrandMark } from './provider-brand-marks';
@@ -139,6 +145,53 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
     [connections, selectedSlug],
   );
 
+  // Group enabled connections under their provider so the list reads as a
+  // hierarchy (provider → connections) instead of a flat peer list. Each
+  // group rolls the worst connection status up to its header so a problem
+  // is visible while the group is collapsed.
+  const providerGroups = useMemo(() => {
+    const order: ProviderType[] = [];
+    const byType = new Map<ProviderType, LlmConnection[]>();
+    for (const connection of connections) {
+      const list = byType.get(connection.providerType);
+      if (list) {
+        list.push(connection);
+      } else {
+        byType.set(connection.providerType, [connection]);
+        order.push(connection.providerType);
+      }
+    }
+    return order.map((type) => {
+      const groupConnections = byType.get(type) ?? [];
+      const active = groupConnections.filter((connection) => connection.enabled);
+      const rollup: 'err' | 'warn' | 'ok' | 'idle' = active.some((c) => c.lastTestStatus === 'error')
+        ? 'err'
+        : active.some((c) => c.lastTestStatus === 'needs_reauth')
+          ? 'warn'
+          : active.some((c) => c.lastTestStatus === 'verified')
+            ? 'ok'
+            : 'idle';
+      return { type, name: providerDisplay(type).name, connections: groupConnections, rollup };
+    });
+  }, [connections]);
+
+  // Start with the provider holding the default connection expanded (so the
+  // default is visible at a glance) plus any problem provider (failed / needs
+  // re-login), surfacing issues without a click; healthy providers stay
+  // collapsed and compact.
+  const defaultOpenGroups = useMemo(
+    () =>
+      providerGroups
+        .filter(
+          (group) =>
+            group.rollup === 'err' ||
+            group.rollup === 'warn' ||
+            group.connections.some((connection) => connection.slug === defaultSlug),
+        )
+        .map((group) => group.type),
+    [providerGroups, defaultSlug],
+  );
+
   const catalogProviders = CATALOG_PROVIDER_TYPES.filter(
     (type) => PROVIDER_DEFAULTS[type].category === catalogTab,
   );
@@ -207,7 +260,9 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
         <div className="enabledStrip" aria-label="已启用的模型供应商">
           <div className="enabledStripHeader">
             <h3>已启用模型</h3>
-            {connections.length > 0 && <span>{connections.length} 个配置</span>}
+            {connections.length > 0 && (
+              <span>{providerGroups.length} 个供应商 · {connections.length} 个连接</span>
+            )}
           </div>
           {loadError ? (
             <Button className="enabledEmptyChip" type="button" variant="ghost" onClick={() => void reload()}>
@@ -219,31 +274,76 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
               <strong>等待添加供应商</strong>
               <small>从下面选择一个开始配置。</small>
             </Button>
-          ) : connections.map((connection) => (
-              <Button
-                key={connection.slug}
-                type="button"
-                variant="ghost"
-                className="enabledProviderChip"
-                data-default={connection.slug === defaultSlug}
-                data-test-status={connection.lastTestStatus ?? 'untested'}
-                data-disabled={connection.enabled ? undefined : 'true'}
-                aria-label={chipAriaLabel(connection)}
-                onClick={() => {
-                  setSelectedSlug(connection.slug);
-                  setAddingType(null);
-                }}
-                title={chipTitle(connection)}
-              >
-                <ProviderLogo type={connection.providerType} compact />
-                <span className="enabledProviderChipText">
-                  <strong>{connection.name}</strong>
-                  <small>{providerDisplay(connection.providerType).name}</small>
-                </span>
-                <span className="enabledProviderChipStatus" aria-hidden="true" />
-              </Button>
-            ))
-          }
+          ) : (
+            <PrimitiveAccordion className="enabledAccordion" multiple defaultValue={defaultOpenGroups}>
+              {providerGroups.map((group) => {
+                const single = group.connections.length === 1;
+                const problem = group.rollup === 'err' || group.rollup === 'warn';
+                const rollupLabel = problem
+                  ? single
+                    ? chipStatusText(group.connections[0])
+                    : group.rollup === 'err' ? '有连接异常' : '需重新登录'
+                  : `${group.connections.length} 连接`;
+                return (
+                  <PrimitiveAccordionItem key={group.type} value={group.type} className="enabledProvider">
+                    <PrimitiveAccordionHeader className="enabledProviderHead">
+                      <PrimitiveAccordionTrigger className="enabledProviderTrigger">
+                        <ProviderLogo type={group.type} compact />
+                        <span className="enabledProviderName">{group.name}</span>
+                        <span className="enabledProviderMeta">
+                          <span className={`enabledRollup is-${group.rollup}`}>
+                            <span className="enabledStatusDot" aria-hidden="true" />
+                            {rollupLabel}
+                          </span>
+                          <ChevronRight className="enabledChevron" size={15} strokeWidth={2} aria-hidden="true" />
+                        </span>
+                      </PrimitiveAccordionTrigger>
+                    </PrimitiveAccordionHeader>
+                    <PrimitiveAccordionPanel className="enabledProviderPanel">
+                      <ul role="list">
+                        {group.connections.map((connection) => (
+                          <li key={connection.slug}>
+                            <Item
+                              className="enabledConnRow py-2.5 pr-3.5 pl-[46px] rounded-none"
+                              data-default={connection.slug === defaultSlug ? 'true' : undefined}
+                              data-test-status={connection.lastTestStatus ?? 'untested'}
+                              data-disabled={connection.enabled ? undefined : 'true'}
+                              aria-label={chipAriaLabel(connection)}
+                              title={chipTitle(connection)}
+                              render={
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedSlug(connection.slug);
+                                    setAddingType(null);
+                                  }}
+                                />
+                              }
+                            >
+                              <ItemContent>
+                                <ItemTitle className="enabledConnTitle">
+                                  {connection.name}
+                                  {connection.slug === defaultSlug && (
+                                    <span className="enabledDefaultTag">默认</span>
+                                  )}
+                                </ItemTitle>
+                              </ItemContent>
+                              <ItemActions>
+                                <span className={`enabledConnStatus is-${connection.lastTestStatus ?? 'untested'}`}>
+                                  <span className="enabledStatusDot" aria-hidden="true" />
+                                  {chipStatusText(connection)}
+                                </span>
+                              </ItemActions>
+                            </Item>
+                          </li>
+                        ))}
+                      </ul>
+                    </PrimitiveAccordionPanel>
+                  </PrimitiveAccordionItem>
+                );
+              })}
+            </PrimitiveAccordion>
+          )}
         </div>
 
         <div className="providerMarketHeader">

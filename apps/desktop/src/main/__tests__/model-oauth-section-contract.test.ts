@@ -53,11 +53,23 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     const src = await readFile(PROVIDERS_PANEL_SOURCE, 'utf8');
     const tabs = src.match(/<PrimitiveTabs\s+className="catalogTabsRoot"[\s\S]*?<\/PrimitiveTabs>/)?.[0] ?? '';
 
-    assert.match(
-      src,
-      /import \{ Button, PrimitiveTabs, PrimitiveTabsList, PrimitiveTabsTrigger, Input, RelativeTime, Textarea, useToast, useModalA11y \} from '@maka\/ui';/,
-      'ProvidersPanel should consume the shared shared primitive Tabs primitive from @maka/ui',
-    );
+    // ProvidersPanel must source its UI from the shared @maka/ui primitives
+    // (component governance), not hand-rolled markup. Assert the @maka/ui
+    // import block carries the primitives this panel relies on; tolerant of
+    // single- vs multi-line formatting.
+    const uiImport = src.match(/import \{[^}]*\} from '@maka\/ui';/)?.[0] ?? '';
+    for (const name of [
+      'Button',
+      'PrimitiveTabs', 'PrimitiveTabsList', 'PrimitiveTabsTrigger',
+      'PrimitiveAccordion', 'PrimitiveAccordionItem', 'PrimitiveAccordionTrigger', 'PrimitiveAccordionPanel',
+      'Item', 'ItemContent', 'ItemTitle', 'ItemActions',
+      'Input', 'RelativeTime', 'Textarea', 'useToast', 'useModalA11y',
+    ]) {
+      assert.ok(
+        uiImport.includes(name),
+        `ProvidersPanel should import ${name} from the shared @maka/ui primitives`,
+      );
+    }
     assert.doesNotMatch(src, /function onCatalogTabsKeyDown/, 'provider catalog tabs should not keep a custom keyboard handler');
     assert.doesNotMatch(src, /data-catalog-tab="\$\{CSS\.escape/, 'provider catalog tabs should not use manual focus queries');
     assert.match(tabs, /value=\{catalogTab\}[\s\S]*onValueChange=\{\(value\) => setCatalogTab\(value as CatalogTab\)\}/);
