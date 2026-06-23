@@ -67,12 +67,13 @@ describe('isolated headless tools', () => {
     assert.ok(names.includes('agent_output'));
     assert.ok(!names.includes('inventory_submit'));
     assert.ok(!names.includes('todo_update'));
+    assert.ok(!names.includes('self_check_submit'));
     assert.equal(names.filter((name) => name === 'Bash').length, 1);
     assert.deepEqual(buildChildAgentTools(tools).map((tool) => tool.name), ['Read', 'Glob', 'Grep']);
     assert.ok(!buildChildAgentTools(tools).some((tool) => ['Bash', 'Write', 'Edit'].includes(tool.name)));
   });
 
-  test('progress tools are included only when heavy-task progress is enabled', () => {
+  test('progress and self-check tools are included only when heavy-task recorders are enabled', () => {
     const tools = buildIsolatedHeadlessTools({
       async exec() {
         return { exitCode: 0, stdout: '', stderr: '' };
@@ -101,11 +102,36 @@ describe('isolated headless tools', () => {
           };
         },
       },
+      heavyTaskSelfCheck: {
+        async recordSelfCheck(input) {
+          return {
+            accepted: true,
+            selfCheck: {
+              schemaVersion: 1,
+              selfCheckId: 'self-check-1',
+              taskRunId: 'run-1',
+              ts: 1,
+              status: input.status,
+              publicReason: input.publicReason,
+              commandEvidence: input.commandEvidence ?? [],
+              artifactEvidence: input.artifactEvidence ?? [],
+              guard: {
+                status: 'accepted',
+                checkedAt: 1,
+                categories: [],
+                publicReason: 'Accepted as public, task-derived advisory self-check evidence.',
+              },
+              source: { kind: 'model_tool', toolCallId: 'tool-1' },
+            },
+          };
+        },
+      },
     });
 
     const names = tools.map((tool) => tool.name);
     assert.ok(names.includes('inventory_submit'));
     assert.ok(names.includes('todo_update'));
+    assert.ok(names.includes('self_check_submit'));
   });
 
   test('Read, Write, Edit, Glob, and Grep delegate to native isolated executor methods', async () => {

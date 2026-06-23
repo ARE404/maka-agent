@@ -243,8 +243,10 @@ class ProgressToolBackend implements AgentBackend {
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     const inventorySubmit = this.ctx.tools.find((tool) => tool.name === 'inventory_submit');
     const todoUpdate = this.ctx.tools.find((tool) => tool.name === 'todo_update');
+    const selfCheckSubmit = this.ctx.tools.find((tool) => tool.name === 'self_check_submit');
     assert.ok(inventorySubmit);
     assert.ok(todoUpdate);
+    assert.ok(selfCheckSubmit);
     const toolCtx = {
       sessionId: this.sessionId,
       turnId: input.turnId,
@@ -259,6 +261,12 @@ class ProgressToolBackend implements AgentBackend {
     }, toolCtx);
     await todoUpdate.impl({
       items: [{ id: 'edit', content: 'Patch implementation', status: 'in_progress', priority: 'high' }],
+    }, toolCtx);
+    await selfCheckSubmit.impl({
+      status: 'pass',
+      publicReason: 'npm test passed using public README.md-backed fixture state.',
+      commandEvidence: [{ command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' }],
+      artifactEvidence: [{ path: 'README.md', kind: 'file', exists: true }],
     }, toolCtx);
     const ts = Date.now();
     yield { type: 'complete', id: 'progress-complete', turnId: input.turnId, ts, stopReason: 'end_turn' };
@@ -277,6 +285,7 @@ const registerProgressToolBackend = (seen: HeadlessBackendContext[]) => (registr
     header: ctx.header,
     tools: buildIsolatedHeadlessTools(context.toolExecutor!, {
       ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
+      ...(context.heavyTaskSelfCheck ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck } : {}),
     }),
   }));
 };
@@ -370,6 +379,7 @@ describe('runTaskOnce', () => {
       assert.equal(result.resultRecord.passed, true);
       assert.ok(!result.projection.toolExecutors[0]?.toolNames.includes('inventory_submit'));
       assert.ok(!result.projection.toolExecutors[0]?.toolNames.includes('todo_update'));
+      assert.ok(!result.projection.toolExecutors[0]?.toolNames.includes('self_check_submit'));
     });
   });
 
@@ -405,17 +415,25 @@ describe('runTaskOnce', () => {
 
       assert.equal(seenContexts[0]?.heavyTaskMode?.enabled, true);
       assert.ok(seenContexts[0]?.heavyTaskProgress);
+      assert.ok(seenContexts[0]?.heavyTaskSelfCheck);
       assert.ok(result.projection.toolExecutors[0]?.toolNames.includes('inventory_submit'));
       assert.ok(result.projection.toolExecutors[0]?.toolNames.includes('todo_update'));
+      assert.ok(result.projection.toolExecutors[0]?.toolNames.includes('self_check_submit'));
       assert.equal(result.projection.latestHeavyTaskInventory?.summary, 'Inspected public files.');
       assert.equal(result.projection.latestHeavyTaskInventory?.items[0]?.path, 'README.md');
       assert.equal(result.projection.latestHeavyTaskTodos?.items[0]?.status, 'in_progress');
+      assert.equal(result.projection.latestHeavyTaskSelfCheck?.status, 'pass');
+      assert.equal(result.projection.latestHeavyTaskSelfCheck?.guard.status, 'accepted');
       assert.equal(
         result.projection.events.filter((event) => event.type === 'heavy_task_inventory_recorded').length,
         1,
       );
       assert.equal(
         result.projection.events.filter((event) => event.type === 'heavy_task_todos_recorded').length,
+        1,
+      );
+      assert.equal(
+        result.projection.events.filter((event) => event.type === 'heavy_task_self_check_recorded').length,
         1,
       );
     });

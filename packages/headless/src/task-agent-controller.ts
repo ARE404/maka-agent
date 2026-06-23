@@ -30,6 +30,11 @@ import {
   HEAVY_TASK_PROGRESS_TOOL_NAMES,
   renderHeavyTaskProgressForPrompt,
 } from './heavy-task-progress.js';
+import {
+  createHeavyTaskSelfCheckRecorder,
+  HEAVY_TASK_SELF_CHECK_TOOL_NAMES,
+  renderHeavyTaskSelfCheckForPrompt,
+} from './heavy-task-self-check.js';
 import type { HeadlessBackendContext } from './isolation.js';
 import {
   ISOLATED_HEADLESS_TOOL_NAMES,
@@ -136,12 +141,18 @@ export async function runTaskOnce(
   const verifier = normalizeVerifier(task);
   const heavyTaskMode = resolveHeavyTaskMode(config, task);
   const effectiveConfig = configWithHeavyTaskPolicy(config, heavyTaskMode);
-  const priorProgressPrompt = heavyTaskMode.enabled
-    ? renderHeavyTaskProgressForPrompt(await taskRunStore.project(taskRunId))
-    : undefined;
-  const instruction = withOptionalProgressPrompt(deps.instructionOverride ?? task.instruction, priorProgressPrompt);
+  const priorProjection = heavyTaskMode.enabled ? await taskRunStore.project(taskRunId) : undefined;
+  const priorProgressPrompt = priorProjection ? renderHeavyTaskProgressForPrompt(priorProjection) : undefined;
+  const priorSelfCheckPrompt = priorProjection ? renderHeavyTaskSelfCheckForPrompt(priorProjection) : undefined;
+  const instruction = withOptionalStatePrompts(deps.instructionOverride ?? task.instruction, [
+    priorProgressPrompt,
+    priorSelfCheckPrompt,
+  ]);
   const heavyTaskProgress = heavyTaskMode.enabled
     ? createHeavyTaskProgressRecorder({ taskRunId, attemptId, store: taskRunStore, now, newId })
+    : undefined;
+  const heavyTaskSelfCheck = heavyTaskMode.enabled
+    ? createHeavyTaskSelfCheckRecorder({ taskRunId, attemptId, store: taskRunStore, now, newId })
     : undefined;
 
   if (createTaskRun) {
@@ -236,6 +247,7 @@ export async function runTaskOnce(
       workspaceDir: workspace.dir,
       heavyTaskMode,
       ...(heavyTaskProgress ? { heavyTaskProgress } : {}),
+      ...(heavyTaskSelfCheck ? { heavyTaskSelfCheck } : {}),
       ...(backendNeedsIsolation(config.backend)
         ? { realBackendIsolation: deps.realBackendIsolation, toolExecutor: deps.realBackendIsolation?.toolExecutor }
         : {}),
@@ -472,16 +484,20 @@ export async function runTaskOnce(
 const DEFAULT_INTERVENTION_POLICY: TaskInterventionPolicy = { mode: 'fail_closed' };
 const DEFAULT_APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
 
-function withOptionalProgressPrompt(instruction: string, progressPrompt: string | undefined): string {
-  if (!progressPrompt || instruction.includes('Heavy-task progress state from prior task-run events:')) {
-    return instruction;
+function withOptionalStatePrompts(instruction: string, prompts: readonly (string | undefined)[]): string {
+  let next = instruction;
+  for (const prompt of prompts) {
+    if (!prompt) continue;
+    const firstLine = prompt.split('\n', 1)[0];
+    if (firstLine && next.includes(firstLine)) continue;
+    next = `${next}\n\n${prompt}`;
   }
-  return `${instruction}\n\n${progressPrompt}`;
+  return next;
 }
 
 function toolNamesForIdentity(hasIsolatedExecutor: boolean, heavyTaskEnabled: boolean): string[] {
   const names = hasIsolatedExecutor ? [...ISOLATED_HEADLESS_TOOL_NAMES] : ['registered_backend'];
-  if (heavyTaskEnabled && hasIsolatedExecutor) names.push(...HEAVY_TASK_PROGRESS_TOOL_NAMES);
+  if (heavyTaskEnabled && hasIsolatedExecutor) names.push(...HEAVY_TASK_PROGRESS_TOOL_NAMES, ...HEAVY_TASK_SELF_CHECK_TOOL_NAMES);
   return names;
 }
 

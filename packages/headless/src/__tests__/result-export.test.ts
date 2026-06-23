@@ -207,6 +207,52 @@ describe('task run export', () => {
           source: { kind: 'model_tool', toolCallId: 'tool-2' },
         },
       },
+      {
+        type: 'heavy_task_self_check_recorded',
+        id: 'e4',
+        taskRunId: 'run-progress',
+        ts: 4,
+        selfCheck: {
+          schemaVersion: 1,
+          selfCheckId: 'self-check-1',
+          taskRunId: 'run-progress',
+          ts: 4,
+          status: 'pass',
+          publicReason: 'npm test passed against public files.',
+          commandEvidence: [{ command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' }],
+          artifactEvidence: [{ path: 'build-output.log', kind: 'log', exists: true }],
+          guard: {
+            status: 'accepted',
+            checkedAt: 4,
+            categories: [],
+            publicReason: 'Accepted as public, task-derived advisory self-check evidence.',
+          },
+          source: { kind: 'model_tool', toolCallId: 'tool-3' },
+        },
+      },
+      {
+        type: 'heavy_task_self_check_recorded',
+        id: 'e5',
+        taskRunId: 'run-progress',
+        ts: 5,
+        selfCheck: {
+          schemaVersion: 1,
+          selfCheckId: 'self-check-private',
+          taskRunId: 'run-progress',
+          ts: 5,
+          status: 'fail',
+          publicReason: 'hidden/tests/private_case.py revealed a failure',
+          commandEvidence: [{ command: 'cat hidden/tests/private_case.py' }],
+          artifactEvidence: [{ path: 'official-verifier-output.json', kind: 'file' }],
+          guard: {
+            status: 'accepted',
+            checkedAt: 5,
+            categories: [],
+            publicReason: 'Accepted as public, task-derived advisory self-check evidence.',
+          },
+          source: { kind: 'model_tool', toolCallId: 'tool-4' },
+        },
+      },
     ], 'run-progress');
     const exported = taskRunExportFromProjection(projection, { exportedAt: '2026-06-19T00:00:00.000Z' });
 
@@ -214,12 +260,24 @@ describe('task run export', () => {
     assert.equal(exported.progress?.inventory?.historyCount, 1);
     assert.equal(exported.progress?.todos?.latest.todoSetId, 'todos-1');
     assert.equal(exported.progress?.todos?.historyCount, 1);
+    assert.equal(exported.progress?.selfChecks?.latest.selfCheckId, 'self-check-1');
+    assert.equal(exported.progress?.selfChecks?.historyCount, 1);
 
     const outDir = await mkdtemp(join(tmpdir(), 'maka-progress-export-'));
     try {
-      const written = await writeTaskRunExport(outDir, projection, { exportedAt: '2026-06-19T00:00:00.000Z' });
+      const written = await writeTaskRunExport(outDir, projection, {
+        exportedAt: '2026-06-19T00:00:00.000Z',
+        includeEvents: true,
+      });
       const compact = JSON.parse(await readFile(written.files.resultJson, 'utf8')) as { progress?: unknown };
       assert.deepEqual(compact.progress, exported.progress);
+      const taskRunJson = await readFile(written.files.taskRunJson, 'utf8');
+      const compactJson = await readFile(written.files.resultJson, 'utf8');
+      const eventsJsonl = await readFile(written.files.eventsJsonl!, 'utf8');
+      assert.doesNotMatch(taskRunJson, /private_case|official-verifier-output/);
+      assert.doesNotMatch(compactJson, /private_case|official-verifier-output/);
+      assert.doesNotMatch(eventsJsonl, /private_case|official-verifier-output/);
+      assert.match(eventsJsonl, /self-check-1/);
     } finally {
       await rm(outDir, { recursive: true, force: true });
     }

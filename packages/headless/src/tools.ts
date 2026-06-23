@@ -6,10 +6,12 @@ import {
 import { posix as pathPosix } from 'node:path';
 import { z } from 'zod';
 import { buildHeavyTaskProgressTools, type HeavyTaskProgressRecorder } from './heavy-task-progress.js';
+import { buildHeavyTaskSelfCheckTools, type HeavyTaskSelfCheckRecorder } from './heavy-task-self-check.js';
 import type { IsolatedToolExecutor } from './isolation.js';
 
 export interface BuildIsolatedHeadlessToolsOptions {
   heavyTaskProgress?: HeavyTaskProgressRecorder;
+  heavyTaskSelfCheck?: HeavyTaskSelfCheckRecorder;
 }
 
 /**
@@ -32,6 +34,9 @@ export function buildIsolatedHeadlessTools(
   ];
   if (options.heavyTaskProgress) {
     tools.push(...buildHeavyTaskProgressTools(options.heavyTaskProgress));
+  }
+  if (options.heavyTaskSelfCheck) {
+    tools.push(...buildHeavyTaskSelfCheckTools(options.heavyTaskSelfCheck));
   }
   return tools;
 }

@@ -119,7 +119,9 @@ describe('heavy-task policy', () => {
     assert.match(prompt, /inspect public task files/);
     assert.match(prompt, /inventory_submit/);
     assert.match(prompt, /todo_update/);
-    assert.match(prompt, /public, task-derived semantic checks/);
+    assert.match(prompt, /self_check_submit/);
+    assert.match(prompt, /public, task-derived semantic self-check evidence/);
+    assert.match(prompt, /source guard rejects hidden, private, or evaluator-only material/);
     assert.match(prompt, /Official benchmark scoring remains external and authoritative/);
   });
 

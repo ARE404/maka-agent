@@ -3,7 +3,7 @@ import { appendFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import type { TaskEvent } from '../task-contracts.js';
+import type { HeavyTaskSemanticSelfCheckState, TaskEvent } from '../task-contracts.js';
 import { createInMemoryTaskRunStore, createTaskRunStore, projectTaskRun } from '../task-run-store.js';
 
 function eventIdFactory(): () => string {
@@ -212,6 +212,32 @@ describe('TaskRunStore', () => {
     assert.equal(projection.heavyTaskTodoStates.length, 2);
     assert.equal(projection.latestHeavyTaskTodos?.todoSetId, 'todos-2');
     assert.equal(projection.latestHeavyTaskTodos?.items[0]?.id, 'edit');
+  });
+
+  test('projects only accepted public heavy-task self-checks from replay', () => {
+    const taskRunId = 'tr-self-check';
+    const accepted = acceptedSelfCheck(taskRunId, 'self-check-1', 'pass', 'npm test passed on public files.');
+    const rejectedGuard = {
+      ...acceptedSelfCheck(taskRunId, 'self-check-2', 'fail', 'official-verifier-output.json says failed'),
+      guard: {
+        status: 'rejected' as const,
+        checkedAt: 11,
+        categories: ['official_verifier_artifacts'],
+        publicReason: 'Rejected because submitted evidence referenced private, hidden, or evaluator-only material.',
+      },
+    };
+    const privatePayload = acceptedSelfCheck(taskRunId, 'self-check-3', 'inconclusive', 'hidden/tests/private_case.py revealed a failure.');
+    const projection = projectTaskRun([
+      { type: 'task_run_created', id: 'e-1', taskRunId, ts: 1, taskId: 'task-1', configId: 'cfg-1' },
+      { type: 'heavy_task_self_check_recorded', id: 'e-2', taskRunId, ts: 10, selfCheck: accepted },
+      { type: 'heavy_task_self_check_recorded', id: 'e-3', taskRunId, ts: 11, selfCheck: rejectedGuard as unknown as HeavyTaskSemanticSelfCheckState },
+      { type: 'heavy_task_self_check_recorded', id: 'e-4', taskRunId, ts: 12, selfCheck: privatePayload },
+    ], taskRunId);
+
+    assert.equal(projection.heavyTaskSelfChecks.length, 1);
+    assert.equal(projection.latestHeavyTaskSelfCheck?.selfCheckId, 'self-check-1');
+    assert.equal(projection.warnings.length, 2);
+    assert.match(projection.warnings.join('\n'), /source guard did not accept/);
   });
 
   test('projects isolation, permission, inbox, and needs_approval facts', () => {
@@ -475,3 +501,28 @@ describe('TaskRunStore', () => {
     }
   });
 });
+
+function acceptedSelfCheck(
+  taskRunId: string,
+  selfCheckId: string,
+  status: HeavyTaskSemanticSelfCheckState['status'],
+  publicReason: string,
+): HeavyTaskSemanticSelfCheckState {
+  return {
+    schemaVersion: 1,
+    selfCheckId,
+    taskRunId,
+    ts: 10,
+    status,
+    publicReason,
+    commandEvidence: [{ command: 'npm test', exitCode: 0, outputExcerpt: 'public tests passed' }],
+    artifactEvidence: [{ path: 'build-output.log', kind: 'log', exists: true }],
+    guard: {
+      status: 'accepted',
+      checkedAt: 10,
+      categories: [],
+      publicReason: 'Accepted as public, task-derived advisory self-check evidence.',
+    },
+    source: { kind: 'model_tool', toolCallId: 'tool-1' },
+  };
+}

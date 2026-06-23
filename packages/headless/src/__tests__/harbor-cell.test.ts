@@ -268,7 +268,8 @@ describe('runHarborCell', () => {
 
       assert.equal(seenPrompts[0], config.systemPrompt);
       assert.match(seenPrompts[1] ?? '', /Heavy-task benchmark policy/);
-      assert.match(seenPrompts[1] ?? '', /public, task-derived semantic checks/);
+      assert.match(seenPrompts[1] ?? '', /self_check_submit/);
+      assert.match(seenPrompts[1] ?? '', /public, task-derived semantic self-check evidence/);
     });
   });
 

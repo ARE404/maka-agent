@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ResultRecord } from './contracts.js';
+import { isAcceptedHeavyTaskSelfCheck } from './heavy-task-self-check.js';
 import {
   isTerminalTaskRunStatus,
   type AutonomousResultTaxonomy,
@@ -60,6 +61,10 @@ export interface TaskRunExport {
     };
     todos?: {
       latest: NonNullable<TaskRunProjection['latestHeavyTaskTodos']>;
+      historyCount: number;
+    };
+    selfChecks?: {
+      latest: NonNullable<TaskRunProjection['latestHeavyTaskSelfCheck']>;
       historyCount: number;
     };
   };
@@ -295,7 +300,13 @@ function progressFromProjection(projection: TaskRunProjection): TaskRunExport['p
       historyCount: projection.heavyTaskTodoStates.length,
     };
   }
-  return progress.inventory || progress.todos ? progress : undefined;
+  if (projection.latestHeavyTaskSelfCheck) {
+    progress.selfChecks = {
+      latest: projection.latestHeavyTaskSelfCheck,
+      historyCount: projection.heavyTaskSelfChecks.length,
+    };
+  }
+  return progress.inventory || progress.todos || progress.selfChecks ? progress : undefined;
 }
 
 function runtimeEventIdsFrom(runtimeRefs: unknown): string[] {
@@ -348,8 +359,13 @@ function verifierBenchmark(verifier: VerifierResult | undefined): Record<string,
 }
 
 function eventsJsonl(events: readonly TaskEvent[]): string {
-  const body = events.map((event) => JSON.stringify(event)).join('\n');
+  const body = events.flatMap(exportableTaskEvents).map((event) => JSON.stringify(event)).join('\n');
   return body.length > 0 ? `${body}\n` : '';
+}
+
+function exportableTaskEvents(event: TaskEvent): TaskEvent[] {
+  if (event.type !== 'heavy_task_self_check_recorded') return [event];
+  return isAcceptedHeavyTaskSelfCheck(event.selfCheck) ? [event] : [];
 }
 
 export function exportContentHash(value: unknown): string {

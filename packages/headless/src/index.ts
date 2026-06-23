@@ -160,7 +160,13 @@ export type {
   HeavyTaskInventoryRecordedEvent,
   HeavyTaskInventoryState,
   HeavyTaskModeRecordedEvent,
+  HeavyTaskArtifactEvidence,
+  HeavyTaskCommandEvidence,
   HeavyTaskProgressSource,
+  HeavyTaskSelfCheckRecordedEvent,
+  HeavyTaskSelfCheckStatus,
+  HeavyTaskSemanticSelfCheckState,
+  HeavyTaskSourceGuardResult,
   HeavyTaskTodoItem,
   HeavyTaskTodoState,
   HeavyTaskTodosRecordedEvent,
@@ -306,6 +312,22 @@ export {
   HEAVY_TASK_PROGRESS_TOOL_NAMES,
   renderHeavyTaskProgressForPrompt,
 } from './heavy-task-progress.js';
+export type {
+  HeavyTaskPublicSelfCheckValidation,
+  HeavyTaskSelfCheckRecorder,
+  HeavyTaskSelfCheckSubmitInput,
+} from './heavy-task-self-check.js';
+export {
+  buildHeavyTaskSelfCheckTools,
+  createHeavyTaskSelfCheckRecorder,
+  HEAVY_TASK_SELF_CHECK_TOOL_NAMES,
+  heavyTaskArtifactEvidenceSchema,
+  heavyTaskCommandEvidenceSchema,
+  heavyTaskSelfCheckSubmitSchema,
+  isAcceptedHeavyTaskSelfCheck,
+  renderHeavyTaskSelfCheckForPrompt,
+  validateHeavyTaskPublicSelfCheck,
+} from './heavy-task-self-check.js';
 export type {
   HeadlessBackendContext,
   IsolatedCommandInput,

@@ -1,6 +1,7 @@
 import type { Config, Task } from './contracts.js';
 import type { HeavyTaskModeSelection } from './heavy-task-policy.js';
 import type { HeavyTaskProgressRecorder } from './heavy-task-progress.js';
+import type { HeavyTaskSelfCheckRecorder } from './heavy-task-self-check.js';
 import type {
   EnvNetworkSecretPolicy,
   TaskIsolationFacts,
@@ -136,6 +137,8 @@ export interface HeadlessBackendContext {
   heavyTaskMode?: HeavyTaskModeSelection;
   /** Present only when heavy-task mode is enabled for task-run backed tooling. */
   heavyTaskProgress?: HeavyTaskProgressRecorder;
+  /** Present only when heavy-task mode is enabled for advisory public self-check tooling. */
+  heavyTaskSelfCheck?: HeavyTaskSelfCheckRecorder;
 }
 
 export function validateRealBackendIsolation(isolation: RealBackendIsolation | undefined): void {

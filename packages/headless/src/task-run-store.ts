@@ -1,12 +1,14 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ResultRecord } from './contracts.js';
+import { isAcceptedHeavyTaskSelfCheck } from './heavy-task-self-check.js';
 import type {
   AutonomousDecision,
   FeedbackObservation,
   HeavyTaskInventoryState,
   TaskInboxItem,
   HeavyTaskModeFacts,
+  HeavyTaskSemanticSelfCheckState,
   HeavyTaskTodoState,
   TaskIsolationFacts,
   TaskPermissionGrant,
@@ -46,6 +48,8 @@ export interface TaskRunProjection extends TaskRun {
   latestHeavyTaskInventory?: HeavyTaskInventoryState;
   heavyTaskTodoStates: HeavyTaskTodoState[];
   latestHeavyTaskTodos?: HeavyTaskTodoState;
+  heavyTaskSelfChecks: HeavyTaskSemanticSelfCheckState[];
+  latestHeavyTaskSelfCheck?: HeavyTaskSemanticSelfCheckState;
   isolation?: TaskIsolationFacts;
   workspaceLease?: WorkspaceLeaseFacts;
   parked?: TaskRunParkedState;
@@ -88,6 +92,7 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
     warnings: [],
     heavyTaskInventory: [],
     heavyTaskTodoStates: [],
+    heavyTaskSelfChecks: [],
   };
   const attempts = new Map<string, TaskAttempt>();
   const inboxItems = new Map<string, TaskInboxItem>();
@@ -164,6 +169,14 @@ export function projectTaskRun(events: readonly TaskEvent[], taskRunId?: string)
       case 'heavy_task_todos_recorded':
         projection.heavyTaskTodoStates.push(event.todos);
         projection.latestHeavyTaskTodos = event.todos;
+        break;
+      case 'heavy_task_self_check_recorded':
+        if (isAcceptedHeavyTaskSelfCheck(event.selfCheck)) {
+          projection.heavyTaskSelfChecks.push(event.selfCheck);
+          projection.latestHeavyTaskSelfCheck = event.selfCheck;
+        } else {
+          projection.warnings.push(`ignored heavy-task self-check ${event.selfCheck.selfCheckId}: source guard did not accept public evidence`);
+        }
         break;
       case 'isolation_policy_recorded':
         projection.isolation = event.facts;

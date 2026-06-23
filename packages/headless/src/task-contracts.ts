@@ -327,6 +327,46 @@ export interface HeavyTaskTodoState {
   source: HeavyTaskProgressSource;
 }
 
+export type HeavyTaskSelfCheckStatus = 'pass' | 'fail' | 'inconclusive';
+
+export interface HeavyTaskCommandEvidence {
+  command: string;
+  exitCode?: number | null;
+  timedOut?: boolean;
+  outputExcerpt?: string;
+  artifactRefs?: string[];
+}
+
+export interface HeavyTaskArtifactEvidence {
+  path: string;
+  kind: 'file' | 'directory' | 'log' | 'build_output' | 'generated_output' | 'other';
+  exists?: boolean;
+  sizeBytes?: number;
+  hash?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface HeavyTaskSourceGuardResult {
+  status: 'accepted' | 'rejected';
+  checkedAt: number;
+  categories: string[];
+  publicReason: string;
+}
+
+export interface HeavyTaskSemanticSelfCheckState {
+  schemaVersion: 1;
+  selfCheckId: string;
+  taskRunId: string;
+  attemptId?: string;
+  ts: number;
+  status: HeavyTaskSelfCheckStatus;
+  publicReason: string;
+  commandEvidence: HeavyTaskCommandEvidence[];
+  artifactEvidence: HeavyTaskArtifactEvidence[];
+  guard: HeavyTaskSourceGuardResult & { status: 'accepted' };
+  source: HeavyTaskProgressSource;
+}
+
 export interface EnvNetworkSecretPolicy {
   schemaVersion: 1;
   env: 'inherit_none' | 'allowlist';
@@ -539,6 +579,11 @@ export interface HeavyTaskTodosRecordedEvent extends BaseTaskEvent {
   todos: HeavyTaskTodoState;
 }
 
+export interface HeavyTaskSelfCheckRecordedEvent extends BaseTaskEvent {
+  type: 'heavy_task_self_check_recorded';
+  selfCheck: HeavyTaskSemanticSelfCheckState;
+}
+
 export interface WorkspaceLeaseRecordedEvent extends BaseTaskEvent {
   type: 'workspace_lease_recorded';
   lease: WorkspaceLeaseFacts;
@@ -665,6 +710,7 @@ export type TaskEvent =
   | HeavyTaskModeRecordedEvent
   | HeavyTaskInventoryRecordedEvent
   | HeavyTaskTodosRecordedEvent
+  | HeavyTaskSelfCheckRecordedEvent
   | IsolationPolicyRecordedEvent
   | WorkspaceLeaseRecordedEvent
   | ToolExecutorIdentityRecordedEvent
