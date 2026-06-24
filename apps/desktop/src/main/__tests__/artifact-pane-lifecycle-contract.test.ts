@@ -48,7 +48,7 @@ describe('ArtifactPane async lifecycle contract', () => {
     );
     assert.match(
       refreshBlock,
-      /const next = await window\.maka\.artifacts\.list\(sessionId\)[\s\S]*if \(artifactPaneMountedRef\.current && requestSeq === artifactListRequestSeqRef\.current\) \{[\s\S]*recordsSessionIdRef\.current = sessionId[\s\S]*setRecordsSessionId\(sessionId\)[\s\S]*setRecords\(next\)/,
+      /const next = await window\.maka\.artifacts\.list\(sessionId, \{ includeDeleted: true \}\)[\s\S]*if \(artifactPaneMountedRef\.current && requestSeq === artifactListRequestSeqRef\.current\) \{[\s\S]*recordsSessionIdRef\.current = sessionId[\s\S]*setRecordsSessionId\(sessionId\)[\s\S]*setRecords\(next\)/,
       'artifact list responses may set records only if the pane is still mounted and they are still the latest request',
     );
     assert.match(
@@ -68,8 +68,18 @@ describe('ArtifactPane async lifecycle contract', () => {
     );
     assert.match(
       src,
-      /const listRef = useRef<HTMLUListElement>\(null\);[\s\S]*const previewRef = useRef<HTMLDivElement>\(null\);[\s\S]*const activeListError = listError && listError\.sessionId === sessionId \? listError\.message : null;[\s\S]*if \(!sessionId \|\| \(activeRecords\.length === 0 && !activeListError\)\) \{[\s\S]*return null;/,
-      'all hooks must run before the ArtifactPane early return',
+      /const listRef = useRef<HTMLUListElement>\(null\);[\s\S]*const previewRef = useRef<HTMLDivElement>\(null\);[\s\S]*const activeListError = listError && listError\.sessionId === sessionId \? listError\.message : null;[\s\S]*const hasLiveArtifact = activeRecords\.some\(\(record\) => record\.status !== 'deleted'\);[\s\S]*if \(!sessionId \|\| \(!hasLiveArtifact && !activeListError\)\) \{[\s\S]*return null;/,
+      'all hooks must run before the ArtifactPane early return, and deleted-only lists must not mount the pane',
+    );
+    assert.match(
+      src,
+      /setSelectedId\(preferredArtifactSelectionId\(activeRecords\)\)/,
+      'artifact selection fallback must route through the live-first helper',
+    );
+    assert.match(
+      src,
+      /function preferredArtifactSelectionId\(records: readonly ArtifactRecord\[\]\): string \| null \{[\s\S]*records\.find\(\(record\) => record\.status !== 'deleted'\) \?\? records\[0\]/,
+      'selection fallback must prefer a live artifact while keeping deleted tombstones selectable when explicitly chosen',
     );
     assert.match(
       src,

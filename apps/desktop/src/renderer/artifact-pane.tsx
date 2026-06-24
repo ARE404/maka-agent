@@ -115,7 +115,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
       return;
     }
     try {
-      const next = await window.maka.artifacts.list(sessionId);
+      const next = await window.maka.artifacts.list(sessionId, { includeDeleted: true });
       if (artifactPaneMountedRef.current && requestSeq === artifactListRequestSeqRef.current) {
         recordsSessionIdRef.current = sessionId;
         setRecordsSessionId(sessionId);
@@ -164,16 +164,14 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
     [records, recordsSessionId, sessionId],
   );
 
-  // Keep selection valid as the list churns. When the selected artifact is
-  // deleted/purged we fall back to the newest live record so the preview
-  // pane doesn't show stale failure copy on an empty list.
+  // 已删除墓碑记录保持可选，用于展示明确失败态；只有选中 id 彻底消失时才回退到最新 live artifact。
   useEffect(() => {
     if (activeRecords.length === 0) {
       if (selectedId !== null) setSelectedId(null);
       return;
     }
     if (!selectedId || !activeRecords.some((record) => record.id === selectedId)) {
-      setSelectedId(activeRecords[0]!.id);
+      setSelectedId(preferredArtifactSelectionId(activeRecords));
     }
   }, [activeRecords, selectedId]);
 
@@ -184,13 +182,14 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   const listRef = useRef<HTMLUListElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const activeListError = listError && listError.sessionId === sessionId ? listError.message : null;
+  const hasLiveArtifact = activeRecords.some((record) => record.status !== 'deleted');
   const artifactActionBusy = pendingArtifactAction !== null;
 
   // §9.1.3: "默认隐藏；当 session 内至少 1 个 live artifact 时显示". Returning
   // `null` keeps the chat surface flush with the right window edge until
   // the runtime actually produces an artifact. A current-session list error is
   // also visible; otherwise "list failed" is indistinguishable from "no files".
-  if (!sessionId || (activeRecords.length === 0 && !activeListError)) {
+  if (!sessionId || (!hasLiveArtifact && !activeListError)) {
     return null;
   }
 
@@ -609,6 +608,10 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function preferredArtifactSelectionId(records: readonly ArtifactRecord[]): string | null {
+  return (records.find((record) => record.status !== 'deleted') ?? records[0])?.id ?? null;
 }
 
 const relativeTimeFormat: Intl.RelativeTimeFormat =
