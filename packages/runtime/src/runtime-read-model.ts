@@ -15,6 +15,7 @@ import {
   type RuntimeEventTerminalFact,
 } from './runtime-event-read-model.js';
 import { buildRuntimeEventModelReplayPlan, type RuntimeEventModelReplayPlan } from './model-history.js';
+import { backfillRuntimeEventsFromStoredMessages } from './runtime-event-backfill.js';
 
 export interface RuntimeReadModelProjectionCache {
   readMessages(sessionId: string): Promise<StoredMessage[]>;
@@ -115,12 +116,16 @@ export class RuntimeReadModel {
       }
 
       if (runEvents.length === 0) {
-        throw new RuntimeReadModelError('RuntimeEvent ledger is missing for a terminal run', [
-          readModelDiagnostic('incomplete_event', 'terminal run has no readable RuntimeEvent ledger', {
-            runId: run.runId,
-            turnId: run.turnId,
-          }),
-        ]);
+        const recovered = await this.backfillMissingRuntimeEvents(sessionId, run);
+        if (recovered.length === 0 || !recovered.some(isTerminalRuntimeEvent)) {
+          throw new RuntimeReadModelError('RuntimeEvent ledger is missing for a terminal run', [
+            readModelDiagnostic('incomplete_event', 'terminal run has no readable RuntimeEvent ledger', {
+              runId: run.runId,
+              turnId: run.turnId,
+            }),
+          ]);
+        }
+        runEvents = recovered;
       }
       if (!runEvents.some(isTerminalRuntimeEvent)) {
         throw new RuntimeReadModelError('RuntimeEvent ledger has no terminal fact for a terminal run', [
@@ -154,6 +159,20 @@ export class RuntimeReadModel {
       terminalFacts,
       inFlightTurnIds,
     });
+  }
+
+  private async backfillMissingRuntimeEvents(
+    sessionId: string,
+    run: AgentRunHeader,
+  ): Promise<RuntimeEvent[]> {
+    if (!this.deps.projectionCache) return [];
+    let messages: StoredMessage[];
+    try {
+      messages = await this.deps.projectionCache.readMessages(sessionId);
+    } catch {
+      return [];
+    }
+    return backfillRuntimeEventsFromStoredMessages({ run, messages }).events;
   }
 
   private async buildView(input: {
