@@ -7475,18 +7475,6 @@ button:active {
   margin-top: 0;
 }
 
-.settingsPageIntro {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.settingsPageIntro p {
-  margin: 0;
-  color: var(--foreground-60);
-  font-size: 12px;
-}
 
 .settingsEmptyState {
   min-height: 240px;
@@ -9989,8 +9977,6 @@ button:active {
   display: grid;
   grid-template-columns: 1fr;
   overflow: auto;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
 }
 
 .providerOAuthCardBadge {
@@ -10072,8 +10058,6 @@ button:active {
  * clashed with the catalog below). Hairline top/bottom bounds the group;
  * whitespace + the logo plates carry the structure. */
 .enabledAccordion {
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
   max-height: 360px;
   overflow-y: auto;
 }
@@ -10252,8 +10236,6 @@ button:active {
 .settingsSurface[data-modal="true"] .providerMarketGrid {
   grid-template-columns: 1fr;
   overflow: auto;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
 }
 
 .providerMarketGrid .providerCatalogRow + .providerCatalogRow,
