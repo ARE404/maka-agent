@@ -30,6 +30,8 @@ This page is the authority map for Maka documentation. Code and contract tests r
 - [Skill catalog policy](./skill-catalog-policy.md)
 - [Agent Swarm](./agent-swarm.md)
 - [Expert teams runtime](./expert-team-runtime.md)
+- [Runtime Resume Phase 0 crash contract](./architecture/runtime-resume-phase0-crash-contract.md) ([中文](./architecture/runtime-resume-phase0-crash-contract.zh-CN.md))
+- [Runtime Resume Phase 1 safe-boundary contract](./architecture/runtime-resume-phase1-safe-boundary-contract.md) ([中文](./architecture/runtime-resume-phase1-safe-boundary-contract.zh-CN.md))
 - [IM 扫码接入 runtime architecture](./architecture/bot-onboarding-runtime.zh-CN.md)
 - [Backend architecture chapters](./architecture/)
 

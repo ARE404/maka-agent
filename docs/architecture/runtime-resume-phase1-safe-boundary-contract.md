@@ -1,5 +1,7 @@
 # Runtime Resume Phase 1 Safe-Boundary Contract
 
+[中文](./runtime-resume-phase1-safe-boundary-contract.zh-CN.md)
+
 Phase 1 adds an explicit, fail-closed continuation path on top of the Phase 0
 `RuntimeEvent` replay projection. It can create a new Run and Invocation only
 when the committed source boundary is complete and the host supplies every

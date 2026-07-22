@@ -1,5 +1,7 @@
 # Runtime Resume Phase 0 Crash Contract
 
+[中文](./runtime-resume-phase0-crash-contract.zh-CN.md)
+
 Phase 0 defines replay safety for a fully committed `RuntimeEvent` prefix. It
 does not resume execution, reconcile tool side effects, or introduce the future
 SQLite tool journal.
