@@ -69,6 +69,12 @@ export interface ModelCallAttempt {
   /** Tracker instance id, retained to join request-shape capture artifacts. */
   traceId: string;
 
+  /**
+   * Session, run, and turn the call belongs to. This payload identity is the
+   * portable source of truth: when the record is written as an AgentRun event it
+   * must agree with the envelope, so a record stays attributable on its own once
+   * it leaves the event stream.
+   */
   sessionId: string;
   runId: string;
   turnId: string;
@@ -161,6 +167,10 @@ const TOKEN_FIELDS = [
   'reasoningTokens',
 ] as const satisfies readonly (keyof ModelCallAttempt)[];
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
 function isNonNegativeInteger(value: unknown): boolean {
   return isFiniteNumber(value) && Number.isInteger(value) && value >= 0;
 }
@@ -173,15 +183,27 @@ function isOptionalNonNegativeNumber(value: unknown): boolean {
   return value === undefined || isNonNegativeNumber(value);
 }
 
+const PRICING_RATES_SHAPE = defineObjectShape<PricingConfig>()(
+  ['modelKey', 'inputUsdPer1M', 'outputUsdPer1M'],
+  ['cacheReadUsdPer1M', 'cacheWriteUsdPer1M'],
+);
+
+/**
+ * Audit-quality gate on the rates a cost was computed against. Held to the same
+ * exact shape as the top-level record: a negative rate or an unrecognized nested
+ * key makes a recorded amount unexplainable, which defeats the point of storing
+ * the basis at all.
+ */
 function isPricingRates(value: unknown): value is PricingConfig {
   if (value === undefined) return true;
-  if (!isRecord(value)) return false;
+  if (!isRecord(value) || !hasExactShape(value, PRICING_RATES_SHAPE)) return false;
   return (
     typeof value.modelKey === 'string' &&
-    isFiniteNumber(value.inputUsdPer1M) &&
-    isFiniteNumber(value.outputUsdPer1M) &&
-    isOptionalFiniteNumber(value.cacheReadUsdPer1M) &&
-    isOptionalFiniteNumber(value.cacheWriteUsdPer1M)
+    value.modelKey.length > 0 &&
+    isNonNegativeNumber(value.inputUsdPer1M) &&
+    isNonNegativeNumber(value.outputUsdPer1M) &&
+    isOptionalNonNegativeNumber(value.cacheReadUsdPer1M) &&
+    isOptionalNonNegativeNumber(value.cacheWriteUsdPer1M)
   );
 }
 
@@ -196,20 +218,18 @@ export function decodeModelCallAttempt(value: unknown): ModelCallAttempt {
   }
   const valid =
     value.schemaVersion === MODEL_CALL_ATTEMPT_SCHEMA_VERSION &&
-    typeof value.logicalCallId === 'string' &&
-    value.logicalCallId.length > 0 &&
-    typeof value.attemptId === 'string' &&
-    value.attemptId.length > 0 &&
-    typeof value.traceId === 'string' &&
-    typeof value.sessionId === 'string' &&
-    typeof value.runId === 'string' &&
-    typeof value.turnId === 'string' &&
+    isNonEmptyString(value.logicalCallId) &&
+    isNonEmptyString(value.attemptId) &&
+    isNonEmptyString(value.traceId) &&
+    isNonEmptyString(value.sessionId) &&
+    isNonEmptyString(value.runId) &&
+    isNonEmptyString(value.turnId) &&
     isNonNegativeInteger(value.step) &&
     isNonNegativeInteger(value.attempt) &&
     (MODEL_CALL_KINDS as readonly unknown[]).includes(value.callKind) &&
     isOptionalString(value.connectionSlug) &&
-    typeof value.providerId === 'string' &&
-    typeof value.modelId === 'string' &&
+    isNonEmptyString(value.providerId) &&
+    isNonEmptyString(value.modelId) &&
     isOptionalNonNegativeNumber(value.contextWindow) &&
     isOptionalString(value.captureArtifactId) &&
     isFiniteNumber(value.startedAt) &&
@@ -232,10 +252,16 @@ export function decodeModelCallAttempt(value: unknown): ModelCallAttempt {
   if (completedAt < startedAt) {
     throw new Error('ModelCallAttempt completedAt precedes startedAt');
   }
-  // A price we could not resolve must never be published as an amount. Zero is
-  // reserved for calls that genuinely cost nothing.
+  // `costBasis` and `costUsd` travel together in both directions. A price we
+  // could not resolve must never be published as an amount, and a priced record
+  // must carry one — otherwise coverage counts it as priced while the sum skips
+  // it, and "every call priced, total $0" reads as genuinely free. Zero stays
+  // legal, and is the only way to say a call cost nothing.
   if (value.costBasis === 'unpriced' && value.costUsd !== undefined) {
     throw new Error('ModelCallAttempt unpriced record carries a cost');
+  }
+  if (value.costBasis === 'priced' && value.costUsd === undefined) {
+    throw new Error('ModelCallAttempt priced record carries no cost');
   }
   if (value.usageBasis === 'missing' && TOKEN_FIELDS.some((f) => value[f] !== undefined)) {
     throw new Error('ModelCallAttempt reports missing usage but carries tokens');

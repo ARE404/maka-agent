@@ -62,6 +62,20 @@ describe('ModelCallAttempt codec', () => {
     );
   });
 
+  test('rejects a priced attempt that carries no cost', () => {
+    // Otherwise coverage counts it as priced while the sum skips it, and
+    // "every call priced, total $0" reads as genuinely free.
+    assert.throws(
+      () => decodeModelCallAttempt(attempt({ costBasis: 'priced', costUsd: undefined })),
+      /priced record carries no cost/,
+    );
+  });
+
+  test('accepts a priced attempt costing exactly zero', () => {
+    const decoded = decodeModelCallAttempt(attempt({ costBasis: 'priced', costUsd: 0 }));
+    assert.equal(decoded.costUsd, 0);
+  });
+
   test('rejects missing usage that still carries tokens', () => {
     assert.throws(
       () => decodeModelCallAttempt(attempt({ usageBasis: 'missing' })),
@@ -105,6 +119,26 @@ describe('ModelCallAttempt codec', () => {
     assert.throws(() => decodeModelCallAttempt(attempt({ attempt: -1 })));
   });
 
+  test('rejects empty attribution keys', () => {
+    for (const field of ['traceId', 'sessionId', 'runId', 'turnId', 'providerId', 'modelId']) {
+      assert.throws(
+        () => decodeModelCallAttempt(attempt({ [field]: '' } as Partial<ModelCallAttempt>)),
+        `expected empty ${field} to be rejected`,
+      );
+    }
+  });
+
+  test('rejects negative and non-finite amounts', () => {
+    for (const costUsd of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(() => decodeModelCallAttempt(attempt({ costUsd })));
+    }
+    for (const inputTokens of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(() => decodeModelCallAttempt(attempt({ inputTokens })));
+    }
+    assert.throws(() => decodeModelCallAttempt(attempt({ latencyMs: -1 })));
+    assert.throws(() => decodeModelCallAttempt(attempt({ pricingRevision: -1 })));
+  });
+
   test('validates optional pricing rates when present', () => {
     const decoded = decodeModelCallAttempt(
       attempt({
@@ -113,8 +147,29 @@ describe('ModelCallAttempt codec', () => {
       }),
     );
     assert.equal(decoded.pricingRevision, 7);
+    // Incomplete, negative, or unrecognized rate shapes make a recorded amount
+    // unexplainable, which defeats storing the basis at all.
     assert.throws(() =>
       decodeModelCallAttempt(attempt({ pricingRates: { modelKey: 'x' } as never })),
+    );
+    assert.throws(() =>
+      decodeModelCallAttempt(
+        attempt({
+          pricingRates: { modelKey: 'x', inputUsdPer1M: -1, outputUsdPer1M: 75 } as never,
+        }),
+      ),
+    );
+    assert.throws(() =>
+      decodeModelCallAttempt(
+        attempt({
+          pricingRates: {
+            modelKey: 'x',
+            inputUsdPer1M: 15,
+            outputUsdPer1M: 75,
+            surcharge: 3,
+          } as never,
+        }),
+      ),
     );
   });
 
@@ -192,6 +247,22 @@ describe('ModelCallAttempt projections', () => {
     assert.equal(Math.round(costUsd * 1000) / 1000, 0.01);
     // The unpriced call is real spend the total cannot express.
     assert.equal(coverage.unpricedAttempts, 1);
+  });
+
+  test('a replayed attemptId is counted once through sum and coverage', () => {
+    // The bare dedupe helper is covered above; this locks the same guarantee on
+    // the paths a consumer actually calls, across a multi-id stream.
+    const stream = [
+      attempt({ attemptId: 'a', logicalCallId: 'call-1', costUsd: 0.004 }),
+      attempt({ attemptId: 'b', logicalCallId: 'call-2', costUsd: 0.006 }),
+      attempt({ attemptId: 'a', logicalCallId: 'call-1', costUsd: 0.004 }),
+    ];
+    const { costUsd, coverage } = sumModelCallCostUsd(stream);
+    assert.equal(Math.round(costUsd * 1000) / 1000, 0.01);
+    assert.equal(coverage.attempts, 2);
+    assert.equal(coverage.pricedAttempts, 2);
+    assert.equal(summarizeModelCallCoverage(stream).attempts, 2);
+    assert.equal(groupModelCallAttempts(stream).length, 2);
   });
 
   test('a genuinely free priced call is distinguishable from an unpriced one', () => {
