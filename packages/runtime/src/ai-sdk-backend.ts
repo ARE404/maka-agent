@@ -160,9 +160,10 @@ import {
   toolSchemaCharsForDiagnostics,
   type RequestShapeDiagnostic,
 } from './request-shape.js';
-import type { ModelCallAttempt } from '@maka/core/model-call-attempt';
+import type { ModelCallAttempt, ModelCallKind } from '@maka/core/model-call-attempt';
 import {
   ProviderRequestTracker,
+  type ModelCallAccountingInput,
   type ProviderRequestAttemptRecord,
   type ProviderRequestCaptureRecord,
   type ProviderRequestUsage,
@@ -574,6 +575,7 @@ export class AiSdkBackend implements AgentBackend {
       now: this.now,
       modelAdapter: this.modelAdapter,
       computeCostUsd: (usage) => this.computeTokenUsageCostUsd(usage),
+      modelCallAccounting: (callKind) => this.modelCallAccounting(callKind),
       materializeRuntimeReplayPlan: (plan) => this.materializeRuntimeReplayPlan(plan),
       canReplayProviderNative: (plan) => this.canReplayProviderNative(plan),
       appendTurnTailPrompt: (content, turnTailPrompt) =>
@@ -811,22 +813,10 @@ export class AiSdkBackend implements AgentBackend {
           newId: this.newId,
           persistCapture: recordProviderRequestCapture!,
           recordAttempt: this.input.recordProviderRequestAttempt ?? (() => {}),
-          ...(this.input.recordModelCallAttempt
-            ? {
-                accounting: {
-                  sessionId: this.sessionId,
-                  resolveRunId: () => this.currentRunId ?? undefined,
-                  connectionSlug: this.input.connection.slug,
-                  providerId: this.input.connection.providerType,
-                  callKind: 'main' as const,
-                  record: this.input.recordModelCallAttempt,
-                  resolveCost: (usage: ProviderRequestUsage) => this.resolveModelCallCost(usage),
-                  ...(this.input.assertModelCallAccountingReady
-                    ? { assertReady: this.input.assertModelCallAccountingReady }
-                    : {}),
-                },
-              }
-            : {}),
+          ...(() => {
+            const accounting = this.modelCallAccounting('main');
+            return accounting ? { accounting } : {};
+          })(),
         })
       : undefined;
 
@@ -2073,6 +2063,35 @@ export class AiSdkBackend implements AgentBackend {
    * record then carries `costBasis: 'unpriced'`, which is not the same claim as
    * a call that was free.
    */
+  /**
+   * Accounting identity for one call kind (#1679).
+   *
+   * Owned here rather than by the host that wires the summarizers, because the
+   * only field a host cannot supply is the one that changes per turn: `runId`
+   * lives on this backend. A host configures the capture and attempt plumbing
+   * once; the run a record belongs to is resolved at the moment the call is
+   * actually made.
+   *
+   * Absent when there is no canonical sink, which leaves the corresponding
+   * tracker purely diagnostic.
+   */
+  modelCallAccounting(callKind: ModelCallKind): ModelCallAccountingInput | undefined {
+    const record = this.input.recordModelCallAttempt;
+    if (!record) return undefined;
+    return {
+      sessionId: this.sessionId,
+      resolveRunId: () => this.currentRunId ?? undefined,
+      connectionSlug: this.input.connection.slug,
+      providerId: this.input.connection.providerType,
+      callKind,
+      record,
+      resolveCost: (usage: ProviderRequestUsage) => this.resolveModelCallCost(usage),
+      ...(this.input.assertModelCallAccountingReady
+        ? { assertReady: this.input.assertModelCallAccountingReady }
+        : {}),
+    };
+  }
+
   private resolveModelCallCost(usage: ProviderRequestUsage): ResolvedModelCallCost | undefined {
     try {
       const pricing = (this.input.lookupPricing ?? getBuiltinPricing)(

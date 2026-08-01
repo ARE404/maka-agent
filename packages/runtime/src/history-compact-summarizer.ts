@@ -44,15 +44,6 @@ export interface BuildLlmHistorySummarizerOptions {
   generateText?: AiSdkGenerateTextLike;
   /** Physical provider-call capture and attempt tracking for generated summaries. */
   providerRequestTracking?: Omit<ProviderRequestTrackerInput, 'traceId' | 'turnId'>;
-  /** Usage attribution for the auxiliary history-compaction call. */
-  telemetry?: {
-    connectionSlug: string;
-    providerId: string;
-    modelId: string;
-    newId: () => string;
-    now: () => number;
-    recordLlmCall: LlmTelemetryRecorder;
-  };
 }
 
 // Conversation-summarization prompt (sectioned, modelled on pi/opencode):
@@ -111,6 +102,10 @@ export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOpti
             ...options.providerRequestTracking,
             traceId: options.providerRequestTracking.newId(),
             turnId: input.turnId,
+            // Per call, not per summarizer: the host wires the capture and
+            // attempt plumbing once, but only the caller knows the run this
+            // summarization belongs to.
+            ...(input.accounting ? { accounting: input.accounting } : {}),
           })
         : undefined;
       const ai =
@@ -135,7 +130,6 @@ export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOpti
             },
           })
         : options.resolveModel();
-      const startedAt = options.telemetry?.now();
       const result = await generateText({
         model,
         instructions: SUMMARIZATION_SYSTEM_PROMPT,
@@ -145,9 +139,6 @@ export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOpti
           : {}),
         ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
       });
-      if (options.telemetry && startedAt !== undefined) {
-        recordHistoryCompactCall(options.telemetry, input, startedAt, result);
-      }
       if (rawFinishReasonString(result.finishReason) === 'length') {
         throw new HistoryCompactSummarizerError('output_length');
       }
@@ -157,34 +148,6 @@ export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOpti
       throw new HistoryCompactSummarizerError('provider_error', { cause: error });
     }
   };
-}
-
-function recordHistoryCompactCall(
-  telemetry: NonNullable<BuildLlmHistorySummarizerOptions['telemetry']>,
-  input: HistoryCompactSummaryInput,
-  startedAt: number,
-  result: Awaited<ReturnType<AiSdkGenerateTextLike>>,
-): void {
-  const usage = normalizeAiSdkUsage(result.usage, { rawFinishReason: result.finishReason });
-  if (!usage) return;
-  const completedAt = telemetry.now();
-  try {
-    telemetry.recordLlmCall({
-      sessionId: input.sessionId,
-      turnId: input.turnId,
-      callKind: 'history_compact',
-      callId: `history_compact_${input.turnId}_${telemetry.newId()}`,
-      connectionSlug: telemetry.connectionSlug,
-      providerId: telemetry.providerId,
-      modelId: telemetry.modelId,
-      ...llmCallUsageFields(usage),
-      latencyMs: Math.max(0, completedAt - startedAt),
-      status: 'success',
-      startedAt,
-    });
-  } catch {
-    // Usage telemetry is diagnostic. The summary remains authoritative.
-  }
 }
 
 interface AiSdkTextModule {

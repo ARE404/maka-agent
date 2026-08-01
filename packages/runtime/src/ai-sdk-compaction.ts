@@ -87,6 +87,11 @@ import {
   type RuntimeEventModelReplayPlan,
 } from './model-history.js';
 import { toolSchemaCharsForDiagnostics } from './request-shape.js';
+import type { ModelCallKind } from '@maka/core/model-call-attempt';
+import {
+  ProviderRequestTracker,
+  type ModelCallAccountingInput,
+} from './provider-request-telemetry.js';
 import {
   estimateNextRequestTokens,
   exceedsHighWater,
@@ -101,6 +106,11 @@ export interface AiSdkCompactionDeps {
   now: () => number;
   modelAdapter: ModelAdapter;
   computeCostUsd: (usage: NormalizedAiSdkUsage) => number | undefined;
+  /**
+   * Accounting identity for a compaction call, resolved by the backend because
+   * `runId` changes per turn and only it holds the current one (#1679).
+   */
+  modelCallAccounting: (callKind: ModelCallKind) => ModelCallAccountingInput | undefined;
   materializeRuntimeReplayPlan: (plan: RuntimeEventModelReplayPlan) => Promise<ModelMessage[]>;
   canReplayProviderNative: (plan: RuntimeEventModelReplayPlan) => boolean;
   appendTurnTailPrompt: (
@@ -115,6 +125,9 @@ export class AiSdkCompaction {
   private readonly now: () => number;
   private readonly modelAdapter: ModelAdapter;
   private readonly computeCostUsd: (usage: NormalizedAiSdkUsage) => number | undefined;
+  private readonly modelCallAccounting: (
+    callKind: ModelCallKind,
+  ) => ModelCallAccountingInput | undefined;
   private readonly materializeRuntimeReplayPlan: (
     plan: RuntimeEventModelReplayPlan,
   ) => Promise<ModelMessage[]>;
@@ -131,6 +144,7 @@ export class AiSdkCompaction {
     this.now = deps.now;
     this.modelAdapter = deps.modelAdapter;
     this.computeCostUsd = deps.computeCostUsd;
+    this.modelCallAccounting = deps.modelCallAccounting;
     this.materializeRuntimeReplayPlan = deps.materializeRuntimeReplayPlan;
     this.canReplayProviderNative = deps.canReplayProviderNative;
     this.appendTurnTailPrompt = deps.appendTurnTailPrompt;
@@ -386,6 +400,7 @@ export class AiSdkCompaction {
     const summarizer = this.input.summarizeHistoryCompact;
     const recorder = this.input.recordHistoryCompactCheckpoint;
     if (!summarizer || !recorder) return { diagnosticPatch: {} };
+    const historyCompactAccounting = this.modelCallAccounting('history_compact');
     const foldedIds = new Set(input.draftBlock.coverage.runtimeEventIds);
     const foldedRuntimeEvents = input.priorRuntimeContext.filter((event) =>
       foldedIds.has(event.id),
@@ -461,6 +476,7 @@ export class AiSdkCompaction {
           newlyFoldedRuntimeEvents,
           requestShapeHashBefore: input.requestShapeHashBefore,
           abortSignal: input.abortSignal,
+          ...(historyCompactAccounting ? { accounting: historyCompactAccounting } : {}),
         }),
       );
       if (!summary?.trim()) {
@@ -1466,6 +1482,7 @@ export class AiSdkCompaction {
       abortSignal,
     } = input;
     const summarizer = this.input.summarizeHistoryCompact!;
+    const midTurnAccounting = this.modelCallAccounting('history_compact');
     const recorder = this.input.recordHistoryCompactCheckpoint!;
     const loadTurnRuntimeEvents = this.input.loadTurnRuntimeEvents!;
     const policy = this.input.contextBudget!;
@@ -1563,6 +1580,7 @@ export class AiSdkCompaction {
             ...(previousCheckpoint ? { previousCheckpoint } : {}),
             newlyFoldedRuntimeEvents: [...newlyFoldedRuntimeEvents],
             ...(abortSignal ? { abortSignal } : {}),
+            ...(midTurnAccounting ? { accounting: midTurnAccounting } : {}),
           }),
         );
       },

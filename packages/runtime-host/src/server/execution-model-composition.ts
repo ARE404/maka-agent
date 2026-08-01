@@ -647,14 +647,6 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
                 },
               }
             : {}),
-          telemetry: {
-            connectionSlug: target.connection.slug,
-            providerId: target.connection.providerType,
-            modelId: target.model,
-            newId: randomUUID,
-            now: Date.now,
-            recordLlmCall: recordLlmUsage,
-          },
         }),
         recordHistoryCompactCheckpoint: input.context.recordHistoryCompactCheckpoint,
         loadTurnRuntimeEvents: input.context.loadTurnRuntimeEvents,
