@@ -267,7 +267,6 @@ export type {
   HistoryCompactWriter,
   HistoryCompactWriteInput,
   HistoryCompactWriteResult,
-  LlmTelemetryRecorder,
   SemanticCompactBlockRecorder,
   SynthesisCacheLoader,
   SynthesisCacheLoadInput,

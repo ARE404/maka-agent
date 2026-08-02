@@ -1,18 +1,14 @@
 import { rawFinishReasonString, type ModelMessage } from './model-protocol.js';
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
 import { toolResultOutput } from './tool-result-output.js';
-import type {
-  HistoryCompactSummaryInput,
-  LlmTelemetryRecorder,
-} from './ai-sdk-compaction-contract.js';
+import type { HistoryCompactSummaryInput } from './ai-sdk-compaction-contract.js';
 import { HistoryCompactSummarizerError } from './history-compact-error.js';
-import { normalizeAiSdkUsage, type AiSdkUsageLike } from './model-adapter.js';
+import type { AiSdkUsageLike } from './model-adapter.js';
 import {
   ProviderRequestTracker,
   type ProviderGenerateResult,
   type ProviderRequestTrackerInput,
 } from './provider-request-telemetry.js';
-import { llmCallUsageFields } from './telemetry/llm-call-usage.js';
 
 export { HistoryCompactSummarizerError } from './history-compact-error.js';
 

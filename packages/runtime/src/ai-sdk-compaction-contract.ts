@@ -1,6 +1,5 @@
 import type { RuntimeExecutionConnection } from '@maka/core/llm-connections';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
-import type { LlmCallRecord } from '@maka/core/usage-stats/types';
 
 import type { ModelCallAccountingInput } from './provider-request-telemetry.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';
@@ -16,8 +15,6 @@ import type {
 import type { HistoryCompactCheckpoint } from './history-compact-checkpoint.js';
 import type { ModelFactory } from './model-adapter.js';
 import type { SemanticCompactBlock } from './semantic-compact.js';
-
-export type LlmTelemetryRecorder = (record: LlmCallRecord) => void;
 
 export type ToolResultArchiveRecorderInput = (
   | StaleToolResultArchiveCandidate
@@ -153,8 +150,6 @@ export interface AiSdkCompactionCapabilities {
   modelFactory: ModelFactory;
   /** Optional prior-history budget. Keeps whole turns to preserve tool-call/result pairs. */
   contextBudget?: ContextBudgetPolicy;
-  /** Optional fire-and-forget LLM telemetry hook. */
-  recordLlmCall?: LlmTelemetryRecorder;
   /**
    * Optional archive writer for replay-only stale tool-result pruning. The
    * runtime rewrites only candidates whose original body has been durably

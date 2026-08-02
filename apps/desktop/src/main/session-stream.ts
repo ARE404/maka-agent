@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { SessionChangedReason, SessionEvent } from '@maka/core';
-import type { LlmCallRecord, ToolInvocationRecord } from '@maka/core/usage-stats/types';
+import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import {
   AiSdkBackend,
   buildDefaultContextBudgetPolicy,
@@ -11,7 +11,6 @@ import {
   loadHistoryCompactBlocksFromArtifacts,
   loadSynthesisCacheBlocksFromArtifacts,
   persistSynthesisCacheBlocksToArtifacts,
-  recordLlmCall,
   recordToolInvocation,
   renderPlanExecutionPrompt,
   renderInterruptedPlanContext,
@@ -85,8 +84,8 @@ export interface AiSdkBackendFactoryDeps extends DesktopBackendToolSurfaceDeps {
  * seams that resolve AFTER the registration point are injected as accessors:
  * `getRuntime` (the SessionManager is constructed after registration) and
  * `getLookupPricing` (a mutable pricing lookup reassigned by usage IPC + startup;
- * read live per `recordLlmCall`, snapshotted once for the `lookupPricing` field —
- * matching the original module-`let` closure semantics exactly).
+ * snapshotted once for the `lookupPricing` field — matching the original
+ * module-`let` closure semantics exactly).
  */
 export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): BackendFactory {
   const {
@@ -281,7 +280,6 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       },
       shellRunContextSummary: ctx.shellRunContextSummary,
       lookupPricing: getLookupPricing(),
-      recordLlmCall: (event: LlmCallRecord) => recordLlmCall({ repo: telemetryRepo, lookupPricing: getLookupPricing() }, event),
       // One canonical record, one commit point (#1679): the AgentRun stream is
       // the only durable authority, and the ledger is a projection written only
       // after the authority holds the record. A failed projection marks the run

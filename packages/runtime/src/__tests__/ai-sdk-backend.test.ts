@@ -20,7 +20,6 @@ import { projectRuntimeEventsToStoredMessages } from '../runtime-event-read-mode
 import { materializeSession } from '../materializer.js';
 import type { InvocationContext } from '../invocation-context.js';
 import type { AssistantMessage, StoredMessage, ToolResultMessage } from '@maka/core/session';
-import type { LlmCallRecord } from '@maka/core/usage-stats/types';
 import { z } from 'zod';
 import {
   AiSdkBackend,
@@ -7486,7 +7485,6 @@ describe('AiSdkBackend usage telemetry', () => {
   test('records cumulative usage checkpoints across tool-loop steps and turns', async () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
-    const llmRecords: LlmCallRecord[] = [];
     const usageCheckpoints: Array<{ inputTokens: number; outputTokens: number }> = [];
     const firstTurn = durableTurnHarness('turn-1', 'hi');
     const secondTurn = durableTurnHarness('turn-2', 'continue');
@@ -7571,9 +7569,6 @@ describe('AiSdkBackend usage telemetry', () => {
           : secondTurn.loadTurnRuntimeEvents(turnId),
       newId: idGenerator(),
       now: monotonicClock(),
-      recordLlmCall: (record: LlmCallRecord) => {
-        llmRecords.push(record);
-      },
       recordUsageCheckpoint: async (usage: { inputTokens: number; outputTokens: number }) => {
         usageCheckpoints.push(usage);
       },
@@ -7728,7 +7723,6 @@ describe('AiSdkBackend usage telemetry', () => {
     const durable = durableTurnHarness('turn-1', 'hi');
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
-    const llmRecords: LlmCallRecord[] = [];
     const largeBody = 'SECRET_PAYLOAD_SHOULD_BE_ARCHIVED'.repeat(200);
     let streamCalls = 0;
     const prompts: unknown[] = [];
@@ -7820,9 +7814,6 @@ describe('AiSdkBackend usage telemetry', () => {
       loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
       newId: idGenerator(),
       now: monotonicClock(),
-      recordLlmCall: (record) => {
-        llmRecords.push(record);
-      },
     });
 
     for await (const event of backend.send(durable.input())) {
@@ -7857,7 +7848,6 @@ describe('AiSdkBackend usage telemetry', () => {
     const durable = durableTurnHarness('turn-1', 'hi');
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
-    const llmRecords: LlmCallRecord[] = [];
     const recordedBlocks: ActiveFullCompactBlock[] = [];
     const largeBody = 'ACTIVE_FULL_COMPACT_RAW_TOOL_OUTPUT'.repeat(200);
     let streamCalls = 0;
@@ -7937,9 +7927,6 @@ describe('AiSdkBackend usage telemetry', () => {
       loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
       newId: idGenerator(),
       now: monotonicClock(),
-      recordLlmCall: (record) => {
-        llmRecords.push(record);
-      },
       recordActiveFullCompactBlock: (block) => {
         recordedBlocks.push(block);
       },
@@ -8438,7 +8425,6 @@ describe('AiSdkBackend usage telemetry', () => {
     const durable = durableTurnHarness('turn-1', 'hi');
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
-    const llmRecords: LlmCallRecord[] = [];
     const largeBody = 'VALIDATE_ONLY_RAW_TOOL_OUTPUT'.repeat(80);
     let streamCalls = 0;
     const model = new MockLanguageModelV4({
@@ -8512,9 +8498,6 @@ describe('AiSdkBackend usage telemetry', () => {
       loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
       newId: idGenerator(),
       now: monotonicClock(),
-      recordLlmCall: (record) => {
-        llmRecords.push(record);
-      },
     });
 
     for await (const event of backend.send(durable.input())) {
@@ -8560,7 +8543,6 @@ describe('AiSdkBackend usage telemetry', () => {
   test('normalizes cache and reasoning tokens to messages, events, and telemetry', async () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
-    const llmRecords: LlmCallRecord[] = [];
     const runTraceEvents: Array<{ type: string; data?: Record<string, unknown> }> = [];
     let pricingLookupCalls = 0;
     const pricing = {
@@ -8619,9 +8601,6 @@ describe('AiSdkBackend usage telemetry', () => {
       lookupPricing: (modelKey) => {
         pricingLookupCalls += 1;
         return modelKey === pricing.modelKey ? pricing : null;
-      },
-      recordLlmCall: (record) => {
-        llmRecords.push(record);
       },
       recordRunTrace: (event) => {
         runTraceEvents.push(event);

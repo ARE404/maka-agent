@@ -501,14 +501,9 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
     }
   };
   const telemetry = {
-    insertLlmCall: (record: Parameters<typeof input.usage.telemetry.recordLlmCall>[0]) =>
-      persistTelemetry(() => input.usage.telemetry.recordLlmCall(record)),
     insertToolInvocation: (
       record: Parameters<typeof input.usage.telemetry.recordToolInvocation>[0],
     ) => persistTelemetry(() => input.usage.telemetry.recordToolInvocation(record)),
-  };
-  const recordLlmUsage = (event: Parameters<typeof recordLlmCall>[1]) => {
-    void recordLlmCall({ repo: telemetry, lookupPricing: pricing }, event);
   };
   /**
    * One canonical record, one commit point (#1679).
@@ -658,7 +653,6 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
         turnTailPrompt: modelComposition.turnTailPrompt,
         shellRunContextSummary: input.context.shellRunContextSummary,
         lookupPricing: pricing,
-        recordLlmCall: recordLlmUsage,
         recordModelCallAttempt,
         assertModelCallAccountingReady,
         recordToolInvocation: (event) => recordToolInvocation({ repo: telemetry }, event),
