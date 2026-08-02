@@ -574,8 +574,9 @@ export class AiSdkBackend implements AgentBackend {
       sessionId: this.sessionId,
       now: this.now,
       modelAdapter: this.modelAdapter,
-      computeCostUsd: (usage) => this.computeTokenUsageCostUsd(usage),
       modelCallAccounting: (callKind) => this.modelCallAccounting(callKind),
+      createProviderRequestTracker: (trackerInput) =>
+        this.createProviderRequestTracker(trackerInput),
       materializeRuntimeReplayPlan: (plan) => this.materializeRuntimeReplayPlan(plan),
       canReplayProviderNative: (plan) => this.canReplayProviderNative(plan),
       appendTurnTailPrompt: (content, turnTailPrompt) =>
@@ -799,26 +800,12 @@ export class AiSdkBackend implements AgentBackend {
         toSandboxRunTraceProjection(this.input.sandboxDiagnosticsSnapshot),
       );
     }
-    const recordProviderRequestCapture = this.input.recordProviderRequestCapture;
-    const providerRequestTraceId = recordProviderRequestCapture ? this.newId() : undefined;
-    const providerRequestTracker = providerRequestTraceId
-      ? new ProviderRequestTracker({
-          traceId: providerRequestTraceId,
-          turnId,
-          contextWindow: resolveSelectedModelContextWindow(
-            this.input.connection,
-            this.input.modelId,
-          ),
-          now: this.now,
-          newId: this.newId,
-          persistCapture: recordProviderRequestCapture!,
-          recordAttempt: this.input.recordProviderRequestAttempt ?? (() => {}),
-          ...(() => {
-            const accounting = this.modelCallAccounting('main');
-            return accounting ? { accounting } : {};
-          })(),
-        })
-      : undefined;
+    const providerRequestTracker = this.createProviderRequestTracker({
+      turnId,
+      callKind: 'main',
+      modelId: this.input.modelId,
+    });
+    const providerRequestTraceId = providerRequestTracker?.traceId;
 
     // --- Resolve model (API key already attached at construct time) ---
     let model: unknown;
@@ -2054,15 +2041,36 @@ export class AiSdkBackend implements AgentBackend {
   }
 
   /**
-   * Resolves cost for a canonical accounting record at settlement time, together
-   * with the rates it was computed against.
+   * One tracker for one physical provider call kind (#1679).
    *
-   * The basis travels with the amount because a figure recomputed later from
-   * whatever pricing is current would silently drift from what the call actually
-   * cost. An unresolvable price returns `undefined` rather than zero — the
-   * record then carries `costBasis: 'unpriced'`, which is not the same claim as
-   * a call that was free.
+   * Auxiliary calls get the same capture, attempt, and accounting plumbing the
+   * main send uses, built here because the sinks and the current run live on
+   * this backend. Callers receive a ready tracker rather than the ingredients:
+   * a half-wired tracker is what produces records nothing can attribute.
+   *
+   * Absent when capture is not wired, which leaves the call untracked exactly
+   * as it was before.
    */
+  private createProviderRequestTracker(input: {
+    turnId: string;
+    callKind: ModelCallKind;
+    modelId: string;
+  }): ProviderRequestTracker | undefined {
+    const persistCapture = this.input.recordProviderRequestCapture;
+    if (!persistCapture) return undefined;
+    const accounting = this.modelCallAccounting(input.callKind);
+    return new ProviderRequestTracker({
+      traceId: this.newId(),
+      turnId: input.turnId,
+      contextWindow: resolveSelectedModelContextWindow(this.input.connection, input.modelId),
+      now: this.now,
+      newId: this.newId,
+      persistCapture,
+      recordAttempt: this.input.recordProviderRequestAttempt ?? (() => {}),
+      ...(accounting ? { accounting } : {}),
+    });
+  }
+
   /**
    * Accounting identity for one call kind (#1679).
    *
@@ -2092,6 +2100,16 @@ export class AiSdkBackend implements AgentBackend {
     };
   }
 
+  /**
+   * Resolves cost for a canonical accounting record at settlement time, together
+   * with the rates it was computed against.
+   *
+   * The basis travels with the amount because a figure recomputed later from
+   * whatever pricing is current would silently drift from what the call actually
+   * cost. An unresolvable price returns `undefined` rather than zero — the
+   * record then carries `costBasis: 'unpriced'`, which is not the same claim as
+   * a call that was free.
+   */
   private resolveModelCallCost(usage: ProviderRequestUsage): ResolvedModelCallCost | undefined {
     try {
       const pricing = (this.input.lookupPricing ?? getBuiltinPricing)(

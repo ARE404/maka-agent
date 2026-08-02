@@ -74,6 +74,7 @@ import type {
   ProviderRequestAttemptRecord,
   ProviderRequestCaptureRecord,
 } from '../provider-request-telemetry.js';
+import { decodeModelCallAttempt, type ModelCallAttempt } from '@maka/core/model-call-attempt';
 import { createTestAiSdkBackend } from './execution-boundary-test-helpers.js';
 
 describe('AiSdkBackend model history', () => {
@@ -8043,54 +8044,11 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(recordedBlocks[0]?.blockId, 'afcompact-sync-test');
   });
 
-  test('does not record semantic compact usage when provider usage is unavailable', () => {
-    const llmRecords: LlmCallRecord[] = [];
-    const backend = createTestAiSdkBackend({
-      sessionId: 'session-1',
-      header: header(),
-      appendMessage: async () => {},
-      connection: connection(),
-      apiKey: 'sk-test',
-      modelId: 'mock-model-id',
-      modelFactory: () => completionModel(),
-      tools: [],
-      newId: idGenerator(),
-      now: monotonicClock(),
-      recordLlmCall: (record) => {
-        llmRecords.push(record);
-      },
-    });
-
-    (
-      backend as unknown as {
-        compaction: {
-          recordSemanticCompactSummaryCall(input: {
-            callId: string;
-            turnId: string;
-            modelId: string;
-            startedAt: number;
-            latencyMs: number;
-            status: LlmCallRecord['status'];
-          }): void;
-        };
-      }
-    ).compaction.recordSemanticCompactSummaryCall({
-      callId: 'semantic-1',
-      turnId: 'turn-1',
-      modelId: 'mock-model-id',
-      startedAt: 1,
-      latencyMs: 2,
-      status: 'error',
-    });
-
-    assert.deepEqual(llmRecords, []);
-  });
-
-  test('semantic compact records a separate no-tools summarizer LLM call', async () => {
+  test('semantic compact records a separate no-tools summarizer model call', async () => {
     const durable = durableTurnHarness('turn-1', 'hi');
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
-    const llmRecords: LlmCallRecord[] = [];
+    const modelCalls: ModelCallAttempt[] = [];
     const recordedBlocks: SemanticCompactBlock[] = [];
     const recordedActiveFullBlocks: ActiveFullCompactBlock[] = [];
     const largeBody = 'SEMANTIC_COMPACT_RAW_TOOL_OUTPUT'.repeat(180);
@@ -8224,8 +8182,9 @@ describe('AiSdkBackend usage telemetry', () => {
       loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
       newId: idGenerator(),
       now: monotonicClock(),
-      recordLlmCall: (record) => {
-        llmRecords.push(record);
+      recordProviderRequestCapture: async () => ({ artifactId: 'artifact-semantic-capture' }),
+      recordModelCallAttempt: (attempt) => {
+        modelCalls.push(attempt);
       },
       recordSemanticCompactBlock: (block) => {
         recordedBlocks.push(block);
@@ -8235,7 +8194,9 @@ describe('AiSdkBackend usage telemetry', () => {
       },
     });
 
-    for await (const event of backend.send(durable.input())) {
+    // A canonical record belongs to a run; the send carries the one the
+    // harness's runtime events already claim.
+    for await (const event of backend.send(durable.input({ runId: 'run-1' }))) {
       durable.record(event);
       events.push(event);
     }
@@ -8304,13 +8265,34 @@ describe('AiSdkBackend usage telemetry', () => {
       'projection replay after active pruning must retain the exact single user anchor',
     );
 
-    const semanticRecord = llmRecords.find((record) => record.callKind === 'semantic_compact');
-    assert.ok(semanticRecord, 'expected semantic compact LLM record');
-    assert.match(semanticRecord.callId ?? '', /^semantic_compact_turn-1_2_/);
-    assert.equal(semanticRecord.inputTokens, 21);
-    assert.equal(semanticRecord.outputTokens, 13);
-    assert.equal(semanticRecord.cacheHitInputTokens, 2);
-    assert.equal(semanticRecord.totalTokens, 34);
+    // The summarization is one physical provider request, metered through the
+    // same canonical seam as the send it interrupts (#1679) — not a hand-built
+    // row in the frozen usage table.
+    const semanticAttempt = modelCalls
+      .map((attempt) => decodeModelCallAttempt(attempt))
+      .find((attempt) => attempt.callKind === 'semantic_compact');
+    assert.ok(semanticAttempt, 'expected a canonical semantic compact record');
+    assert.equal(semanticAttempt.sessionId, 'session-1');
+    assert.equal(semanticAttempt.runId, 'run-1');
+    assert.equal(semanticAttempt.turnId, 'turn-1');
+    assert.equal(
+      semanticAttempt.step,
+      2,
+      'the record carries the send step whose projection triggered the summarization',
+    );
+    assert.equal(semanticAttempt.status, 'completed');
+    assert.equal(semanticAttempt.inputTokens, 21);
+    assert.equal(semanticAttempt.outputTokens, 13);
+    assert.equal(semanticAttempt.usageBasis, 'reported');
+    // The old row copied the SDK's normalized `cacheRead` through as a cache
+    // hit. The canonical record only attributes cache tokens the provider's own
+    // payload claims, and this mock ships none — so absent, not zero.
+    assert.equal(semanticAttempt.cacheReadInputTokens, undefined);
+    assert.equal(
+      modelCalls.filter((attempt) => attempt.callKind === 'semantic_compact').length,
+      1,
+      'one summarization is one record',
+    );
 
     const usageEvent = events.find((event) => event.type === 'token_usage') as
       | (Extract<SessionEvent, { type: 'token_usage' }> & {

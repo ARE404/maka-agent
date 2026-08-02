@@ -38,7 +38,10 @@ import {
   errorPresentationFromClass,
   providerRetryMetadata,
 } from './provider-error-classification.js';
-import type { ProviderRequestTracker } from './provider-request-telemetry.js';
+import type {
+  ProviderGenerateResult,
+  ProviderRequestTracker,
+} from './provider-request-telemetry.js';
 import {
   createKimiOpenAiTransportState,
   kimiReasoningFieldProviderOptions,
@@ -86,6 +89,12 @@ export interface CompactSummaryRequest {
   messages: readonly ModelMessage[];
   maxOutputTokens: number;
   abortSignal?: AbortSignal;
+  /**
+   * Physical provider-call tracking for this summarization. Attaching it here
+   * rather than at the call site keeps "wrap a model with a tracker" in the one
+   * place that already owns it for streams.
+   */
+  providerRequestTracker?: ProviderRequestTracker;
 }
 
 export interface CompactSummaryResult {
@@ -106,7 +115,7 @@ export interface ModelAdapterStreamInput {
     toolCall: RepairableAiSdkToolCall;
     error: unknown;
   }) => RepairableAiSdkToolCall | null | Promise<RepairableAiSdkToolCall | null>;
-  /** Main-agent provider-call tracker. Auxiliary model calls intentionally omit it. */
+  /** Main-agent provider-call tracker. Auxiliary calls track their own generates. */
   providerRequestTracker?: ProviderRequestTracker;
 }
 
@@ -116,6 +125,12 @@ interface ProviderMiddlewareStreamInput {
     request?: unknown;
     response?: unknown;
   }>;
+  params: Record<string, unknown> & { abortSignal?: AbortSignal };
+  model: { provider: string; modelId: string };
+}
+
+interface ProviderMiddlewareGenerateInput {
+  doGenerate: () => PromiseLike<ProviderGenerateResult>;
   params: Record<string, unknown> & { abortSignal?: AbortSignal };
   model: { provider: string; modelId: string };
 }
@@ -257,7 +272,7 @@ export class ModelAdapter {
         `Failed to load 'ai' package. Run \`npm install ai\`. Inner: ${(err as Error).message}`,
       );
     });
-    const { generateText } = ai as unknown as {
+    const { generateText, wrapLanguageModel } = ai as unknown as {
       generateText: (opts: Record<string, unknown>) => Promise<{
         text?: string;
         usage?: AiSdkUsageLike;
@@ -265,10 +280,27 @@ export class ModelAdapter {
         providerMetadata?: unknown;
         finalStep?: { response?: { id?: string } };
       }>;
+      wrapLanguageModel: (input: Record<string, unknown>) => unknown;
     };
 
+    const trackedModel = input.providerRequestTracker
+      ? wrapLanguageModel({
+          model: input.model,
+          middleware: {
+            wrapGenerate: async ({ doGenerate, params, model }: ProviderMiddlewareGenerateInput) =>
+              await input.providerRequestTracker!.trackGenerate({
+                providerId: model.provider,
+                modelId: model.modelId,
+                params,
+                ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+                doGenerate,
+              }),
+          },
+        })
+      : input.model;
+
     const result = await generateText({
-      model: input.model,
+      model: trackedModel,
       instructions: input.system,
       messages: input.messages,
       maxOutputTokens: input.maxOutputTokens,
