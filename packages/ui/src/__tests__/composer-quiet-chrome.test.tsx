@@ -10,6 +10,21 @@ function render(children: ReactNode): string {
 }
 
 describe('composer quiet chrome', () => {
+  it('renders next-prompt ghost text as a Tab-accepted inline suggestion', () => {
+    const markup = render(
+      <Composer
+        onSend={() => true}
+        onStop={() => {}}
+        promptSuggestion="运行测试并修复失败项"
+      />,
+    );
+    assert.match(markup, /maka-composer-prompt-suggestion/);
+    assert.match(markup, /运行测试并修复失败项/);
+    assert.match(markup, /<kbd[^>]*>Tab<\/kbd>/);
+    assert.match(markup, /aria-autocomplete="inline"/);
+    assert.doesNotMatch(markup, /placeholder=/);
+  });
+
   it('keeps resting chrome to permission icon, plus menu, model, and send', () => {
     const markup = render(
       <Composer

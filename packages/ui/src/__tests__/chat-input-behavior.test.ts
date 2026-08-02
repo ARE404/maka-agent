@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   createChatInputActionOwner,
+  applyInlinePromptSuggestion,
   detectMentionTrigger,
   fileTransferContainsFiles,
   focusTextInputAtEnd,
@@ -30,6 +31,19 @@ describe('shared chat input behavior', () => {
       setSelectionRange: (start, end) => calls.push([start, end]),
     });
     assert.deepEqual(calls, ['focus', [5, 5]]);
+  });
+
+  it('accepts an inline prompt suggestion as editable text without submitting', () => {
+    const calls: Array<string | [number, number]> = [];
+    const input = {
+      value: '',
+      focus: () => calls.push('focus'),
+      setSelectionRange: (start: number, end: number) => calls.push([start, end]),
+    };
+    assert.equal(applyInlinePromptSuggestion(input, '  运行测试并修复失败项  '), true);
+    assert.equal(input.value, '运行测试并修复失败项');
+    assert.deepEqual(calls, ['focus', [10, 10]]);
+    assert.equal(applyInlinePromptSuggestion(input, '另一个建议'), false);
   });
 
   it('serializes async actions and releases only their owned pending state', async () => {

@@ -40,6 +40,7 @@ import {
 } from './use-composer-skill-draft.js';
 import {
   createChatInputActionOwner,
+  applyInlinePromptSuggestion,
   fileTransferContainsFiles,
   focusTextInputAtEnd,
   isChatInputComposing,
@@ -261,6 +262,8 @@ export const Composer = forwardRef<
      */
     mentionSkills?: ReadonlyArray<{ ref?: string; id: string; name: string; description?: string }>;
     onSearchMentionFiles?(query: string): Promise<ReadonlyArray<{ relativePath: string }>>;
+    /** Model-generated next user message. Tab inserts it into the draft; it is never sent automatically. */
+    promptSuggestion?: string;
   }
 >(function Composer(props, ref) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -271,6 +274,7 @@ export const Composer = forwardRef<
   const [sendPending, setSendPending] = useState(false);
   const [skillPanelOpen, setSkillPanelOpen] = useState(false);
   const [pendingImportAction, setPendingImportAction] = useState<ComposerImportActionId | null>(null);
+  const [promptSuggestionDismissed, setPromptSuggestionDismissed] = useState(false);
   const composerMountedRef = useMountedRef();
   const sendPendingRef = useRef(false);
   const compositionActiveRef = useRef(false);
@@ -330,6 +334,15 @@ export const Composer = forwardRef<
   // PR-UI-15: locale-aware copy for placeholder + toolbar states.
   const locale = useUiLocale();
   const copy = getConversationCopy(locale).composer;
+  const normalizedPromptSuggestion = props.promptSuggestion?.replace(/\s+/g, ' ').trim();
+  const promptSuggestionVisible = Boolean(
+    normalizedPromptSuggestion
+    && !promptSuggestionDismissed
+    && !hasDraftText
+    && !props.disabled
+    && !props.streaming
+    && !mentionPopupOpen,
+  );
   const voiceCaptureLabel = props.voiceCaptureState === 'recording'
     ? copy.voiceStopRecording
     : props.voiceCaptureState === 'native_ready'
@@ -342,6 +355,10 @@ export const Composer = forwardRef<
       importActionOwnerRef.current?.reset();
     };
   }, []);
+
+  useEffect(() => {
+    setPromptSuggestionDismissed(false);
+  }, [props.draftKey, props.promptSuggestion]);
 
   function autoResize() {
     const el = textareaRef.current;
@@ -365,6 +382,7 @@ export const Composer = forwardRef<
         const el = textareaRef.current;
         if (!el) return;
         resetPromptHistoryNavigation();
+        setPromptSuggestionDismissed(true);
         el.value = text;
         saveCurrentDraft(text);
         autoResize();
@@ -375,6 +393,7 @@ export const Composer = forwardRef<
         const el = textareaRef.current;
         if (!el) return;
         resetPromptHistoryNavigation();
+        setPromptSuggestionDismissed(true);
         el.value = appendPromptContextDraft(el.value, text);
         saveCurrentDraft(el.value);
         autoResize();
@@ -522,6 +541,21 @@ export const Composer = forwardRef<
         return;
       }
     }
+    if (event.key === 'Tab' && promptSuggestionVisible && normalizedPromptSuggestion) {
+      if (applyInlinePromptSuggestion(event.currentTarget, normalizedPromptSuggestion)) {
+        event.preventDefault();
+        resetPromptHistoryNavigation();
+        setPromptSuggestionDismissed(true);
+        saveCurrentDraft(event.currentTarget.value);
+        autoResize();
+      }
+      return;
+    }
+    if (event.key === 'Escape' && promptSuggestionVisible) {
+      event.preventDefault();
+      setPromptSuggestionDismissed(true);
+      return;
+    }
     if (
       event.key === 'Escape' &&
       props.voiceCaptureState &&
@@ -571,6 +605,7 @@ export const Composer = forwardRef<
   }
 
   function onTextareaInput() {
+    setPromptSuggestionDismissed(true);
     resetPromptHistoryNavigation();
     autoResize();
     saveCurrentDraft();
@@ -873,8 +908,9 @@ export const Composer = forwardRef<
                 data-maka-contract="composer-input"
                 name="text"
                 className="maka-composer-textarea resize-none"
-                placeholder={copy.placeholder}
+                placeholder={promptSuggestionVisible ? undefined : copy.placeholder}
                 aria-label={copy.textareaAriaLabel}
+                aria-autocomplete={promptSuggestionVisible ? 'inline' : undefined}
                 aria-controls={mentionPopupOpen ? mentionListboxId : undefined}
                 aria-expanded={mentionPopupOpen ? true : undefined}
                 aria-activedescendant={
@@ -894,6 +930,19 @@ export const Composer = forwardRef<
                 autoComplete="off"
                 spellCheck={false}
               />
+              {promptSuggestionVisible && normalizedPromptSuggestion ? (
+                <>
+                  <span className="maka-composer-prompt-suggestion" aria-hidden="true">
+                    <span className="maka-composer-prompt-suggestion-text">
+                      {normalizedPromptSuggestion}
+                    </span>
+                    <kbd className="maka-composer-prompt-suggestion-key">Tab</kbd>
+                  </span>
+                  <span className="maka-visually-hidden" role="status" aria-live="polite">
+                    {copy.promptSuggestionAnnounce(normalizedPromptSuggestion)}
+                  </span>
+                </>
+              ) : null}
               {mention ? (
                 <ComposerMentionPopup
                   trigger={mention.trigger}

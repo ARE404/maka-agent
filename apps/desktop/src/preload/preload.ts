@@ -245,6 +245,9 @@ const makaBridge = {
     readMessages(sessionId: string): Promise<StoredMessage[]> {
       return ipcRenderer.invoke('sessions:readMessages', sessionId);
     },
+    suggestNextPrompt(sessionId: string): Promise<{ suggestion: string | null }> {
+      return ipcRenderer.invoke('sessions:suggestNextPrompt', sessionId);
+    },
     readExecutionBoundary(sessionId: string): Promise<ExecutionBoundary> {
       return ipcRenderer.invoke('sessions:readExecutionBoundary', sessionId);
     },

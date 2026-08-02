@@ -27,6 +27,18 @@ export function focusTextInputAtEnd(input: TextInputSelectionTarget): void {
   input.setSelectionRange(end, end);
 }
 
+/** Insert an inline next-prompt suggestion without submitting it. */
+export function applyInlinePromptSuggestion(
+  input: TextInputSelectionTarget,
+  suggestion: string,
+): boolean {
+  const value = suggestion.trim();
+  if (input.value.length > 0 || !value) return false;
+  input.value = value;
+  focusTextInputAtEnd(input);
+  return true;
+}
+
 /**
  * Composer `@` / `/` mention trigger detection.
  *

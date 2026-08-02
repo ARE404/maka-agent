@@ -221,6 +221,8 @@
    elevates the outer shell on focus-within; a second rectangle on the field
    is the bug users describe as “输入后出现长方形边框”. */
 .composer .maka-composer-textarea {
+  position: relative;
+  z-index: 1;
   display: block;
   width: 100%;
   appearance: none;
@@ -237,6 +239,48 @@
   line-height: var(--text-body-leading);
   min-height: var(--h-composer-min);
   max-height: 240px;
+}
+
+/* Model-generated next-prompt suggestion. It shares the textarea's exact
+   type metrics and sits behind the real editable value; Tab promotes the
+   text into the draft, never directly into a send. */
+.maka-composer-prompt-suggestion {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  min-height: var(--h-composer-min);
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: var(--space-2);
+  pointer-events: none;
+  color: var(--foreground-secondary);
+  font-family: var(--font-default);
+  font-size: var(--text-body-size, var(--font-size-base));
+  font-weight: var(--text-body-weight, var(--font-weight-normal, 400));
+  line-height: var(--text-body-leading);
+}
+
+.maka-composer-prompt-suggestion-text {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.maka-composer-prompt-suggestion-key {
+  flex: 0 0 auto;
+  margin-block-start: 1px;
+  padding: 0 var(--space-1);
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--foreground-3);
+  color: var(--foreground-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+  line-height: var(--text-supporting-leading);
+  font-variant-ligatures: none;
 }
 
 .composer .maka-composer-textarea:focus,

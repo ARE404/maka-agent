@@ -142,6 +142,7 @@ import { useShellChatModel } from './use-shell-chat-model';
 import { useShellLiveTurn } from './use-shell-live-turn';
 import { useShellLayout } from './use-shell-layout';
 import { useShellResume } from './use-shell-resume';
+import { useNextPromptSuggestion } from './use-next-prompt-suggestion';
 import { useSettingsModal } from './use-settings-modal';
 import { useSystemUiLocale } from './use-system-ui-locale';
 import {
@@ -1863,6 +1864,19 @@ function AppShellContent({
     clearTurnTransientState,
   });
 
+  const composerStreaming = (sessionAwaitingModel && turnInFlight) || activeStreamingLive;
+  const nextPromptSuggestion = useNextPromptSuggestion({
+    session: activeSession,
+    messages,
+    enabled:
+      navSelection.section === 'sessions'
+      && activeBoundarySurface.localInteractionAvailable
+      && !activeInteraction
+      && !messageLoadPending
+      && !(revisionDraft && activeId === revisionDraft.draftSessionId),
+    busy: composerStreaming || activeStreamingComplete,
+  });
+
   function captureComposerImportOwner(): ComposerImportOwner {
     return {
       sessionId: activeIdRef.current,
@@ -2257,7 +2271,7 @@ function AppShellContent({
                   // to such a session shows Send, not a stuck Stop that hides it.
                   // `activeStreamingLive` is folded in defensively for the rare replay
                   // where the arm was over-cleared.
-                  streaming={(sessionAwaitingModel && turnInFlight) || activeStreamingLive}
+                  streaming={composerStreaming}
                   // #646: in the first-token wait (Stop up, nothing streams yet) the
                   // hint reads "Maka 正在处理…"; in a mid-turn lull it reads the calm
                   // "Maka 继续中…". Both are mutually exclusive with activeStreamingLive.
@@ -2272,6 +2286,7 @@ function AppShellContent({
                     composerVoiceCaptureReady ? voiceInput.cancelCapture : undefined
                   }
                   onSend={sendWithAttachments}
+                  promptSuggestion={nextPromptSuggestion}
                   onStop={stop}
                   revisionNotice={
                     revisionDraft && activeId === revisionDraft.draftSessionId

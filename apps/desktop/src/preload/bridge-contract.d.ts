@@ -262,6 +262,7 @@ export interface MakaBridge {
     stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
     steer(sessionId: string, text: string): Promise<QueueEnqueueOutcome>;
     readMessages(sessionId: string): Promise<StoredMessage[]>;
+    suggestNextPrompt(sessionId: string): Promise<{ suggestion: string | null }>;
     readExecutionBoundary(sessionId: string): Promise<ExecutionBoundary>;
     listActiveSandboxBoundaryRequests(
       sessionId: string,

@@ -139,6 +139,7 @@ import {
   resolveDesktopSessionSkillHost,
 } from './desktop-backend-tool-surface.js';
 import { registerSessionsIpc } from './sessions-ipc-main.js';
+import { createNextPromptSuggestionService } from './next-prompt-suggestion.js';
 import { registerAgentGraphIpc } from './agent-graph-ipc-main.js';
 import { createVoiceIpcService, registerVoiceIpc } from './voice-ipc-main.js';
 import {
@@ -1056,6 +1057,34 @@ function registerIpc(): void {
     sendToRenderer: safeSendToRenderer,
   });
   registerVoiceIpc({ ipcMain, service: voiceIpcService });
+  const nextPromptSuggestion = createNextPromptSuggestionService({
+    readSession: (sessionId) => store.readHeader(sessionId),
+    readMessages: (sessionId) => runtime.getMessages(sessionId),
+    generate: async (input) => {
+      const { connection, apiKey, model } = await getReadyConnection(
+        input.connectionSlug,
+        input.model,
+      );
+      const ai = await import('ai') as unknown as {
+        generateText(options: Record<string, unknown>): Promise<{ text: string }>;
+      };
+      const result = await ai.generateText({
+        model: getAIModel({
+          connection,
+          apiKey,
+          modelId: model,
+          fetch: buildSubscriptionModelFetch(connection, input.sessionId, model),
+        }),
+        instructions: input.instructions,
+        prompt: input.prompt,
+        providerOptions: buildProviderOptions(connection, model),
+        temperature: 0.2,
+        maxOutputTokens: 120,
+        abortSignal: input.abortSignal,
+      });
+      return result.text;
+    },
+  });
   registerSessionsIpc({
     workspaceRoot,
     runtime,
@@ -1091,6 +1120,7 @@ function registerIpc(): void {
     canCreateFakeSession: canCreateFakeSessionFromRenderer,
     consumeNativeAudioOperation: (input) =>
       voiceIpcService.consumeNativeAudioOperation(input),
+    suggestNextPrompt: (sessionId) => nextPromptSuggestion.suggest(sessionId),
   });
   registerSubscriptionIpc({
     ipcMain,

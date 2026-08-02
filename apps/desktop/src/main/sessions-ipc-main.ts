@@ -121,6 +121,7 @@ export interface SessionsIpcDeps {
     connectionSlug: string;
     model: string;
   }) => EphemeralVoiceAudio;
+  suggestNextPrompt(sessionId: string): Promise<string | null>;
 }
 
 function latestStoredMessageTs(messages: readonly StoredMessage[]): number | undefined {
@@ -216,6 +217,7 @@ export function registerSessionsIpc(
     getWorkspacePrivacyContext,
     canCreateFakeSession,
     consumeNativeAudioOperation,
+    suggestNextPrompt,
   } = deps;
   registerSessionExecutionIpc({
     ipcMain,
@@ -321,6 +323,12 @@ export function registerSessionsIpc(
       // state for a later refresh instead of turning this into a load error.
     }
     return messages;
+  });
+  ipcMain.handle('sessions:suggestNextPrompt', async (_event, sessionId: unknown) => {
+    if (typeof sessionId !== 'string' || !sessionId.trim()) {
+      return { suggestion: null };
+    }
+    return { suggestion: await suggestNextPrompt(sessionId) };
   });
   ipcMain.handle('sessions:listTurns', (_event, sessionId: string) => runtime.listTurns(sessionId));
   // Goal kill-switch surface: the renderer reads the active goal to badge a
