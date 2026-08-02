@@ -6,7 +6,7 @@ import { HistoryCompactSummarizerError } from './history-compact-error.js';
 import type { AiSdkUsageLike } from './model-adapter.js';
 import {
   ProviderRequestTracker,
-  type ProviderGenerateResult,
+  withProviderGenerateTracking,
   type ProviderRequestTrackerInput,
 } from './provider-request-telemetry.js';
 
@@ -24,12 +24,6 @@ export interface AiSdkGenerateTextOptions {
 export type AiSdkGenerateTextLike = (
   options: AiSdkGenerateTextOptions,
 ) => Promise<{ text: string; finishReason?: unknown; usage?: AiSdkUsageLike }>;
-
-interface ProviderMiddlewareGenerateInput {
-  doGenerate: () => PromiseLike<ProviderGenerateResult>;
-  params: Record<string, unknown> & { abortSignal?: AbortSignal };
-  model: { provider: string; modelId: string };
-}
 
 export interface BuildLlmHistorySummarizerOptions {
   /** Resolve the AI SDK model used for summarization. Reuses the session model. */
@@ -108,22 +102,11 @@ export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOpti
         options.generateText && !providerRequestTracker ? undefined : await loadAiSdkTextModule();
       const generateText = options.generateText ?? ai!.generateText;
       const model = providerRequestTracker
-        ? ai!.wrapLanguageModel({
+        ? withProviderGenerateTracking({
             model: options.resolveModel(),
-            middleware: {
-              wrapGenerate: async ({
-                doGenerate,
-                params,
-                model: providerModel,
-              }: ProviderMiddlewareGenerateInput) =>
-                await providerRequestTracker.trackGenerate({
-                  providerId: providerModel.provider,
-                  modelId: providerModel.modelId,
-                  params,
-                  abortSignal: input.abortSignal,
-                  doGenerate,
-                }),
-            },
+            wrapLanguageModel: ai!.wrapLanguageModel,
+            tracker: providerRequestTracker,
+            ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
           })
         : options.resolveModel();
       const result = await generateText({

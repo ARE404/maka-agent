@@ -135,6 +135,26 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       mode: effectivePermissionMode,
       cwd: ctx.header.cwd,
     });
+    // Hoisted so the auxiliary summarizer can share them with the send path:
+    // capture is optional plumbing, the context window is a property of the
+    // model both calls run against.
+    const providerRequestCapture = ctx.recordProviderRequestCapture
+      ? createProviderRequestCaptureRecorder({
+          persistArtifact: async (capture) => {
+            const artifact = await persistProviderRequestCaptureArtifact(artifactStore, {
+              sessionId: ctx.sessionId,
+              turnId: capture.turnId,
+              captureId: capture.captureId,
+              step: capture.step,
+              serializedRequest: capture.serializedRequest,
+              now: Date.now(),
+            });
+            return { artifactId: artifact.id };
+          },
+          recordLedger: ctx.recordProviderRequestCapture,
+        })
+      : undefined;
+    const summarizerContextWindow = resolveSelectedModelContextWindow(connection, model);
 
     return new AiSdkBackend({
       sessionId: ctx.sessionId,
@@ -325,6 +345,18 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
         resolveModel: () =>
           getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
         providerOptions: buildProviderOptions(connection, model, ctx.header.thinkingLevel),
+        // Without this the accounting the backend computes for a history
+        // compaction is handed to a summarizer that has nowhere to settle it,
+        // and the call goes unmetered. Capture joins in only when configured.
+        providerRequestTracking: {
+          now: Date.now,
+          newId: randomUUID,
+          ...(providerRequestCapture ? { persistCapture: providerRequestCapture } : {}),
+          recordAttempt: ctx.recordProviderRequestAttempt ?? (() => {}),
+          ...(summarizerContextWindow !== undefined
+            ? { contextWindow: summarizerContextWindow }
+            : {}),
+        },
       }),
       loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
       writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event, {
@@ -338,22 +370,9 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
         },
       }),
       recordRunTrace: ctx.recordRunTrace,
-      ...(ctx.recordProviderRequestCapture
+      ...(providerRequestCapture
         ? {
-            recordProviderRequestCapture: createProviderRequestCaptureRecorder({
-              persistArtifact: async (capture) => {
-                const artifact = await persistProviderRequestCaptureArtifact(artifactStore, {
-                  sessionId: ctx.sessionId,
-                  turnId: capture.turnId,
-                  captureId: capture.captureId,
-                  step: capture.step,
-                  serializedRequest: capture.serializedRequest,
-                  now: Date.now(),
-                });
-                return { artifactId: artifact.id };
-              },
-              recordLedger: ctx.recordProviderRequestCapture,
-            }),
+            recordProviderRequestCapture: providerRequestCapture,
             recordProviderRequestAttempt: ctx.recordProviderRequestAttempt,
           }
         : {}),

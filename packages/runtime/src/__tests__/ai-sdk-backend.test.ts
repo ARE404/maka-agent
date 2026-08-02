@@ -8031,16 +8031,16 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(recordedBlocks[0]?.blockId, 'afcompact-sync-test');
   });
 
-  test('semantic compact records a separate no-tools summarizer model call', async () => {
-    const durable = durableTurnHarness('turn-1', 'hi');
-    const messages: unknown[] = [];
-    const events: SessionEvent[] = [];
-    const modelCalls: ModelCallAttempt[] = [];
-    const recordedBlocks: SemanticCompactBlock[] = [];
-    const recordedActiveFullBlocks: ActiveFullCompactBlock[] = [];
-    const largeBody = 'SEMANTIC_COMPACT_RAW_TOOL_OUTPUT'.repeat(180);
+  /**
+   * One model whose stream drives a turn into semantic compaction: two tool
+   * steps, then a plain finish. Shared by the accept and dry-run cases so both
+   * exercise the same summarization, and only the policy differs.
+   */
+  function semanticCompactFixtureModel(): {
+    model: MockLanguageModelV4;
+    streamCalls: () => number;
+  } {
     let streamCalls = 0;
-    let archiveCalls = 0;
     const model = new MockLanguageModelV4({
       doGenerate: {
         content: [
@@ -8059,6 +8059,14 @@ describe('AiSdkBackend usage telemetry', () => {
         usage: {
           inputTokens: { total: 21, noCache: 19, cacheRead: 2, cacheWrite: 0 },
           outputTokens: { total: 13, text: 13, reasoning: 0 },
+          // The provider's own payload, which is the only thing the canonical
+          // record will attribute cache tokens from.
+          raw: {
+            input_tokens: 19,
+            output_tokens: 13,
+            cache_read_input_tokens: 2,
+            cache_creation_input_tokens: 0,
+          },
         },
         warnings: [],
       },
@@ -8117,6 +8125,49 @@ describe('AiSdkBackend usage telemetry', () => {
         };
       },
     });
+    return { model, streamCalls: () => streamCalls };
+  }
+
+  function semanticCompactContextBudget(mode: 'replace' | 'validate_only') {
+    return {
+      charsPerToken: 1,
+      activeToolResultPrune: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
+      semanticCompact: {
+        enabled: true,
+        mode,
+        minStepNumber: 1,
+        minRecentMessages: 0,
+        maxActiveEstimatedTokens: 1,
+        highWaterRatio: 0.1,
+        minSafePrefixEstimatedTokens: 1,
+        minNewPrefixEstimatedTokens: 1,
+        maxSummaryEstimatedTokens: 1024,
+        minSavingsTokens: 1,
+        minSavingsRatio: 0,
+      },
+      activeFullCompact: {
+        enabled: true,
+        minStepNumber: 1,
+        maxActiveEstimatedTokens: 1_000_000,
+        highWaterRatio: 0.1,
+        minRecentMessages: 0,
+        maxSummaryEstimatedTokens: 1024,
+      },
+    } as const;
+  }
+
+  const SEMANTIC_COMPACT_LARGE_BODY = 'SEMANTIC_COMPACT_RAW_TOOL_OUTPUT'.repeat(180);
+
+  test('semantic compact records a separate no-tools summarizer model call', async () => {
+    const durable = durableTurnHarness('turn-1', 'hi');
+    const messages: unknown[] = [];
+    const events: SessionEvent[] = [];
+    const modelCalls: ModelCallAttempt[] = [];
+    const recordedBlocks: SemanticCompactBlock[] = [];
+    const recordedActiveFullBlocks: ActiveFullCompactBlock[] = [];
+    const largeBody = SEMANTIC_COMPACT_LARGE_BODY;
+    let archiveCalls = 0;
+    const { model, streamCalls } = semanticCompactFixtureModel();
     const backend = createTestAiSdkBackend({
       sessionId: 'session-1',
       header: header(),
@@ -8137,31 +8188,7 @@ describe('AiSdkBackend usage telemetry', () => {
           }),
         },
       ],
-      contextBudget: {
-        charsPerToken: 1,
-        activeToolResultPrune: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
-        semanticCompact: {
-          enabled: true,
-          mode: 'replace',
-          minStepNumber: 1,
-          minRecentMessages: 0,
-          maxActiveEstimatedTokens: 1,
-          highWaterRatio: 0.1,
-          minSafePrefixEstimatedTokens: 1,
-          minNewPrefixEstimatedTokens: 1,
-          maxSummaryEstimatedTokens: 1024,
-          minSavingsTokens: 1,
-          minSavingsRatio: 0,
-        },
-        activeFullCompact: {
-          enabled: true,
-          minStepNumber: 1,
-          maxActiveEstimatedTokens: 1_000_000,
-          highWaterRatio: 0.1,
-          minRecentMessages: 0,
-          maxSummaryEstimatedTokens: 1024,
-        },
-      },
+      contextBudget: semanticCompactContextBudget('replace'),
       archiveToolResult: async () => {
         archiveCalls += 1;
         return { artifactId: 'archived-covered-semantic-result' };
@@ -8188,7 +8215,7 @@ describe('AiSdkBackend usage telemetry', () => {
       events.push(event);
     }
 
-    assert.equal(streamCalls, 3);
+    assert.equal(streamCalls(), 3);
     assert.equal(model.doGenerateCalls.length, 1);
     assert.match(
       JSON.stringify(model.doGenerateCalls[0]?.prompt),
@@ -8271,10 +8298,9 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(semanticAttempt.inputTokens, 21);
     assert.equal(semanticAttempt.outputTokens, 13);
     assert.equal(semanticAttempt.usageBasis, 'reported');
-    // The old row copied the SDK's normalized `cacheRead` through as a cache
-    // hit. The canonical record only attributes cache tokens the provider's own
-    // payload claims, and this mock ships none — so absent, not zero.
-    assert.equal(semanticAttempt.cacheReadInputTokens, undefined);
+    // Cache tokens are attributed from the provider's own payload, never from
+    // the SDK's normalized view — which is what the old row copied through.
+    assert.equal(semanticAttempt.cacheReadInputTokens, 2);
     assert.equal(
       modelCalls.filter((attempt) => attempt.callKind === 'semantic_compact').length,
       1,
@@ -8298,6 +8324,63 @@ describe('AiSdkBackend usage telemetry', () => {
       ),
       true,
     );
+  });
+
+  test('a dry-run semantic compaction is still a real, billed model call', async () => {
+    // `validate_only` declines the *projection*, not the summarization: the
+    // summarizer runs to completion and only then is its block refused. That
+    // call reaches a provider and is charged for, so it settles a canonical
+    // record like any other. Pinned because a mode named "dry run" that bills
+    // is exactly the kind of thing a later reader would assume otherwise.
+    const durable = durableTurnHarness('turn-1', 'hi');
+    const modelCalls: ModelCallAttempt[] = [];
+    const recordedBlocks: SemanticCompactBlock[] = [];
+    const { model } = semanticCompactFixtureModel();
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      modelFactory: () => model,
+      tools: [
+        {
+          name: 'Read',
+          description: 'Read description',
+          parameters: z.object({ path: z.string() }),
+          impl: async ({ path }) => ({
+            body: path === 'large.log' ? SEMANTIC_COMPACT_LARGE_BODY : 'FRESH_SEMANTIC_TAIL_RESULT',
+          }),
+        },
+      ],
+      contextBudget: semanticCompactContextBudget('validate_only'),
+      archiveToolResult: async () => ({ artifactId: 'archived-covered-semantic-result' }),
+      loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
+      newId: idGenerator(),
+      now: monotonicClock(),
+      recordProviderRequestCapture: async () => ({ artifactId: 'artifact-semantic-capture' }),
+      recordModelCallAttempt: (attempt) => {
+        modelCalls.push(attempt);
+      },
+      recordSemanticCompactBlock: (block) => {
+        recordedBlocks.push(block);
+      },
+    });
+
+    for await (const event of backend.send(durable.input({ runId: 'run-1' }))) {
+      durable.record(event);
+    }
+
+    assert.equal(model.doGenerateCalls.length, 1, 'the dry run still calls the summarizer');
+    assert.equal(recordedBlocks.length, 0, 'and still refuses to accept the block it produced');
+    const dryRunAttempt = modelCalls
+      .map((attempt) => decodeModelCallAttempt(attempt))
+      .find((attempt) => attempt.callKind === 'semantic_compact');
+    assert.ok(dryRunAttempt, 'a declined projection does not make the call free');
+    assert.equal(dryRunAttempt.status, 'completed');
+    assert.equal(dryRunAttempt.inputTokens, 21);
+    assert.equal(dryRunAttempt.outputTokens, 13);
   });
 
   test('active full compact keeps the accepted boundary projection across later AI SDK steps', async () => {

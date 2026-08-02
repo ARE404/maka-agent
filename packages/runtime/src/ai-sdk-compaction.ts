@@ -49,7 +49,7 @@ import {
 
 import { createHash } from 'node:crypto';
 import type { ModelMessage } from './model-protocol.js';
-import { normalizeAiSdkUsage, type ModelAdapter } from './model-adapter.js';
+import type { ModelAdapter } from './model-adapter.js';
 import type {
   RequestProjection,
   RequestProjectionContext,

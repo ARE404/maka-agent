@@ -92,7 +92,6 @@ import type {
   UserContent,
 } from './model-protocol.js';
 import { z } from 'zod';
-import { llmCallUsageFields } from './telemetry/llm-call-usage.js';
 
 import { AsyncEventQueue } from './async-queue.js';
 import { StreamWatchdog, formatStreamWatchdogError } from './stream-watchdog.js';
@@ -2047,8 +2046,9 @@ export class AiSdkBackend implements AgentBackend {
    * this backend. Callers receive a ready tracker rather than the ingredients:
    * a half-wired tracker is what produces records nothing can attribute.
    *
-   * Absent when capture is not wired, which leaves the call untracked exactly
-   * as it was before.
+   * Absent only when there is nothing to feed: no capture sink *and* no
+   * canonical sink. Metering deliberately does not depend on capture — capture
+   * is a diagnostic, and a deployment that turns it off must still be billed.
    */
   private createProviderRequestTracker(input: {
     turnId: string;
@@ -2056,15 +2056,15 @@ export class AiSdkBackend implements AgentBackend {
     modelId: string;
   }): ProviderRequestTracker | undefined {
     const persistCapture = this.input.recordProviderRequestCapture;
-    if (!persistCapture) return undefined;
     const accounting = this.modelCallAccounting(input.callKind);
+    if (!persistCapture && !accounting) return undefined;
     return new ProviderRequestTracker({
       traceId: this.newId(),
       turnId: input.turnId,
       contextWindow: resolveSelectedModelContextWindow(this.input.connection, input.modelId),
       now: this.now,
       newId: this.newId,
-      persistCapture,
+      ...(persistCapture ? { persistCapture } : {}),
       recordAttempt: this.input.recordProviderRequestAttempt ?? (() => {}),
       ...(accounting ? { accounting } : {}),
     });

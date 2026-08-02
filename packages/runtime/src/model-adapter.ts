@@ -38,9 +38,9 @@ import {
   errorPresentationFromClass,
   providerRetryMetadata,
 } from './provider-error-classification.js';
-import type {
-  ProviderGenerateResult,
-  ProviderRequestTracker,
+import {
+  withProviderGenerateTracking,
+  type ProviderRequestTracker,
 } from './provider-request-telemetry.js';
 import {
   createKimiOpenAiTransportState,
@@ -125,12 +125,6 @@ interface ProviderMiddlewareStreamInput {
     request?: unknown;
     response?: unknown;
   }>;
-  params: Record<string, unknown> & { abortSignal?: AbortSignal };
-  model: { provider: string; modelId: string };
-}
-
-interface ProviderMiddlewareGenerateInput {
-  doGenerate: () => PromiseLike<ProviderGenerateResult>;
   params: Record<string, unknown> & { abortSignal?: AbortSignal };
   model: { provider: string; modelId: string };
 }
@@ -284,18 +278,11 @@ export class ModelAdapter {
     };
 
     const trackedModel = input.providerRequestTracker
-      ? wrapLanguageModel({
+      ? withProviderGenerateTracking({
           model: input.model,
-          middleware: {
-            wrapGenerate: async ({ doGenerate, params, model }: ProviderMiddlewareGenerateInput) =>
-              await input.providerRequestTracker!.trackGenerate({
-                providerId: model.provider,
-                modelId: model.modelId,
-                params,
-                ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
-                doGenerate,
-              }),
-          },
+          wrapLanguageModel,
+          tracker: input.providerRequestTracker,
+          ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
         })
       : input.model;
 

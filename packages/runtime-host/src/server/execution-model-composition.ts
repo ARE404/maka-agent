@@ -554,6 +554,12 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
     }
   };
   let artifactDrainRequested = false;
+  // The summarizer runs on the session's own connection and model, so its
+  // attempts are measured against the same window the send is.
+  const summarizerContextWindow = resolveSelectedModelContextWindow(
+    target.connection,
+    target.model,
+  );
   const providerRequestCapture = input.context.recordProviderRequestCapture
     ? createProviderRequestCaptureRecorder({
         persistArtifact: async (capture) => {
@@ -632,16 +638,18 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
               modelId: target.model,
             }),
           providerOptions,
-          ...(providerRequestCapture
-            ? {
-                providerRequestTracking: {
-                  now: Date.now,
-                  newId: randomUUID,
-                  persistCapture: providerRequestCapture,
-                  recordAttempt: recordProviderRequestAttempt,
-                },
-              }
-            : {}),
+          // Wired unconditionally: this is what carries the summarization's
+          // accounting, and metering must not depend on the capture sink being
+          // configured. Capture joins in only when it is.
+          providerRequestTracking: {
+            now: Date.now,
+            newId: randomUUID,
+            ...(providerRequestCapture ? { persistCapture: providerRequestCapture } : {}),
+            recordAttempt: recordProviderRequestAttempt,
+            ...(summarizerContextWindow !== undefined
+              ? { contextWindow: summarizerContextWindow }
+              : {}),
+          },
         }),
         recordHistoryCompactCheckpoint: input.context.recordHistoryCompactCheckpoint,
         loadTurnRuntimeEvents: input.context.loadTurnRuntimeEvents,
