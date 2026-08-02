@@ -572,7 +572,7 @@ export class AiSdkBackend implements AgentBackend {
       sessionId: this.sessionId,
       now: this.now,
       modelAdapter: this.modelAdapter,
-      modelCallAccounting: (callKind) => this.modelCallAccounting(callKind),
+      modelCallAccounting: (callKind, identity) => this.modelCallAccounting(callKind, identity),
       createProviderRequestTracker: (trackerInput) =>
         this.createProviderRequestTracker(trackerInput),
       materializeRuntimeReplayPlan: (plan) => this.materializeRuntimeReplayPlan(plan),
@@ -2054,9 +2054,13 @@ export class AiSdkBackend implements AgentBackend {
     turnId: string;
     callKind: ModelCallKind;
     modelId: string;
+    runId?: string;
   }): ProviderRequestTracker | undefined {
     const persistCapture = this.input.recordProviderRequestCapture;
-    const accounting = this.modelCallAccounting(input.callKind);
+    const accounting = this.modelCallAccounting(input.callKind, {
+      modelId: input.modelId,
+      ...(input.runId ? { runId: input.runId } : {}),
+    });
     if (!persistCapture && !accounting) return undefined;
     return new ProviderRequestTracker({
       traceId: this.newId(),
@@ -2082,17 +2086,29 @@ export class AiSdkBackend implements AgentBackend {
    * Absent when there is no canonical sink, which leaves the corresponding
    * tracker purely diagnostic.
    */
-  modelCallAccounting(callKind: ModelCallKind): ModelCallAccountingInput | undefined {
+  modelCallAccounting(
+    callKind: ModelCallKind,
+    identity?: {
+      /**
+       * States the run explicitly for a call made outside `send()`, where there
+       * is no live turn to resolve it from — a manual history compaction is one.
+       */
+      runId?: string;
+      /** The model this call actually runs against; priced as that model. */
+      modelId?: string;
+    },
+  ): ModelCallAccountingInput | undefined {
     const record = this.input.recordModelCallAttempt;
     if (!record) return undefined;
+    const modelId = identity?.modelId ?? this.input.modelId;
     return {
       sessionId: this.sessionId,
-      resolveRunId: () => this.currentRunId ?? undefined,
+      resolveRunId: () => identity?.runId ?? this.currentRunId ?? undefined,
       connectionSlug: this.input.connection.slug,
       providerId: this.input.connection.providerType,
       callKind,
       record,
-      resolveCost: (usage: ProviderRequestUsage) => this.resolveModelCallCost(usage),
+      resolveCost: (usage: ProviderRequestUsage) => this.resolveModelCallCost(usage, modelId),
       ...(this.input.assertModelCallAccountingReady
         ? { assertReady: this.input.assertModelCallAccountingReady }
         : {}),
@@ -2108,11 +2124,20 @@ export class AiSdkBackend implements AgentBackend {
    * cost. An unresolvable price returns `undefined` rather than zero — the
    * record then carries `costBasis: 'unpriced'`, which is not the same claim as
    * a call that was free.
+   *
+   * Priced against the model that actually served the request, which is not
+   * always the session's model: a configured semantic-compact summarizer runs
+   * on its own. Recording one model's id beside another model's rates would
+   * make the stored amount unauditable in exactly the way `pricingRates` exists
+   * to prevent.
    */
-  private resolveModelCallCost(usage: ProviderRequestUsage): ResolvedModelCallCost | undefined {
+  private resolveModelCallCost(
+    usage: ProviderRequestUsage,
+    modelId: string,
+  ): ResolvedModelCallCost | undefined {
     try {
       const pricing = (this.input.lookupPricing ?? getBuiltinPricing)(
-        `${this.input.connection.providerType}:${this.input.modelId}`,
+        `${this.input.connection.providerType}:${modelId}`,
       );
       if (pricing === null) return undefined;
       const costUsd = computeCost(

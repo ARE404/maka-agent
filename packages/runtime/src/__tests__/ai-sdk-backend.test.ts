@@ -3979,6 +3979,7 @@ describe('AiSdkBackend model history', () => {
     const runtimeContext = [...oldEvents, recentEvent];
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext,
     });
 
@@ -3995,6 +3996,7 @@ describe('AiSdkBackend model history', () => {
 
     await backend.compactHistory({
       turnId: 'turn-overflow-recovery',
+      runId: 'run-1',
       runtimeContext,
       minRecentTurns: 0,
     });
@@ -4040,6 +4042,7 @@ describe('AiSdkBackend model history', () => {
 
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext: [
         runtimeTextEvent({
           id: 'default-policy-manual-old-1',
@@ -4097,6 +4100,7 @@ describe('AiSdkBackend model history', () => {
 
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext: [
         runtimeTextEvent({
           id: 'manual-v2-old-1',
@@ -4186,6 +4190,7 @@ describe('AiSdkBackend model history', () => {
 
     await backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext: [
         ...oldEvents,
         runtimeTextEvent({
@@ -4263,6 +4268,7 @@ describe('AiSdkBackend model history', () => {
 
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext: [
         ...oldEvents,
         runtimeTextEvent({
@@ -4345,6 +4351,7 @@ describe('AiSdkBackend model history', () => {
 
       const result = await backend.compactHistory({
         turnId: 'turn-compact',
+        runId: 'run-1',
         runtimeContext: [
           ...oldEvents,
           runtimeTextEvent({
@@ -4391,6 +4398,7 @@ describe('AiSdkBackend model history', () => {
 
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext: [
         runtimeTextEvent({
           id: 'manual-v2-envelope-old-1',
@@ -4448,6 +4456,7 @@ describe('AiSdkBackend model history', () => {
 
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext: [
         runtimeTextEvent({
           id: 'manual-v2-larger-old-1',
@@ -4509,6 +4518,7 @@ describe('AiSdkBackend model history', () => {
 
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext: [
         runtimeTextEvent({
           id: 'output-length-old',
@@ -4600,6 +4610,7 @@ describe('AiSdkBackend model history', () => {
 
     await backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext: [
         ...covered,
         runtimeTextEvent({
@@ -4646,6 +4657,7 @@ describe('AiSdkBackend model history', () => {
 
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext: [
         runtimeTextEvent({
           id: 'old-1',
@@ -4690,6 +4702,7 @@ describe('AiSdkBackend model history', () => {
 
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext: [
         runtimeTextEvent({
           id: 'old-1',
@@ -4759,6 +4772,7 @@ describe('AiSdkBackend model history', () => {
 
     const result = await backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext: oldEvents,
     });
 
@@ -4819,6 +4833,7 @@ describe('AiSdkBackend model history', () => {
 
     const compactPromise = backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext: [
         runtimeTextEvent({
           id: 'old-1',
@@ -4904,6 +4919,7 @@ describe('AiSdkBackend model history', () => {
 
     const compactPromise = backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext: [
         runtimeTextEvent({
           id: 'old-1',
@@ -4982,6 +4998,7 @@ describe('AiSdkBackend model history', () => {
 
     await backend.compactHistory({
       turnId: 'turn-compact',
+      runId: 'run-1',
       runtimeContext: [
         runtimeTextEvent({
           id: 'old-1',
@@ -8036,12 +8053,13 @@ describe('AiSdkBackend usage telemetry', () => {
    * steps, then a plain finish. Shared by the accept and dry-run cases so both
    * exercise the same summarization, and only the policy differs.
    */
-  function semanticCompactFixtureModel(): {
+  function semanticCompactFixtureModel(modelId?: string): {
     model: MockLanguageModelV4;
     streamCalls: () => number;
   } {
     let streamCalls = 0;
     const model = new MockLanguageModelV4({
+      ...(modelId ? { modelId } : {}),
       doGenerate: {
         content: [
           {
@@ -8381,6 +8399,100 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(dryRunAttempt.status, 'completed');
     assert.equal(dryRunAttempt.inputTokens, 21);
     assert.equal(dryRunAttempt.outputTokens, 13);
+  });
+
+  test('a separate summarizer model is priced as itself, not as the session model', async () => {
+    // The record already named the model that served the request. Pricing it
+    // against a different model's rates would store an id and a `pricingRates`
+    // that contradict each other — the exact thing recording the rates is for.
+    const summarizerPricing = {
+      modelKey: 'anthropic:summarizer-model-id',
+      inputUsdPer1M: 1,
+      outputUsdPer1M: 2,
+      cacheReadUsdPer1M: 0.1,
+      cacheWriteUsdPer1M: 1,
+    };
+    const mainPricing = {
+      modelKey: 'anthropic:mock-model-id',
+      inputUsdPer1M: 1_000,
+      outputUsdPer1M: 2_000,
+      cacheReadUsdPer1M: 100,
+      cacheWriteUsdPer1M: 1_000,
+    };
+    const pricingKeysAsked: string[] = [];
+    const durable = durableTurnHarness('turn-1', 'hi');
+    const modelCalls: ModelCallAttempt[] = [];
+    const { model } = semanticCompactFixtureModel();
+    // A real `modelFactory` builds the summarizer against the configured id, so
+    // the record names it; the fixture has to do the same or it would prove
+    // nothing about which model the rates belong to.
+    const { model: summarizerOnlyModel } = semanticCompactFixtureModel('summarizer-model-id');
+    const budget = semanticCompactContextBudget('replace');
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      modelFactory: ({ modelId }) =>
+        modelId === 'summarizer-model-id' ? summarizerOnlyModel : model,
+      tools: [
+        {
+          name: 'Read',
+          description: 'Read description',
+          parameters: z.object({ path: z.string() }),
+          impl: async ({ path }) => ({
+            body: path === 'large.log' ? SEMANTIC_COMPACT_LARGE_BODY : 'FRESH_SEMANTIC_TAIL_RESULT',
+          }),
+        },
+      ],
+      contextBudget: {
+        ...budget,
+        semanticCompact: { ...budget.semanticCompact, summarizerModel: 'summarizer-model-id' },
+      },
+      archiveToolResult: async () => ({ artifactId: 'archived-covered-semantic-result' }),
+      loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
+      newId: idGenerator(),
+      now: monotonicClock(),
+      lookupPricing: (modelKey) => {
+        pricingKeysAsked.push(modelKey);
+        if (modelKey === summarizerPricing.modelKey) return summarizerPricing;
+        if (modelKey === mainPricing.modelKey) return mainPricing;
+        return null;
+      },
+      recordProviderRequestCapture: async () => ({ artifactId: 'artifact-semantic-capture' }),
+      recordModelCallAttempt: (attempt) => {
+        modelCalls.push(attempt);
+      },
+      recordSemanticCompactBlock: () => {},
+    });
+
+    for await (const event of backend.send(durable.input({ runId: 'run-1' }))) {
+      durable.record(event);
+    }
+
+    const summarization = modelCalls
+      .map((attempt) => decodeModelCallAttempt(attempt))
+      .find((attempt) => attempt.callKind === 'semantic_compact');
+    assert.ok(summarization, 'expected a canonical semantic compact record');
+    assert.equal(summarization.modelId, 'summarizer-model-id');
+    assert.equal(summarization.costBasis, 'priced');
+    assert.deepEqual(
+      summarization.pricingRates,
+      summarizerPricing,
+      'the rates stored are the ones the summarizer model actually bills at',
+    );
+    assert.equal(
+      pricingKeysAsked.includes(summarizerPricing.modelKey),
+      true,
+      'the cost lookup asks for the model that served the request',
+    );
+    // The session model is still priced as itself for its own steps.
+    const mainCall = modelCalls
+      .map((attempt) => decodeModelCallAttempt(attempt))
+      .find((attempt) => attempt.callKind === 'main');
+    assert.equal(mainCall?.pricingRates?.modelKey, mainPricing.modelKey);
   });
 
   test('active full compact keeps the accepted boundary projection across later AI SDK steps', async () => {

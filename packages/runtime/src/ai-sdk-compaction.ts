@@ -104,7 +104,10 @@ export interface AiSdkCompactionDeps {
    * Accounting identity for a compaction call, resolved by the backend because
    * `runId` changes per turn and only it holds the current one (#1679).
    */
-  modelCallAccounting: (callKind: ModelCallKind) => ModelCallAccountingInput | undefined;
+  modelCallAccounting: (
+    callKind: ModelCallKind,
+    identity?: { runId?: string; modelId?: string },
+  ) => ModelCallAccountingInput | undefined;
   /**
    * A ready tracker for a compaction call that has none of its own. The backend
    * hands over the built tracker rather than the capture, attempt, and id sinks
@@ -114,6 +117,7 @@ export interface AiSdkCompactionDeps {
     turnId: string;
     callKind: ModelCallKind;
     modelId: string;
+    runId?: string;
   }) => ProviderRequestTracker | undefined;
   materializeRuntimeReplayPlan: (plan: RuntimeEventModelReplayPlan) => Promise<ModelMessage[]>;
   canReplayProviderNative: (plan: RuntimeEventModelReplayPlan) => boolean;
@@ -130,11 +134,13 @@ export class AiSdkCompaction {
   private readonly modelAdapter: ModelAdapter;
   private readonly modelCallAccounting: (
     callKind: ModelCallKind,
+    identity?: { runId?: string; modelId?: string },
   ) => ModelCallAccountingInput | undefined;
   private readonly createProviderRequestTracker: (input: {
     turnId: string;
     callKind: ModelCallKind;
     modelId: string;
+    runId?: string;
   }) => ProviderRequestTracker | undefined;
   private readonly materializeRuntimeReplayPlan: (
     plan: RuntimeEventModelReplayPlan,
@@ -396,6 +402,11 @@ export class AiSdkCompaction {
   public async writeHistoryCompactCheckpoint(input: {
     requestShapeHashBefore?: string;
     turnId: string;
+    /**
+     * Present for a manual compaction, which runs outside `send()` and so has
+     * no live run for the backend to resolve. Absent mid-send, where it does.
+     */
+    runId?: string;
     contextBudget: ContextBudgetPolicy;
     priorRuntimeContext: readonly RuntimeEvent[];
     draftBlock: HistoryCompactBlock;
@@ -408,7 +419,9 @@ export class AiSdkCompaction {
     const summarizer = this.input.summarizeHistoryCompact;
     const recorder = this.input.recordHistoryCompactCheckpoint;
     if (!summarizer || !recorder) return { diagnosticPatch: {} };
-    const historyCompactAccounting = this.modelCallAccounting('history_compact');
+    const historyCompactAccounting = this.modelCallAccounting('history_compact', {
+      ...(input.runId ? { runId: input.runId } : {}),
+    });
     const foldedIds = new Set(input.draftBlock.coverage.runtimeEventIds);
     const foldedRuntimeEvents = input.priorRuntimeContext.filter((event) =>
       foldedIds.has(event.id),
@@ -782,6 +795,8 @@ export class AiSdkCompaction {
             }
             const writePatch = await this.writeHistoryCompactCheckpoint({
               turnId: input.turnId,
+              // A manual compaction names its own run: nothing else can (#1679).
+              runId: input.runId,
               contextBudget: writeContextBudget,
               priorRuntimeContext: runtimeContext,
               draftBlock: draftBlocks[0]!,
