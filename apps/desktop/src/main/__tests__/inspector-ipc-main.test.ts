@@ -6,7 +6,7 @@ import {
   type ModelCallAttempt,
 } from '@maka/core/model-call-attempt';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
-import { readSessionTrace } from '../inspector-ipc-main.js';
+import { readSessionTrace, registerInspectorIpc } from '../inspector-ipc-main.js';
 
 function attempt(overrides: Partial<ModelCallAttempt> = {}): ModelCallAttempt {
   return {
@@ -121,5 +121,32 @@ describe('inspector trace read', () => {
 
     assert.equal(trace.turns.length, 0);
     assert.equal(trace.coverage.modelCalls, 'none');
+  });
+
+  it('answers a failed read as a typed error rather than a rejected invoke', async () => {
+    // The renderer treats the channel as `Result`; an unwrapped rejection would
+    // surface as an unhandled invoke failure instead of a retryable panel state.
+    const handlers = new Map<string, (event: unknown, ...args: never[]) => unknown>();
+    registerInspectorIpc({
+      ipcMain: {
+        handle: (channel: string, handler: (event: unknown, ...args: never[]) => unknown) => {
+          handlers.set(channel, handler);
+        },
+      } as never,
+      readSessionRuntimeEvents: async () => {
+        throw new Error('ledger unavailable');
+      },
+      listSessionRuns: async () => [],
+      readRunEvents: async () => [],
+    });
+
+    const handler = handlers.get('inspector:trace');
+    assert.ok(handler, 'the channel is registered');
+    const result = (await handler(undefined, 'session-1' as never)) as {
+      ok: boolean;
+      error?: { code: string };
+    };
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, 'INSPECTOR_TRACE_FAILED');
   });
 });

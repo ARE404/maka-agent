@@ -4,6 +4,7 @@ import {
   SESSION_TRACE_SCHEMA_VERSION,
   emptyTraceTotals,
   type SessionTrace,
+  type TraceStep,
 } from '@maka/core/session-trace';
 import { deriveInspectorPanelModel } from '../../renderer/session-inspector-panel-model.js';
 
@@ -133,8 +134,7 @@ describe('inspector panel model', () => {
                 durationMs: 200,
                 toolName: 'Bash',
                 status: 'failed',
-                failed: true,
-              } as never,
+              } satisfies TraceStep,
               {
                 kind: 'permission',
                 id: 'permission-1',
@@ -142,7 +142,7 @@ describe('inspector panel model', () => {
                 runId: 'run-1',
                 startedAt: 2_000,
                 decision: 'allow',
-              } as never,
+              } satisfies TraceStep,
             ],
           },
         ],

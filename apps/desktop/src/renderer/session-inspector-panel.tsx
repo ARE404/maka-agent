@@ -66,7 +66,11 @@ export function SessionInspectorPanel(props: { sessionId: string; active: boolea
         </header>
       )}
 
-      {model.empty && !snapshot.loading && <p className="maka-inspector-empty">{copy.empty}</p>}
+      {/* "Nothing to trace" is a claim about the session; a failed read cannot
+          make it, so the error stands alone. */}
+      {model.empty && !snapshot.loading && !snapshot.error && (
+        <p className="maka-inspector-empty">{copy.empty}</p>
+      )}
 
       <ol className="maka-inspector-turns">
         {model.turns.map((turn) => (

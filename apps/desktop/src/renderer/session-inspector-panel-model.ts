@@ -1,4 +1,4 @@
-import type { SessionTrace, TraceStep, TraceTotals } from '@maka/core/session-trace';
+import { emptyTraceTotals, type SessionTrace, type TraceStep, type TraceTotals } from '@maka/core/session-trace';
 
 /**
  * View model for the Inspector panel (#1625).
@@ -59,7 +59,7 @@ export interface InspectorPanelModel {
 }
 
 export function deriveInspectorPanelModel(trace: SessionTrace | undefined): InspectorPanelModel {
-  if (!trace) return { turns: [], totals: emptyTotals(), empty: true };
+  if (!trace) return { turns: [], totals: emptyTraceTotals(), empty: true };
 
   const turns = trace.turns.map<InspectorTurnRow>((turn) => ({
     turnId: turn.turnId,
@@ -147,14 +147,3 @@ function coverageNotice(trace: SessionTrace): InspectorCoverageNotice | undefine
   };
 }
 
-function emptyTotals(): TraceTotals {
-  return {
-    durationMs: 0,
-    modelAttempts: 0,
-    retries: 0,
-    compactions: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    unpricedAttempts: 0,
-  };
-}
