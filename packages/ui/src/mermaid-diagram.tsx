@@ -11,6 +11,9 @@ export const MAX_MERMAID_EDGES = 500;
 export const MIN_MERMAID_ZOOM = 0.5;
 export const MAX_MERMAID_ZOOM = 3;
 export const MERMAID_ZOOM_STEP = 0.25;
+const MIN_MERMAID_VIEWPORT_HEIGHT = 112;
+const MAX_MERMAID_VIEWPORT_HEIGHT = 480;
+const MAX_MERMAID_VIEWPORT_HEIGHT_RATIO = 0.55;
 
 type MermaidTheme = 'default' | 'dark';
 
@@ -18,6 +21,11 @@ type MermaidRenderState =
   | { status: 'loading' }
   | { status: 'rendered'; svg: string; naturalWidth: number; naturalHeight: number }
   | { status: 'error'; reason: 'invalid' | 'too-large' };
+
+type MermaidViewportLayout = {
+  fitWidth: number;
+  viewportHeight: number;
+};
 
 let mermaidModule: Promise<typeof import('mermaid').default> | undefined;
 let renderQueue: Promise<void> = Promise.resolve();
@@ -106,6 +114,7 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
   const [zoom, setZoom] = useState(1);
   const [expanded, setExpanded] = useState(false);
   const [panning, setPanning] = useState(false);
+  const [viewportLayout, setViewportLayout] = useState<MermaidViewportLayout | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{
     pointerId: number;
@@ -123,6 +132,7 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
 
     let cancelled = false;
     setZoom(1);
+    setViewportLayout(null);
     setState({ status: 'loading' });
     void renderMermaid(props.code, theme).then(
       (svg) => {
@@ -140,6 +150,63 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
     };
   }, [props.code, theme]);
 
+  const naturalWidth = state.status === 'rendered' ? state.naturalWidth : 0;
+  const naturalHeight = state.status === 'rendered' ? state.naturalHeight : 0;
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || naturalWidth <= 0 || naturalHeight <= 0) return;
+
+    let frame = 0;
+    const updateLayout = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const style = getComputedStyle(viewport);
+        const horizontalPadding = (Number.parseFloat(style.paddingLeft) || 0)
+          + (Number.parseFloat(style.paddingRight) || 0);
+        const verticalPadding = (Number.parseFloat(style.paddingTop) || 0)
+          + (Number.parseFloat(style.paddingBottom) || 0);
+        const availableWidth = Math.max(1, viewport.clientWidth - horizontalPadding);
+        const maxViewportHeight = expanded
+          ? Math.max(MIN_MERMAID_VIEWPORT_HEIGHT, viewport.clientHeight)
+          : Math.max(
+              MIN_MERMAID_VIEWPORT_HEIGHT,
+              Math.min(
+                MAX_MERMAID_VIEWPORT_HEIGHT,
+                window.innerHeight * MAX_MERMAID_VIEWPORT_HEIGHT_RATIO,
+              ),
+            );
+        const availableHeight = Math.max(1, maxViewportHeight - verticalPadding);
+        const fitScale = Math.min(
+          1,
+          availableWidth / naturalWidth,
+          availableHeight / naturalHeight,
+        );
+        const fitWidth = naturalWidth * fitScale;
+        const viewportHeight = Math.max(
+          MIN_MERMAID_VIEWPORT_HEIGHT,
+          Math.min(maxViewportHeight, naturalHeight * fitScale + verticalPadding),
+        );
+        setViewportLayout((current) =>
+          current
+          && Math.abs(current.fitWidth - fitWidth) < 0.5
+          && Math.abs(current.viewportHeight - viewportHeight) < 0.5
+            ? current
+            : { fitWidth, viewportHeight });
+      });
+    };
+
+    updateLayout();
+    const observer = new ResizeObserver(updateLayout);
+    observer.observe(viewport);
+    window.addEventListener('resize', updateLayout);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener('resize', updateLayout);
+    };
+  }, [expanded, naturalHeight, naturalWidth]);
+
   useEffect(() => {
     if (!expanded) return;
     const previousOverflow = document.body.style.overflow;
@@ -154,21 +221,28 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
     };
   }, [expanded]);
 
-  function updateZoom(nextZoom: number) {
+  function updateZoom(nextZoom: number, anchor?: { clientX: number; clientY: number }) {
     const next = clampMermaidZoom(nextZoom);
     if (next === zoom) return;
     const viewport = viewportRef.current;
-    const centerX = viewport && viewport.scrollWidth > 0
-      ? (viewport.scrollLeft + viewport.clientWidth / 2) / viewport.scrollWidth
+    const viewportBounds = viewport?.getBoundingClientRect();
+    const anchorX = viewport && viewportBounds && anchor
+      ? Math.min(viewport.clientWidth, Math.max(0, anchor.clientX - viewportBounds.left))
+      : (viewport?.clientWidth ?? 0) / 2;
+    const anchorY = viewport && viewportBounds && anchor
+      ? Math.min(viewport.clientHeight, Math.max(0, anchor.clientY - viewportBounds.top))
+      : (viewport?.clientHeight ?? 0) / 2;
+    const contentX = viewport && viewport.scrollWidth > 0
+      ? (viewport.scrollLeft + anchorX) / viewport.scrollWidth
       : 0.5;
-    const centerY = viewport && viewport.scrollHeight > 0
-      ? (viewport.scrollTop + viewport.clientHeight / 2) / viewport.scrollHeight
+    const contentY = viewport && viewport.scrollHeight > 0
+      ? (viewport.scrollTop + anchorY) / viewport.scrollHeight
       : 0.5;
     setZoom(next);
     requestAnimationFrame(() => {
       if (!viewport) return;
-      viewport.scrollLeft = centerX * viewport.scrollWidth - viewport.clientWidth / 2;
-      viewport.scrollTop = centerY * viewport.scrollHeight - viewport.clientHeight / 2;
+      viewport.scrollLeft = contentX * viewport.scrollWidth - anchorX;
+      viewport.scrollTop = contentY * viewport.scrollHeight - anchorY;
     });
   }
 
@@ -185,13 +259,16 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
   const className = `maka-markdown-code maka-markdown-code-${props.density}`;
   if (state.status === 'rendered') {
     const zoomPercent = Math.round(zoom * 100);
-    const canvasWidth = `min(${state.naturalWidth * zoom}px, ${zoomPercent}%)`;
+    const canvasWidth = viewportLayout
+      ? `${viewportLayout.fitWidth * zoom}px`
+      : `min(${state.naturalWidth * zoom}px, ${zoomPercent}%)`;
     return (
       <figure
         className={`${className} maka-mermaid-diagram${expanded ? ' maka-mermaid-diagram-expanded' : ''}`}
         data-maka-contract="mermaid"
         data-maka-mermaid-state="rendered"
         data-maka-mermaid-zoom={zoom.toFixed(2)}
+        data-maka-mermaid-layout={viewportLayout ? 'ready' : 'measuring'}
         aria-label={copy.mermaidDiagram}
       >
         <figcaption className="maka-mermaid-toolbar">
@@ -243,6 +320,9 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
           ref={viewportRef}
           className="maka-mermaid-viewport"
           data-maka-mermaid-panning={panning ? 'true' : 'false'}
+          style={expanded || !viewportLayout
+            ? undefined
+            : { height: `${viewportLayout.viewportHeight}px` }}
           aria-label={copy.mermaidViewport}
           tabIndex={0}
           onKeyDown={(event) => {
@@ -260,7 +340,10 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
           onWheel={(event) => {
             if (!event.ctrlKey && !event.metaKey) return;
             event.preventDefault();
-            updateZoom(zoom + (event.deltaY < 0 ? MERMAID_ZOOM_STEP : -MERMAID_ZOOM_STEP));
+            updateZoom(
+              zoom + (event.deltaY < 0 ? MERMAID_ZOOM_STEP : -MERMAID_ZOOM_STEP),
+              { clientX: event.clientX, clientY: event.clientY },
+            );
           }}
           onPointerDown={(event) => {
             const viewport = viewportRef.current;
