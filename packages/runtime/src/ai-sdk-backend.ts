@@ -572,7 +572,6 @@ export class AiSdkBackend implements AgentBackend {
       sessionId: this.sessionId,
       now: this.now,
       modelAdapter: this.modelAdapter,
-      modelCallAccounting: (callKind, identity) => this.modelCallAccounting(callKind, identity),
       createProviderRequestTracker: (trackerInput) =>
         this.createProviderRequestTracker(trackerInput),
       materializeRuntimeReplayPlan: (plan) => this.materializeRuntimeReplayPlan(plan),

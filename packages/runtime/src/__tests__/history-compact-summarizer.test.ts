@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { expect } from '../test-helpers.js';
 import type { RuntimeEvent, RuntimeEventContent } from '@maka/core/runtime-event';
 import { decodeModelCallAttempt, type ModelCallAttempt } from '@maka/core/model-call-attempt';
+import { ProviderRequestTracker } from '../provider-request-telemetry.js';
 import type { HistoryCompactSummaryInput } from '../ai-sdk-compaction-contract.js';
 import {
   buildLlmHistorySummarizer,
@@ -116,7 +117,14 @@ describe('buildLlmHistorySummarizer', () => {
             warnings: [],
           },
         }),
-      providerRequestTracking: {
+    });
+
+    // The backend hands over a built tracker; the summarizer assembles nothing.
+    await summarize({
+      ...inputWith([ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'hi' } })]),
+      providerRequestTracker: new ProviderRequestTracker({
+        traceId: 'trace-id',
+        turnId: 'turn-1',
         now: () => {
           now += 10;
           return now;
@@ -124,21 +132,17 @@ describe('buildLlmHistorySummarizer', () => {
         newId: () => 'trace-id',
         persistCapture: async () => ({ artifactId: 'artifact-1' }),
         recordAttempt: () => {},
-      },
-    });
-
-    await summarize({
-      ...inputWith([ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'hi' } })]),
-      accounting: {
-        sessionId: 'sess-1',
-        resolveRunId: () => 'run-1',
-        connectionSlug: 'connection',
-        providerId: 'provider',
-        callKind: 'history_compact',
-        record: (attempt) => {
-          recorded.push(attempt);
+        accounting: {
+          sessionId: 'sess-1',
+          resolveRunId: () => 'run-1',
+          connectionSlug: 'connection',
+          providerId: 'provider',
+          callKind: 'history_compact',
+          record: (attempt: ModelCallAttempt) => {
+            recorded.push(attempt);
+          },
         },
-      },
+      }),
     });
 
     const attempt = decodeModelCallAttempt(recorded[0]);

@@ -135,9 +135,8 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       mode: effectivePermissionMode,
       cwd: ctx.header.cwd,
     });
-    // Hoisted so the auxiliary summarizer can share them with the send path:
-    // capture is optional plumbing, the context window is a property of the
-    // model both calls run against.
+    // Hoisted out of the backend input so the shape stays readable; the
+    // auxiliary summarizer no longer needs any of it (#1679).
     const providerRequestCapture = ctx.recordProviderRequestCapture
       ? createProviderRequestCaptureRecorder({
           persistArtifact: async (capture) => {
@@ -154,7 +153,6 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
           recordLedger: ctx.recordProviderRequestCapture,
         })
       : undefined;
-    const summarizerContextWindow = resolveSelectedModelContextWindow(connection, model);
 
     return new AiSdkBackend({
       sessionId: ctx.sessionId,
@@ -345,18 +343,6 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
         resolveModel: () =>
           getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
         providerOptions: buildProviderOptions(connection, model, ctx.header.thinkingLevel),
-        // Without this the accounting the backend computes for a history
-        // compaction is handed to a summarizer that has nowhere to settle it,
-        // and the call goes unmetered. Capture joins in only when configured.
-        providerRequestTracking: {
-          now: Date.now,
-          newId: randomUUID,
-          ...(providerRequestCapture ? { persistCapture: providerRequestCapture } : {}),
-          recordAttempt: ctx.recordProviderRequestAttempt ?? (() => {}),
-          ...(summarizerContextWindow !== undefined
-            ? { contextWindow: summarizerContextWindow }
-            : {}),
-        },
       }),
       loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
       writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event, {

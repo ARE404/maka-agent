@@ -1,7 +1,7 @@
 import type { RuntimeExecutionConnection } from '@maka/core/llm-connections';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 
-import type { ModelCallAccountingInput } from './provider-request-telemetry.js';
+import type { ProviderRequestTracker } from './provider-request-telemetry.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';
 import type { ActiveToolResultArchiveCandidate } from './active-tool-result-prune.js';
 import type {
@@ -119,12 +119,14 @@ export interface HistoryCompactSummaryInput {
   requestShapeHashBefore?: string;
   abortSignal?: AbortSignal;
   /**
-   * Accounting identity for this summarization call (#1679). Supplied per call
-   * rather than baked into the summarizer, because the host that configures the
-   * summarizer cannot know which run is active — `runId` is per-turn state the
-   * backend holds.
+   * Physical-call tracking for this summarization, built by the backend (#1679).
+   *
+   * A *ready* tracker, not the parts to assemble one: the products that wire a
+   * summarizer cannot know the run a call belongs to, and every root that had to
+   * assemble it independently eventually forgot a piece. Absent when the product
+   * supplied no canonical sink, which leaves the call untracked.
    */
-  accounting?: ModelCallAccountingInput;
+  providerRequestTracker?: ProviderRequestTracker;
 }
 export type HistoryCompactSummarizer = (
   input: HistoryCompactSummaryInput,

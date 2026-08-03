@@ -4,11 +4,7 @@ import { toolResultOutput } from './tool-result-output.js';
 import type { HistoryCompactSummaryInput } from './ai-sdk-compaction-contract.js';
 import { HistoryCompactSummarizerError } from './history-compact-error.js';
 import type { AiSdkUsageLike } from './model-adapter.js';
-import {
-  ProviderRequestTracker,
-  withProviderGenerateTracking,
-  type ProviderRequestTrackerInput,
-} from './provider-request-telemetry.js';
+import { withProviderGenerateTracking } from './provider-request-telemetry.js';
 
 export { HistoryCompactSummarizerError } from './history-compact-error.js';
 
@@ -32,8 +28,6 @@ export interface BuildLlmHistorySummarizerOptions {
   providerOptions?: Record<string, unknown>;
   /** Injectable `generateText` for tests; defaults to the real AI SDK export. */
   generateText?: AiSdkGenerateTextLike;
-  /** Physical provider-call capture and attempt tracking for generated summaries. */
-  providerRequestTracking?: Omit<ProviderRequestTrackerInput, 'traceId' | 'turnId'>;
 }
 
 // Conversation-summarization prompt (sectioned, modelled on pi/opencode):
@@ -87,17 +81,9 @@ export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOpti
           ],
         });
       }
-      const providerRequestTracker = options.providerRequestTracking
-        ? new ProviderRequestTracker({
-            ...options.providerRequestTracking,
-            traceId: options.providerRequestTracking.newId(),
-            turnId: input.turnId,
-            // Per call, not per summarizer: the host wires the capture and
-            // attempt plumbing once, but only the caller knows the run this
-            // summarization belongs to.
-            ...(input.accounting ? { accounting: input.accounting } : {}),
-          })
-        : undefined;
+      // Handed over whole by the backend, which owns every input a tracker
+      // needs — including the run, which no summarizer wiring can know (#1679).
+      const providerRequestTracker = input.providerRequestTracker;
       const ai =
         options.generateText && !providerRequestTracker ? undefined : await loadAiSdkTextModule();
       const generateText = options.generateText ?? ai!.generateText;

@@ -265,15 +265,8 @@ function buildFixture(options: MidTurnFixtureOptions = {}): MidTurnFixture {
       warnings: [],
     },
   });
-  let summarizerIds = 0;
   const meteredSummarize = buildLlmHistorySummarizer({
     resolveModel: () => summarizerModel,
-    providerRequestTracking: {
-      now: () => 5_000,
-      newId: () => `summarizer-id-${++summarizerIds}`,
-      persistCapture: async () => ({ artifactId: 'artifact-mid-turn-capture' }),
-      recordAttempt: () => {},
-    },
   });
 
   const backend = createTestAiSdkBackend({

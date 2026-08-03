@@ -83,10 +83,7 @@ import {
 } from './model-history.js';
 import { toolSchemaCharsForDiagnostics } from './request-shape.js';
 import type { ModelCallKind } from '@maka/core/model-call-attempt';
-import type {
-  ModelCallAccountingInput,
-  ProviderRequestTracker,
-} from './provider-request-telemetry.js';
+import type { ProviderRequestTracker } from './provider-request-telemetry.js';
 import {
   estimateNextRequestTokens,
   exceedsHighWater,
@@ -100,14 +97,6 @@ export interface AiSdkCompactionDeps {
   sessionId: string;
   now: () => number;
   modelAdapter: ModelAdapter;
-  /**
-   * Accounting identity for a compaction call, resolved by the backend because
-   * `runId` changes per turn and only it holds the current one (#1679).
-   */
-  modelCallAccounting: (
-    callKind: ModelCallKind,
-    identity?: { runId?: string; modelId?: string },
-  ) => ModelCallAccountingInput | undefined;
   /**
    * A ready tracker for a compaction call that has none of its own. The backend
    * hands over the built tracker rather than the capture, attempt, and id sinks
@@ -132,10 +121,6 @@ export class AiSdkCompaction {
   private readonly sessionId: string;
   private readonly now: () => number;
   private readonly modelAdapter: ModelAdapter;
-  private readonly modelCallAccounting: (
-    callKind: ModelCallKind,
-    identity?: { runId?: string; modelId?: string },
-  ) => ModelCallAccountingInput | undefined;
   private readonly createProviderRequestTracker: (input: {
     turnId: string;
     callKind: ModelCallKind;
@@ -157,7 +142,6 @@ export class AiSdkCompaction {
     this.sessionId = deps.sessionId;
     this.now = deps.now;
     this.modelAdapter = deps.modelAdapter;
-    this.modelCallAccounting = deps.modelCallAccounting;
     this.createProviderRequestTracker = deps.createProviderRequestTracker;
     this.materializeRuntimeReplayPlan = deps.materializeRuntimeReplayPlan;
     this.canReplayProviderNative = deps.canReplayProviderNative;
@@ -419,7 +403,11 @@ export class AiSdkCompaction {
     const summarizer = this.input.summarizeHistoryCompact;
     const recorder = this.input.recordHistoryCompactCheckpoint;
     if (!summarizer || !recorder) return { diagnosticPatch: {} };
-    const historyCompactAccounting = this.modelCallAccounting('history_compact', {
+    // One tracker for this summarization, built where every input lives.
+    const historyCompactTracker = this.createProviderRequestTracker({
+      turnId: input.turnId,
+      callKind: 'history_compact',
+      modelId: this.input.modelId,
       ...(input.runId ? { runId: input.runId } : {}),
     });
     const foldedIds = new Set(input.draftBlock.coverage.runtimeEventIds);
@@ -497,7 +485,7 @@ export class AiSdkCompaction {
           newlyFoldedRuntimeEvents,
           requestShapeHashBefore: input.requestShapeHashBefore,
           abortSignal: input.abortSignal,
-          ...(historyCompactAccounting ? { accounting: historyCompactAccounting } : {}),
+          ...(historyCompactTracker ? { providerRequestTracker: historyCompactTracker } : {}),
         }),
       );
       if (!summary?.trim()) {
@@ -1474,7 +1462,11 @@ export class AiSdkCompaction {
       abortSignal,
     } = input;
     const summarizer = this.input.summarizeHistoryCompact!;
-    const midTurnAccounting = this.modelCallAccounting('history_compact');
+    const midTurnTracker = this.createProviderRequestTracker({
+      turnId,
+      callKind: 'history_compact',
+      modelId: this.input.modelId,
+    });
     const recorder = this.input.recordHistoryCompactCheckpoint!;
     const loadTurnRuntimeEvents = this.input.loadTurnRuntimeEvents!;
     const policy = this.input.contextBudget!;
@@ -1572,7 +1564,7 @@ export class AiSdkCompaction {
             ...(previousCheckpoint ? { previousCheckpoint } : {}),
             newlyFoldedRuntimeEvents: [...newlyFoldedRuntimeEvents],
             ...(abortSignal ? { abortSignal } : {}),
-            ...(midTurnAccounting ? { accounting: midTurnAccounting } : {}),
+            ...(midTurnTracker ? { providerRequestTracker: midTurnTracker } : {}),
           }),
         );
       },

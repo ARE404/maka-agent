@@ -3781,7 +3781,6 @@ describe('SessionManager manual compaction', () => {
         warnings: [],
       },
     });
-    let summarizerIds = 0;
     backends.register('fake', (ctx) =>
       createTestAiSdkBackend({
         sessionId: ctx.sessionId,
@@ -3828,11 +3827,6 @@ describe('SessionManager manual compaction', () => {
         },
         summarizeHistoryCompact: buildLlmHistorySummarizer({
           resolveModel: () => summarizerModel,
-          providerRequestTracking: {
-            now: () => 7_000,
-            newId: () => `manual-summarizer-${++summarizerIds}`,
-            recordAttempt: () => {},
-          },
         }),
         recordHistoryCompactCheckpoint: () => {},
         recordModelCallAttempt: (attempt) => {
