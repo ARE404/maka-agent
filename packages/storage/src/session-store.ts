@@ -256,6 +256,7 @@ export interface SessionAuthorityStore extends SessionStore {
     state: 'active' | 'archived',
   ): Promise<SessionHeaderSnapshot[]>;
   removeSessionsVersioned(sessions: readonly VersionedSessionIdentity[]): Promise<string[]>;
+  reconcileOrphanedAgentGraphRetirements(): Promise<string[]>;
   listPendingSessionRetirementCleanupIds(sessionId?: string): Promise<string[]>;
   purgeRemovedSessionTranscript(sessionId: string): Promise<void>;
   completeSessionRetirementCleanup(sessionId: string): Promise<void>;
@@ -728,6 +729,11 @@ class SqliteSessionStore implements SessionAuthorityStore {
   async removeSessionsVersioned(sessions: readonly VersionedSessionIdentity[]): Promise<string[]> {
     await this.ensureReady();
     return this.metadata.removeVersioned(sessions);
+  }
+
+  async reconcileOrphanedAgentGraphRetirements(): Promise<string[]> {
+    await this.ensureReady();
+    return this.metadata.reconcileOrphanedAgentGraphRetirements();
   }
 
   async listPendingSessionRetirementCleanupIds(sessionId?: string): Promise<string[]> {
@@ -2184,6 +2190,7 @@ export function createUserMessage(input: {
   text: string;
   displayText?: string;
   attachments?: UserMessage['attachments'];
+  inlineReferences?: UserMessage['inlineReferences'];
 }): UserMessage {
   return {
     type: 'user',
@@ -2193,5 +2200,6 @@ export function createUserMessage(input: {
     text: input.text,
     ...(input.displayText !== undefined ? { displayText: input.displayText } : {}),
     attachments: input.attachments,
+    ...(input.inlineReferences !== undefined ? { inlineReferences: input.inlineReferences } : {}),
   };
 }

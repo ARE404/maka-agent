@@ -16,7 +16,8 @@ const DESKTOP_ROOT = process.cwd();
  * `toHaveText` and type with `fill` / `pressSequentially`.
  *
  * `toHaveText` reads an inline token's rendered label, not the value it
- * serializes to on send. Assert a mention's wire form on the sent message.
+ * serializes to on send. Assert a mention's wire form through the fake
+ * backend echo and its display form on the sent message.
  */
 export const COMPOSER_INPUT = '.maka-composer-editor [contenteditable="true"]';
 
@@ -227,6 +228,7 @@ async function withE2eWindow(
 
 export const test = base.extend<{
   window: Page;
+  firstRunWindow: Page;
   modelPickerLongWindow: Page;
   longTranscriptWindow: Page;
   sidebarLongSessionsWindow: Page;
@@ -236,8 +238,6 @@ export const test = base.extend<{
   staleSessionsWindow: Page;
   sessionWorkbarWindow: Page;
   botSettingsWindow: Page;
-  /** #1361: Permissions page with the typed OS-permission snapshot fixture. */
-  permissionSettingsWindow: Page;
   localeSwitchWindow: Page;
   invocableSkillsWindow: Page;
   planRemindersWindow: Page;
@@ -247,6 +247,19 @@ export const test = base.extend<{
   // Used by chat / session / settings / attachment specs.
   window: async ({}, use) => {
     await withE2eWindow({ seed: true, readinessSelector: COMPOSER_INPUT, locale: 'zh' }, use);
+  },
+  // No connection: the real main process derives `needs_connection`, and the
+  // renderer replaces the empty chat with the first-task activation card.
+  firstRunWindow: async ({}, use) => {
+    await withE2eWindow(
+      {
+        seed: false,
+        readinessSelector: '[data-maka-contract="onboarding-card"]',
+        e2eFixtureScenario: 'first-run',
+        locale: 'zh',
+      },
+      use,
+    );
   },
   modelPickerLongWindow: async ({}, use) => {
     await withE2eWindow(
@@ -368,20 +381,6 @@ export const test = base.extend<{
   botSettingsWindow: async ({}, use) => {
     await withE2eWindow(
       { seed: false, readinessSelector: '[aria-label="设置内容"]', e2eFixtureScenario: 'settings-bots', locale: 'zh' },
-      use,
-    );
-  },
-  // One live window-floor smoke: permission rows with the three-button guided
-  // screen-recording shape. CSS contracts pin declarations; this measures
-  // scrollWidth containment at SAFE_MIN_WIDTH (480).
-  permissionSettingsWindow: async ({}, use) => {
-    await withE2eWindow(
-      {
-        seed: false,
-        readinessSelector: '.settingsOsPermissionRow',
-        e2eFixtureScenario: 'settings-permissions',
-        locale: 'zh',
-      },
       use,
     );
   },

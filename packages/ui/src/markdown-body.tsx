@@ -6,9 +6,8 @@
  * product trust boundaries that a design-system component cannot know about:
  * eager display-layer redaction and the closed-world URL policy.
  *
- * The conversation owns stream pacing. This layer only applies Astryx's pure
- * incomplete-syntax repair before parsing; enabling `isStreaming` would add a
- * second text smoother. PR 8 transfers the wider streaming and scroll boundary.
+ * Astryx owns stream pacing and incremental parsing. Maka keeps only the
+ * product-specific trust boundaries around that renderer.
  */
 
 import { useContext, type ReactNode } from 'react';
@@ -16,7 +15,6 @@ import {
   Markdown as AstryxMarkdown,
   type MarkdownComponents,
 } from '@astryxdesign/core/Markdown';
-import { trimStreamingArtifacts } from '@astryxdesign/core/Markdown/utils';
 import { Link as AstryxLink } from '@astryxdesign/core/Link';
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import {
@@ -58,10 +56,7 @@ export function MarkdownBody(props: {
   streaming?: boolean;
   density?: 'default' | 'compact';
 }) {
-  const parseableText = props.streaming
-    ? trimStreamingArtifacts(props.text)
-    : props.text;
-  const safeText = neutralizeUnsafeMarkdownImages(parseableText);
+  const safeText = neutralizeUnsafeMarkdownImages(props.text);
   const density = props.density ?? 'default';
   const components = props.streaming
     ? density === 'compact'
@@ -93,6 +88,7 @@ export function MarkdownBody(props: {
         // the one combination neither half of the argument asks for.
         density={density}
         components={components}
+        isStreaming={props.streaming}
       >
         {safeText}
       </AstryxMarkdown>

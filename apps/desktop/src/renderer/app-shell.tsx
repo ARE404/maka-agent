@@ -72,7 +72,7 @@ import {
   usePlanModeState,
 } from './plan-mode-panel';
 import { McpPage } from './mcp-page';
-import { useOnboardingSnapshot } from './use-onboarding-snapshot';
+import { getOnboardingActivationCandidate, useOnboardingSnapshot } from './use-onboarding-snapshot';
 import type { AppUpdateStatus, OnboardingSnapshot } from '../preload/bridge-contract.js';
 import { ProviderLogo } from './settings/provider-display';
 import { ProviderBrandMark } from './settings/provider-brand-marks';
@@ -107,7 +107,10 @@ import { useKeepSystemAwake } from './use-keep-system-awake';
 import { useAppShellProjectContext } from './use-project-context';
 import { createAppShellSessionEventHandlers } from './app-shell-session-events';
 import { createAppShellE2eFixtureActions } from './app-shell-e2e-fixture';
-import { createAppShellChatActions } from './app-shell-chat-actions';
+import {
+  createAppShellChatActions,
+  type WorkspaceFileReferencePosition,
+} from './app-shell-chat-actions';
 import { createAppShellTurnActions } from './app-shell-turn-actions';
 import {
   createAppShellRevisionActions,
@@ -142,6 +145,22 @@ import { useShellChatModel } from './use-shell-chat-model';
 import { useShellLiveTurn } from './use-shell-live-turn';
 import { useShellLayout } from './use-shell-layout';
 import { useShellResume } from './use-shell-resume';
+
+function rebaseWorkspaceFileReferences(
+  sourceText: string,
+  projectedText: string,
+  references: readonly WorkspaceFileReferencePosition[],
+): WorkspaceFileReferencePosition[] {
+  const offset = sourceText.lastIndexOf(projectedText);
+  if (offset < 0) return [];
+  return references
+    .filter(
+      (reference) =>
+        reference.start >= offset &&
+        reference.start + reference.value.length <= offset + projectedText.length,
+    )
+    .map((reference) => ({ ...reference, start: reference.start - offset }));
+}
 import { useSettingsModal } from './use-settings-modal';
 import { useSystemUiLocale } from './use-system-ui-locale';
 import {
@@ -157,11 +176,8 @@ type ComposerImportOwner = {
 };
 
 /**
- * Grace period before the committed-history fallback force-settles a draining
- * assistant stream slot. Comfortably past the smoother's completion drain
- * budget (600ms, smooth-stream.ts DEFAULT_COMPLETE_FLUSH_BUDGET_MS) so the
- * primary `onStreamingSettled` signal always wins in the healthy path and the
- * visible tail is never cut mid-typewriter.
+ * Grace period before the committed-history fallback force-settles an
+ * assistant stream slot when the primary post-commit signal is missed.
  */
 const SETTLE_FALLBACK_GRACE_MS = 1000;
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -317,6 +333,13 @@ function AppShellContent({
     refreshConnections,
     handleConnectionEvent,
   } = useShellConnections({ toastApi, uiLocale });
+  const onboarding = useOnboardingSnapshot(initialOnboardingSnapshot);
+  const onboardingState = onboarding.snapshot?.state;
+  const onboardingSettled = hasSettledInitialOnboarding(onboarding.snapshot?.milestones ?? []);
+  const onboardingActivationCandidate = getOnboardingActivationCandidate(
+    onboarding.snapshot,
+    sessions.length > 0,
+  );
   const {
     settingsOpen,
     settingsRequestedSection,
@@ -560,7 +583,7 @@ function AppShellContent({
   // PR-DAILY-REVIEW-MVP-0: bridge for the main Daily Review module.
   // Memoized so the panel's `useEffect` cleanup keys
   // off a stable reference instead of refetching on every render.
-  const dailyReviewBridge = useMemo(() => createAppShellDailyReviewBridge(connections, uiLocale), [connections, uiLocale]);
+  const dailyReviewBridge = useMemo(() => createAppShellDailyReviewBridge(uiLocale), [uiLocale]);
   const {
     appendDailyReviewMarkdown,
     copyDailyReviewMarkdown,
@@ -622,7 +645,6 @@ function AppShellContent({
     newChatModelLabel,
     newChatThinkingLevels,
     newChatThinkingLevel,
-    validPendingNewChatModel,
     setPendingNewChatModel,
     pendingNewChatThinkingLevel,
     setPendingNewChatThinkingLevel,
@@ -632,6 +654,7 @@ function AppShellContent({
     connections,
     connectionsRevision,
     defaultConnection,
+    activationCandidate: onboardingActivationCandidate,
     activeSession,
     // Only trust the loaded transcript once the active session's
     // messages finished loading; during the load the list may still be
@@ -1076,12 +1099,9 @@ function AppShellContent({
   // `sessions:changed` + `connections:event`. The hero renders only
   // when sessions.length === 0; any session (including archived /
   // aborted) takes over with the existing chat surface.
-  const onboarding = useOnboardingSnapshot(initialOnboardingSnapshot);
   // Re-entrancy lock only — a ref, not state, because nothing renders
   // from it (#1433 removed its last reader with the first-run hero).
   const sessionStartPendingRef = useRef(false);
-  const onboardingState = onboarding.snapshot?.state;
-  const onboardingSettled = hasSettledInitialOnboarding(onboarding.snapshot?.milestones ?? []);
   // Seed sessions from the onboarding snapshot on first load — the snapshot
   // already fetches the session list + connections internally, so separate
   // `sessions:list` / `connections:list` / `getDefault` IPCs are redundant.
@@ -1217,7 +1237,6 @@ function AppShellContent({
     refreshSkills,
     refreshManagedSkillSources,
     refreshBundledSkillCatalog,
-    createSkillTemplate,
     importManagedSkillSource,
     installManagedSkill,
     installBundledSkill,
@@ -1369,7 +1388,7 @@ function AppShellContent({
     showModelSetupToast,
     toastApi,
     upsertSessionSummary,
-    validPendingNewChatModel,
+    newChatModel: newChatModel ?? null,
     pendingNewChatThinkingLevel: newChatThinkingLevel ?? null,
     newChatCollaborationMode: newChatPlanModeActive ? 'plan' : 'agent',
     newChatOrchestrationMode: newChatGraphModeActive
@@ -1570,7 +1589,10 @@ function AppShellContent({
     upsertSessionSummary,
   });
 
-  async function sendWithAttachments(text: string): Promise<boolean | void> {
+  async function sendWithAttachments(
+    text: string,
+    metadata?: { workspaceFileReferences?: readonly WorkspaceFileReferencePosition[] },
+  ): Promise<boolean | void> {
     const revision = revisionDraftRef.current;
     const revisionSend = Boolean(
       revision && activeIdRef.current === revision.draftSessionId,
@@ -1646,6 +1668,15 @@ function AppShellContent({
       const ok = await send(swarmCommand.task, pending, {
         turnOrchestration: { mode: 'swarm', source: 'slash_command' },
         ...(quotes ? { quotes } : {}),
+        ...(metadata?.workspaceFileReferences?.length
+          ? {
+              workspaceFileReferences: rebaseWorkspaceFileReferences(
+                text,
+                swarmCommand.task,
+                metadata.workspaceFileReferences,
+              ),
+            }
+          : {}),
       });
       if (ok !== false && pending) clearSubmittedAttachments(pending);
       if (ok !== false && quotes) clearQuotes();
@@ -1679,6 +1710,15 @@ function AppShellContent({
       const ok = await send(graphCommand.task, pending, {
         turnOrchestration: { mode: 'graph', source: 'slash_command' },
         ...(quotes ? { quotes } : {}),
+        ...(metadata?.workspaceFileReferences?.length
+          ? {
+              workspaceFileReferences: rebaseWorkspaceFileReferences(
+                text,
+                graphCommand.task,
+                metadata.workspaceFileReferences,
+              ),
+            }
+          : {}),
       });
       if (ok !== false && pending) clearSubmittedAttachments(pending);
       if (ok !== false && quotes) clearQuotes();
@@ -1691,6 +1731,9 @@ function AppShellContent({
     const quotes = pendingQuotes.length > 0 ? pendingQuotes : undefined;
     const ok = await send(text, pending, {
       ...(quotes ? { quotes } : {}),
+      ...(metadata?.workspaceFileReferences?.length
+        ? { workspaceFileReferences: metadata.workspaceFileReferences }
+        : {}),
     });
     if (ok !== false && pending) clearSubmittedAttachments(pending);
     if (ok !== false && quotes) clearQuotes();
@@ -1739,25 +1782,17 @@ function AppShellContent({
   // Tool/thinking evidence may survive its event-triggered refresh, including
   // between steps of one running turn. Reconcile from durable evidence whenever
   // either side changes, so old output stays on its original tool instead of
-  // joining the next batch, without deleting text that the smoother still owns.
+  // joining the next batch, without deleting text that the live renderer still owns.
   const reconcilePersistedMessagesEffect = useEffectEvent(reconcilePersistedMessages);
   useEffect(() => {
     if (!activeId) return;
     reconcilePersistedMessagesEffect(activeId, messages);
   }, [activeId, activeLiveTurn, messages]);
 
-  // Streaming-settle handoff, FALLBACK path only. The primary settle signal
-  // is the bubble's own `onStreamingSettled` (ChatView below): it fires once
-  // the smoother has DISPLAYED the final text (catchingUp === false), so the
-  // user watches the tail type out before the live section swaps for the
-  // committed turn. This effect used to settle immediately when the committed
-  // assistant message appeared in `messages` — which lands mid-drain and cut
-  // the visible tail, snapping the last characters in with the swap. It now
-  // waits out a grace period comfortably past the smoother's completion drain
-  // budget (600ms): in the normal path `onStreamingSettled` clears the slot
-  // first and the delayed settle no-ops on its phase guard. The fallback stays
-  // because a stuck slot would otherwise hide the committed answer forever
-  // (`streamingMessageId` suppresses it while draining).
+  // Streaming-settle handoff, FALLBACK path only. The bubble's primary
+  // `onStreamingSettled` signal runs after Astryx commits the terminal text.
+  // Keep a delayed fallback because a stuck slot would otherwise hide the
+  // committed answer forever (`streamingMessageId` suppresses it while live).
   useEffect(() => {
     if (!activeId || !activeStreamingComplete || !activeStreamingMessageId) return;
     const committedAssistantArrived = messages.some(
@@ -2059,8 +2094,8 @@ function AppShellContent({
     >
       {/* Window chrome is frame-level hit-test only (not AppShell topNav): a
           transparent drag overlay so column surfaces paint to the window top.
-          Must precede the shell in document order for Chromium app-region
-          subtraction (see e2e/window-titlebar.spec.ts). */}
+          It precedes the shell so Chromium applies app-region subtraction from
+          one frame-level hit-test surface. */}
       <header
         className="maka-window-titlebar"
         aria-hidden={hasModalOpen ? 'true' : undefined}
@@ -2148,7 +2183,6 @@ function AppShellContent({
                   planReminders={planReminders}
                   onRefreshSkills={() => refreshSkills()}
                   onRefreshManagedSkillSources={() => refreshManagedSkillSources()}
-                  onCreateSkillTemplate={() => createSkillTemplate()}
                   onOpenSkill={(skillId) => openSkill(skillId)}
                   onUseSkill={useSkillInChat}
                   onOpenSkillsFolder={() => openSkillsFolder()}
@@ -2538,6 +2572,7 @@ function AppShellContent({
                   if (section) openSettingsSection(section);
                   else openSettings();
                 }}
+                onOpenConnectionDetail={openConnectionDetail}
                 onAddProvider={openProviderCreate}
                 onBrowseProviders={openProviderCatalog}
                 connections={connections}

@@ -110,7 +110,6 @@
   --link: var(--accent);
   --focus-ring: var(--accent);
   --status-running: var(--accent);
-  --nav-active: var(--accent);
   /* Cool info blue (h240, azure-family — see the blue-info alt themes at
      :773 nord h200 / :817 azure h240). Was amber h70, which collided with
      --warning's orange h55 (info + warning were indistinguishable). Blue is
@@ -461,8 +460,8 @@
      A consequence worth stating, because it limits what this convergence
      bought: a unitless leading still inherits as a ratio. An element that
      inherits a role's leading and then overrides its own font-size lands off
-     the grid again — measured, that is what `.maka-attachment-file-content`
-     did, holding 1.25 for a 14px name and a 12px size at once. The rule that
+     the grid again — measured, that is what the old file card did, holding
+     1.25 for a 14px name and a 12px size at once. The rule that
      follows from it is that leading belongs on the element that sets the size,
      never on a container above it. */
 
@@ -771,7 +770,6 @@
   --link: var(--accent);
   --focus-ring: var(--accent);
   --status-running: var(--accent);
-  --nav-active: var(--accent);
   --info: oklch(0.74 0.13 240);         /* blue — see light-mode note */
   --success: oklch(0.60 0.17 145);
   --destructive: oklch(0.70 0.19 22);
@@ -1465,25 +1463,10 @@ html[data-os="darwin"].dark {
   to   { background-position: -150% 0; }
 }
 
-/* Governance-level keyframe for the streaming per-word fade-in (streaming UI
-   rework) — the replacement for the retired ▎ blink caret. markdown-body's
-   rehype pass wraps each freshly streamed word/char (after the stable
-   boundary) in `.maka-stream-fade` with a negative `animation-delay` (= -age)
-   so the entrance resumes mid-flight across React re-renders instead of
-   re-flashing. Only opacity animates (no layout). The wrapping is skipped
-   entirely under reduced-motion / e2e-fixture (the smoother's snap path), so
-   this never freezes text at opacity 0 in a deterministic capture. */
+/* Shared short opacity entrance used by continuing and tool-settle cues. */
 @keyframes maka-stream-fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }
-}
-.maka-stream-fade {
-  /* --duration-large (280ms) is the fade window; FADE_MS in stream-fade.ts is
-     pinned to the same 280 so the negative animation-delay (= -age) lands at
-     the right point in the curve. Motion durations come from a
-     var(--duration-*) token, so the window is retuned there, not with a bare
-     ms here. */
-  animation: maka-stream-fade-in var(--duration-large) var(--ease-out-strong) both;
 }
 
 /* #642: the footer settle-entrance keyframe (`maka-footer-fade-in`) is gone.
