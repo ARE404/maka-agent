@@ -722,9 +722,13 @@ export type {
   AgentInvocationMode,
   AgentProfile,
   AgentProfileContract,
+  SubagentPresetAvailability,
+  SubagentPresetListItem,
   AgentWorkspaceMode,
   AgentWriteBackMode,
 } from './agent-catalog.js';
+export { createConfiguredSubagentCatalog } from './configured-subagent-catalog.js';
+export type { ConfiguredSubagentCatalog } from './configured-subagent-catalog.js';
 export {
   AGENT_SWARM_DEFAULT_CONCURRENCY,
   AGENT_SWARM_MAX_CONCURRENCY,
@@ -1233,6 +1237,10 @@ export type {
   StoredMessageEventContext,
   RuntimeEventToDraftOptions,
 } from './runtime-event-adapters.js';
+
+// session-trace-projection.ts — per-session causal trace for the Inspector (#1625).
+export { projectSessionTrace, attributeTurnFailure } from './session-trace-projection.js';
+export type { SessionTraceInput } from './session-trace-projection.js';
 
 // runtime-event-read-model.ts — side-by-side RuntimeEvent read projection.
 export {

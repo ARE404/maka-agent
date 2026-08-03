@@ -293,7 +293,11 @@ export {
   interpretScannedToolRecovery,
   validateToolRecoveryEventBundle,
 } from './tool-recovery-bundle.js';
-export { canonicalToolArgsHash, stableJsonStringify } from './tool-args-identity.js';
+export {
+  canonicalToolArgsHash,
+  stableJsonStringify,
+  stripUndefinedDeep,
+} from './tool-args-identity.js';
 export {
   encodeCanonicalRuntimeEvent,
   type CanonicalRuntimeEventEncoding,
@@ -1529,6 +1533,16 @@ export type {
   UsageSummary,
   UsageTab,
 } from './settings.js';
+
+export type { SubagentPreset, SubagentProfile, SubagentSettings } from './subagent-settings.js';
+export {
+  MAX_SUBAGENT_PRESETS,
+  SUBAGENT_PRESET_ID_MAX_CHARS,
+  SUBAGENT_PROFILES,
+  isSafeSubagentPresetId,
+  isSubagentProfile,
+  normalizeSubagentSettings,
+} from './subagent-settings.js';
 export {
   CHAT_DEFAULT_PERMISSION_MODES,
   DEFAULT_PROXY_BYPASS_DOMAINS,

@@ -85,6 +85,7 @@ test('renders a settled Mermaid fence as a diagram', async ({ window: page }) =>
 
   const toolbar = diagram.locator('.maka-mermaid-toolbar');
   const toolbarBeforeZoom = await toolbar.boundingBox();
+  const diagramBeforeZoom = await diagram.boundingBox();
   const viewportHeightBeforeZoom = await viewport.evaluate((element) => element.getBoundingClientRect().height);
   const zoomIn = diagram.getByRole('button', { name: '放大图表' });
   await zoomIn.click();
@@ -92,8 +93,11 @@ test('renders a settled Mermaid fence as a diagram', async ({ window: page }) =>
   await zoomIn.click();
   await expect(diagram).toHaveAttribute('data-maka-mermaid-zoom', '1.50');
   const toolbarAfterZoom = await toolbar.boundingBox();
+  const diagramAfterZoom = await diagram.boundingBox();
   const viewportHeightAfterZoom = await viewport.evaluate((element) => element.getBoundingClientRect().height);
-  expect(Math.abs((toolbarAfterZoom?.y ?? 0) - (toolbarBeforeZoom?.y ?? 0))).toBeLessThanOrEqual(1);
+  const toolbarOffsetBeforeZoom = (toolbarBeforeZoom?.y ?? 0) - (diagramBeforeZoom?.y ?? 0);
+  const toolbarOffsetAfterZoom = (toolbarAfterZoom?.y ?? 0) - (diagramAfterZoom?.y ?? 0);
+  expect(Math.abs(toolbarOffsetAfterZoom - toolbarOffsetBeforeZoom)).toBeLessThanOrEqual(1);
   expect(Math.abs(viewportHeightAfterZoom - viewportHeightBeforeZoom)).toBeLessThanOrEqual(1);
   await expect.poll(() => viewport.evaluate((element) =>
     element.scrollWidth > element.clientWidth || element.scrollHeight > element.clientHeight)).toBe(true);

@@ -29,6 +29,7 @@ import type {
 import { createDefaultSettings } from '@maka/core/settings';
 import { useMountedRef, useToast, useUiLocale } from '@maka/ui';
 import { ProvidersPanel } from './ProvidersPanel';
+import { SubagentPresetsPanel } from './subagent-presets-panel';
 import { safeLocalStorageSet } from '../browser-storage';
 import { AboutSettingsPage } from './about-settings-page';
 import { AppearanceSettingsPage } from './appearance-settings-page';
@@ -313,7 +314,7 @@ export function SettingsSurface(props: {
             <Layout
               height="fill"
               padding={0}
-              contentWidth={640}
+              contentWidth={section === 'usage' ? 920 : 640}
               header={(
                 <LayoutHeader padding={6}>
                   <div className="settingsPageHeader">
@@ -403,6 +404,11 @@ function SettingsPage(props: {
             initialCreateProviderType={props.initialCreateProviderType}
             onInitialCreateProviderConsumed={props.onInitialCreateProviderConsumed}
           />
+          <SubagentPresetsPanel
+            settings={props.settings}
+            connections={props.connections}
+            onUpdate={props.onUpdateSettings}
+          />
         </div>
       );
     case 'usage':
@@ -432,6 +438,7 @@ function SettingsPage(props: {
           connections={props.connections}
           defaultSlug={props.defaultSlug}
           onUpdate={props.onUpdateSettings}
+          onReloadSettings={props.onReloadSettings}
           onRefreshConnections={props.onRefreshConnections}
         />
       );
