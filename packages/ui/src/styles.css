@@ -168,7 +168,9 @@
 }
 .maka-mermaid-viewport {
   position: relative;
+  display: grid;
   min-width: 0;
+  align-items: center;
   overflow: auto;
   padding: var(--space-3);
   cursor: grab;

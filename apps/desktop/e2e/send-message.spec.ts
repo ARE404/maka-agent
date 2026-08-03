@@ -107,6 +107,7 @@ test('exposes the Astryx Markdown code-copy action', async ({ window: page }) =>
 });
 
 test('renders a settled Mermaid fence as a diagram', async ({ window: page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   const composer = page.locator(COMPOSER_INPUT);
   await composer.fill(FAKE_MERMAID_PROMPT);
   await composer.press('Enter');
@@ -146,6 +147,26 @@ test('renders a settled Mermaid fence as a diagram', async ({ window: page }) =>
   expect(zoomedBounds.content).not.toBeNull();
   expect(zoomedBounds.content?.top ?? 0).toBeGreaterThanOrEqual((zoomedBounds.svg?.top ?? 0) - 1);
   expect(zoomedBounds.content?.bottom ?? 0).toBeLessThanOrEqual((zoomedBounds.svg?.bottom ?? 0) + 1);
+  const verticalGaps = await viewport.evaluate((element) => {
+    element.style.minHeight = '140px';
+    const canvas = element.querySelector('.maka-mermaid-canvas');
+    const viewportRect = element.getBoundingClientRect();
+    const canvasRect = canvas?.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const borderTop = Number.parseFloat(style.borderTopWidth) || 0;
+    const paddingTop = Number.parseFloat(style.paddingTop) || 0;
+    const paddingBottom = Number.parseFloat(style.paddingBottom) || 0;
+    const contentTop = viewportRect.top + borderTop + paddingTop;
+    const contentBottom = viewportRect.top + borderTop + element.clientHeight - paddingBottom;
+    element.style.minHeight = '';
+    return {
+      top: canvasRect ? canvasRect.top - contentTop : null,
+      bottom: canvasRect ? contentBottom - canvasRect.bottom : null,
+    };
+  });
+  expect(verticalGaps.top).not.toBeNull();
+  expect(verticalGaps.bottom).not.toBeNull();
+  expect(Math.abs((verticalGaps.top ?? 0) - (verticalGaps.bottom ?? 0))).toBeLessThanOrEqual(1);
 
   await diagram.getByRole('button', { name: '适应视窗' }).click();
   await expect(diagram).toHaveAttribute('data-maka-mermaid-zoom', '1.00');
