@@ -51,11 +51,11 @@ export function useSessionTrace(
               sessionId: targetSessionId,
               ...(current.sessionId === targetSessionId ? { trace: current.trace } : {}),
               loading: false,
-              error: result.error.message ?? copy.loadFailed,
+              error: result.error.message || copy.loadFailed,
             }));
             return;
           }
-          setSnapshot({ sessionId: targetSessionId, trace: result.value, loading: false });
+          setSnapshot({ sessionId: targetSessionId, trace: result.data, loading: false });
         },
         (error: unknown) => {
           if (revision !== revisionRef.current) return;
