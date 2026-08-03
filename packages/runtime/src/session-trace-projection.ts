@@ -1,5 +1,9 @@
-import type { ModelCallAttempt } from '@maka/core/model-call-attempt';
-import type { RuntimeEvent } from '@maka/core/runtime-event';
+import {
+  dedupeModelCallAttempts,
+  groupModelCallAttempts,
+  type ModelCallAttempt,
+} from '@maka/core/model-call-attempt';
+import { TERMINAL_RUNTIME_EVENT_STATUSES, type RuntimeEvent } from '@maka/core/runtime-event';
 import {
   emptyTraceTotals,
   mergeTraceTotals,
@@ -37,12 +41,18 @@ export interface SessionTraceInput {
 
 export function projectSessionTrace(input: SessionTraceInput): SessionTrace {
   const events = input.runtimeEvents.filter((event) => !event.partial);
-  const turnIds = orderedTurnIds(events, input.modelCallAttempts);
+  // An aborted attempt and its later settlement are appended under one
+  // `attemptId`; the ledger dedupes on write, a stream read does not. Without
+  // this the trace invents a retry and can double-count a priced settlement,
+  // which would put it out of step with Settings → Usage over the same records.
+  const attempts = dedupeModelCallAttempts(input.modelCallAttempts);
+  const turnIds = orderedTurnIds(events, attempts);
   const eventsByTurn = groupBy(events, (event) => event.turnId);
-  const attemptsByTurn = groupBy(input.modelCallAttempts, (attempt) => attempt.turnId);
+  const attemptsByTurn = groupBy(attempts, (attempt) => attempt.turnId);
 
   const turns: TurnTrace[] = [];
   const turnsMissingModelCalls: string[] = [];
+  const turnsWithFewerModelCallsThanSteps: string[] = [];
   let turnsWithModelActivity = 0;
 
   for (const turnId of turnIds) {
@@ -56,7 +66,11 @@ export function projectSessionTrace(input: SessionTraceInput): SessionTrace {
     // the metering ledger holds. That disagreement is the coverage signal.
     const hasAggregateUsage = turnEvents.some((event) => event.actions?.tokenUsage !== undefined);
     if (hasAggregateUsage || turnAttempts.length > 0) turnsWithModelActivity += 1;
-    if (hasAggregateUsage && turnAttempts.length === 0) turnsMissingModelCalls.push(turnId);
+    if (hasAggregateUsage && turnAttempts.length === 0) {
+      turnsMissingModelCalls.push(turnId);
+    } else if (hasAggregateUsage && missesRuntimeSteps(turnEvents, turn)) {
+      turnsWithFewerModelCallsThanSteps.push(turnId);
+    }
   }
 
   const totals = turns.reduce<TraceTotals>(
@@ -69,7 +83,11 @@ export function projectSessionTrace(input: SessionTraceInput): SessionTrace {
     sessionId: input.sessionId,
     turns,
     totals,
-    coverage: resolveCoverage(turnsWithModelActivity, turnsMissingModelCalls),
+    coverage: resolveCoverage(
+      turnsWithModelActivity,
+      turnsMissingModelCalls,
+      turnsWithFewerModelCallsThanSteps,
+    ),
   };
 }
 
@@ -81,17 +99,49 @@ export function projectSessionTrace(input: SessionTraceInput): SessionTrace {
 function resolveCoverage(
   turnsWithModelActivity: number,
   turnsMissingModelCalls: string[],
+  turnsWithFewerModelCallsThanSteps: string[],
 ): SessionTraceCoverage {
   if (turnsWithModelActivity === 0) {
-    return { modelCalls: 'none', turnsMissingModelCalls: [] };
+    return {
+      modelCalls: 'none',
+      turnsMissingModelCalls: [],
+      turnsWithFewerModelCallsThanSteps: [],
+    };
   }
-  if (turnsMissingModelCalls.length === 0) {
-    return { modelCalls: 'complete', turnsMissingModelCalls: [] };
+  if (turnsMissingModelCalls.length === turnsWithModelActivity) {
+    return { modelCalls: 'absent', turnsMissingModelCalls, turnsWithFewerModelCallsThanSteps };
   }
+  const gaps = turnsMissingModelCalls.length + turnsWithFewerModelCallsThanSteps.length;
   return {
-    modelCalls: turnsMissingModelCalls.length === turnsWithModelActivity ? 'absent' : 'partial',
+    // "No known gap" rather than "complete": records that are present cannot
+    // prove that every call settled, so this is the absence of evidence of a
+    // gap, not evidence of its absence.
+    modelCalls: gaps === 0 ? 'no_known_gap' : 'partial',
     turnsMissingModelCalls,
+    turnsWithFewerModelCallsThanSteps,
   };
+}
+
+/**
+ * Whether the aggregate usage stands for more runtime steps than the turn has
+ * main model calls on record.
+ *
+ * `runtimeSteps` counts the provider tool-loop steps one aggregate usage event
+ * represents, and each of those steps is one main call. Fewer main calls than
+ * that is a shortfall the ledgers themselves disagree about — a floor on what
+ * is missing, never a count of it. Compaction kinds are excluded because they
+ * are not part of that count.
+ */
+function missesRuntimeSteps(events: readonly RuntimeEvent[], turn: TurnTrace): boolean {
+  const declaredSteps = events.reduce(
+    (carry, event) => carry + (event.actions?.tokenUsage?.runtimeSteps ?? 0),
+    0,
+  );
+  if (declaredSteps === 0) return false;
+  const mainCalls = turn.steps.filter(
+    (step) => step.kind === 'model_call' && step.callKind === 'main',
+  ).length;
+  return mainCalls < declaredSteps;
 }
 
 function projectTurn(
@@ -105,10 +155,20 @@ function projectTurn(
     (left, right) => left.startedAt - right.startedAt,
   );
 
-  const startedAt = Math.min(...steps.map((step) => step.startedAt));
-  const endedAt = Math.max(...steps.map((step) => stepEndedAt(step)));
+  // Bounds come from the ledger facts, not from the steps that happen to be
+  // visible: a usage-only or text-only turn projects no steps at all, and
+  // folding an empty list gives ±Infinity, which JSON renders as `null`.
+  const instants = [
+    ...events.map((event) => event.ts),
+    ...attempts.map((attempt) => attempt.startedAt),
+    ...attempts.map((attempt) => attempt.completedAt),
+    ...steps.map((step) => step.startedAt),
+    ...steps.map(stepEndedAt),
+  ];
+  const startedAt = Math.min(...instants);
+  const endedAt = Math.max(...instants);
   const totals = turnTotals(steps, endedAt - startedAt);
-  const failure = attributeTurnFailure(steps);
+  const failure = attributeTurnFailure(steps, events);
 
   return {
     turnId,
@@ -130,10 +190,9 @@ function projectTurn(
  * reconstructed from `(traceId, step)` by every consumer.
  */
 function projectModelCallSteps(attempts: readonly ModelCallAttempt[]): TraceModelCallStep[] {
-  const byLogicalCall = groupBy(attempts, (attempt) => attempt.logicalCallId);
   const steps: TraceModelCallStep[] = [];
 
-  for (const [logicalCallId, group] of byLogicalCall) {
+  for (const { logicalCallId, attempts: group } of groupModelCallAttempts(attempts)) {
     const ordered = [...group].sort((left, right) => left.attempt - right.attempt);
     const last = ordered[ordered.length - 1]!;
     const first = ordered[0]!;
@@ -192,16 +251,49 @@ function toTraceAttempt(attempt: ModelCallAttempt): TraceModelAttempt {
   };
 }
 
+/** Prefix the runtime gives a written history-compaction boundary. */
+const HISTORY_COMPACT_EVENT_PREFIX = 'history-compact:';
+
 /** Causal steps the metering ledger knows nothing about. */
 function projectEventSteps(events: readonly RuntimeEvent[]): TraceStep[] {
   const steps: TraceStep[] = [];
   const toolStarts = new Map<string, { id: string; startedAt: number }>();
+  const toolStepsByOperation = new Map<string, TraceStep & { kind: 'tool' }>();
 
   for (const event of events) {
+    // A written compaction boundary, which is not the same fact as the
+    // summarizer call that produced its text: one is the checkpoint the next
+    // request replays from, the other is the spend.
+    if (event.id.startsWith(HISTORY_COMPACT_EVENT_PREFIX)) {
+      steps.push({
+        kind: 'compaction',
+        id: event.id,
+        turnId: event.turnId,
+        runId: event.runId,
+        startedAt: event.ts,
+        checkpointId: event.id.slice(HISTORY_COMPACT_EVENT_PREFIX.length),
+      });
+      continue;
+    }
+
+    const recovery = event.actions?.toolRecovery;
+    if (recovery?.kind === 'maka.tool.recovery_decision') {
+      // Correlated by `operationId` rather than by position: the decision is
+      // appended by the recovery writer, not by the dispatch it settles.
+      const settled = toolStepsByOperation.get(recovery.payload.operationId);
+      if (settled) {
+        settled.recovered = {
+          disposition: recovery.payload.disposition,
+          reasonCode: recovery.payload.reasonCode,
+        };
+      }
+      continue;
+    }
+
     const dispatch = event.actions?.toolDispatch;
     if (dispatch) {
       toolStarts.set(dispatch.providerToolCallId, { id: event.id, startedAt: event.ts });
-      steps.push({
+      const step: TraceStep & { kind: 'tool' } = {
         kind: 'tool',
         id: event.id,
         turnId: event.turnId,
@@ -209,9 +301,14 @@ function projectEventSteps(events: readonly RuntimeEvent[]): TraceStep[] {
         startedAt: event.ts,
         toolName: dispatch.toolName,
         toolCallId: dispatch.providerToolCallId,
+        operationId: dispatch.operationId,
         status: 'in_flight',
-        ...(dispatch.recoveryMode ? { recoveryMode: dispatch.recoveryMode } : {}),
-      });
+        // The declared policy, present on ordinary first executions too. What
+        // actually recovered, if anything, arrives as a decision fact above.
+        ...(dispatch.recoveryMode ? { recoveryPolicy: dispatch.recoveryMode } : {}),
+      };
+      toolStepsByOperation.set(dispatch.operationId, step);
+      steps.push(step);
       continue;
     }
 
@@ -270,7 +367,21 @@ function projectEventSteps(events: readonly RuntimeEvent[]): TraceStep[] {
  */
 export function attributeTurnFailure(
   steps: readonly TraceStep[],
+  events: readonly RuntimeEvent[] = [],
 ): TraceFailureAttribution | undefined {
+  // Whether the turn failed is the ledger's call, not the projection's. A tool
+  // that errored and was recovered from is a step that failed inside a turn
+  // that succeeded, and marking that turn failed would be wrong in the
+  // direction that matters — it is the reading a user acts on.
+  const terminalStatus = [...events]
+    .reverse()
+    .find(
+      (event) =>
+        event.status !== undefined &&
+        (TERMINAL_RUNTIME_EVENT_STATUSES as readonly string[]).includes(event.status),
+    )?.status;
+  if (terminalStatus === 'completed') return undefined;
+
   const terminalError = [...steps].reverse().find((step) => step.kind === 'error');
   const firstFailure = steps.find(
     (step) =>
@@ -278,14 +389,18 @@ export function attributeTurnFailure(
       (step.kind === 'model_call' && step.status === 'failed') ||
       step.kind === 'error',
   );
-  if (!terminalError && !firstFailure) return undefined;
+  // With no terminal verdict and nothing that failed there is nothing to
+  // report; a non-completed verdict on its own is still a failed turn.
+  if (!terminalError && !firstFailure && terminalStatus === undefined) return undefined;
 
   const code =
     firstFailure?.kind === 'tool'
       ? 'tool_failed'
       : firstFailure?.kind === 'model_call'
         ? 'model_call_failed'
-        : 'error';
+        : terminalStatus !== undefined
+          ? `turn_${terminalStatus}`
+          : 'error';
   return {
     code,
     ...(terminalError?.kind === 'error' ? { message: terminalError.message } : {}),

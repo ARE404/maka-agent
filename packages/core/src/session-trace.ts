@@ -83,6 +83,18 @@ export interface TraceModelCallStep {
   costUsd?: number;
 }
 
+/**
+ * A durable recovery decision, correlated to a dispatch by `operationId`.
+ *
+ * Separate from the policy below because they answer different questions. Every
+ * dispatch declares a `recoveryPolicy`, including ordinary first executions;
+ * only a recovery that actually happened writes one of these.
+ */
+export interface TraceToolRecovery {
+  disposition: 'completed' | 'parked';
+  reasonCode: string;
+}
+
 export interface TraceToolStep {
   kind: 'tool';
   id: string;
@@ -93,9 +105,16 @@ export interface TraceToolStep {
   durationMs?: number;
   toolName: string;
   toolCallId?: string;
+  operationId?: string;
   status: 'completed' | 'failed' | 'in_flight';
-  /** Present when the dispatch was recovered rather than executed fresh. */
-  recoveryMode?: string;
+  /**
+   * What the dispatch declared it would be safe to do on resume. Present on
+   * normal executions too — it is a policy, not evidence that anything was
+   * recovered.
+   */
+  recoveryPolicy?: string;
+  /** Present only when a recovery decision was durably recorded. */
+  recovered?: TraceToolRecovery;
 }
 
 export interface TracePermissionStep {
@@ -108,14 +127,22 @@ export interface TracePermissionStep {
   decision: string;
 }
 
+/**
+ * A compaction boundary that was durably written — the checkpoint the next
+ * request replays from.
+ *
+ * Distinct from a `history_compact` model call, which is the summarizer request
+ * that produced the text. One is the spend, the other is the boundary; a turn
+ * can show either without the other.
+ */
 export interface TraceCompactionStep {
   kind: 'compaction';
   id: string;
   turnId: string;
   runId: string;
   startedAt: number;
-  /** Which compaction wrote here, when the trace can tell them apart. */
-  compactionKind?: Extract<ModelCallKind, 'history_compact' | 'semantic_compact'>;
+  /** Checkpoint identity, when the boundary carries one. */
+  checkpointId?: string;
 }
 
 export interface TraceErrorStep {
@@ -188,15 +215,24 @@ export interface TurnTrace {
  */
 export interface SessionTraceCoverage {
   /**
-   * `complete` — every turn with model activity has canonical records.
-   * `partial` — some turns have them and some do not.
-   * `absent` — the session has model activity but no canonical records at all,
-   * which is what a backend outside canonical accounting looks like.
+   * `no_known_gap` — nothing detectable is missing. Deliberately not
+   * "complete": present settlements cannot prove that every call settled, so
+   * this states the absence of evidence of a gap, not the presence of proof.
+   * `partial` — a shortfall is detectable, either a turn with aggregate usage
+   * and no records, or fewer main calls than the aggregate says it stood for.
+   * `absent` — model activity with no canonical records anywhere, which is what
+   * a backend outside canonical accounting looks like.
    * `none` — no model activity to cover.
    */
-  modelCalls: 'complete' | 'partial' | 'absent' | 'none';
+  modelCalls: 'no_known_gap' | 'partial' | 'absent' | 'none';
   /** Turn ids with aggregate usage but no canonical record behind it. */
   turnsMissingModelCalls: string[];
+  /**
+   * Turn ids where the aggregate usage stands for more runtime steps than there
+   * are main model calls on record. A shortfall this narrow is still only what
+   * the ledgers disagree about — it is a floor on what is missing, not a count.
+   */
+  turnsWithFewerModelCallsThanSteps: string[];
 }
 
 export interface SessionTrace {
