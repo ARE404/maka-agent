@@ -186,6 +186,12 @@ test('renders a settled Mermaid fence as a diagram', async ({ window: page }) =>
     const bounds = await diagram.locator('.maka-mermaid-svg > svg').boundingBox();
     return bounds ? bounds.width * bounds.height : 0;
   }).toBeGreaterThan((inlineSvgBounds?.width ?? 0) * (inlineSvgBounds?.height ?? 0) * 1.5);
+  await expect.poll(() => diagram.locator('.maka-mermaid-actions').evaluate((element) =>
+    getComputedStyle(element).getPropertyValue('-webkit-app-region'))).toBe('no-drag');
+  await diagram.getByRole('button', { name: '退出全屏图表' }).click();
+  await expect(diagram.getByRole('button', { name: '全屏查看图表' })).toBeVisible();
+
+  await diagram.getByRole('button', { name: '全屏查看图表' }).click();
   await page.keyboard.press('Escape');
   await expect(diagram.getByRole('button', { name: '全屏查看图表' })).toBeVisible();
 });

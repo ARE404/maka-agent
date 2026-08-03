@@ -198,6 +198,11 @@
   border: 0;
   border-radius: 0;
 }
+.maka-mermaid-diagram-expanded .maka-mermaid-toolbar {
+  padding-left: max(var(--space-3), var(--maka-titlebar-area-x, 0px));
+  padding-right: calc(var(--space-1) + var(--maka-titlebar-overlay-right-width, 0px));
+}
+.maka-mermaid-diagram-expanded .maka-mermaid-actions { -webkit-app-region: no-drag; }
 .maka-mermaid-diagram-expanded .maka-mermaid-viewport { min-height: 0; flex: 1 1 auto; }
 .maka-mermaid-fallback { display: grid; gap: var(--space-1-5); }
 .maka-mermaid-status {
