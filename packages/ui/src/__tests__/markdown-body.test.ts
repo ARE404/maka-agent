@@ -10,6 +10,7 @@ import {
 } from '../astryx-i18n.js';
 import { LocaleProvider } from '../locale-context.js';
 import {
+  calculateMermaidFitScale,
   createMermaidConfig,
   MAX_MERMAID_EDGES,
   MAX_MERMAID_SOURCE_LENGTH,
@@ -279,6 +280,18 @@ it('pins Mermaid security and complexity limits for untrusted assistant output',
   assert.equal(config.maxTextSize, MAX_MERMAID_SOURCE_LENGTH);
   assert.equal(config.maxEdges, MAX_MERMAID_EDGES);
   assert.equal(config.theme, 'dark');
+});
+
+it('lets fullscreen Mermaid diagrams grow beyond their inline natural size', () => {
+  const viewport = {
+    availableWidth: 1200,
+    availableHeight: 900,
+    naturalWidth: 600,
+    naturalHeight: 300,
+  };
+
+  assert.equal(calculateMermaidFitScale({ ...viewport, expanded: false }), 1);
+  assert.equal(calculateMermaidFitScale({ ...viewport, expanded: true }), 2);
 });
 
 it('keeps a single newline as a CommonMark soft break', () => {

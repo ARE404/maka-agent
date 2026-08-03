@@ -165,9 +165,27 @@ test('renders a settled Mermaid fence as a diagram', async ({ window: page }) =>
   expect(zoomedBounds.content?.bottom ?? 0).toBeLessThanOrEqual((zoomedBounds.svg?.bottom ?? 0) + 1);
   await diagram.getByRole('button', { name: '适应视窗' }).click();
   await expect(diagram).toHaveAttribute('data-maka-mermaid-zoom', '1.00');
+  const inlineSvgBounds = await diagram.locator('.maka-mermaid-svg > svg').boundingBox();
+  expect(inlineSvgBounds).not.toBeNull();
 
   await diagram.getByRole('button', { name: '全屏查看图表' }).click();
   await expect(diagram).toHaveCSS('position', 'fixed');
+  const pageSize = page.viewportSize();
+  await expect.poll(async () => {
+    const bounds = await diagram.boundingBox();
+    return bounds && pageSize
+      ? Math.max(
+          Math.abs(bounds.x),
+          Math.abs(bounds.y),
+          Math.abs(bounds.width - pageSize.width),
+          Math.abs(bounds.height - pageSize.height),
+        )
+      : Number.POSITIVE_INFINITY;
+  }).toBeLessThanOrEqual(1);
+  await expect.poll(async () => {
+    const bounds = await diagram.locator('.maka-mermaid-svg > svg').boundingBox();
+    return bounds ? bounds.width * bounds.height : 0;
+  }).toBeGreaterThan((inlineSvgBounds?.width ?? 0) * (inlineSvgBounds?.height ?? 0) * 1.5);
   await page.keyboard.press('Escape');
   await expect(diagram.getByRole('button', { name: '全屏查看图表' })).toBeVisible();
 });

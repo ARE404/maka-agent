@@ -1,6 +1,7 @@
 import { IconButton } from '@astryxdesign/core';
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { MermaidConfig } from 'mermaid';
 import { Maximize2, Minimize2, Scan, ZoomIn, ZoomOut } from './icons.js';
 import { useUiLocale } from './locale-context.js';
@@ -86,6 +87,20 @@ function mermaidViewBoxSize(svg: string): { width: number; height: number } {
 
 function clampMermaidZoom(value: number): number {
   return Math.min(MAX_MERMAID_ZOOM, Math.max(MIN_MERMAID_ZOOM, value));
+}
+
+export function calculateMermaidFitScale(options: {
+  availableWidth: number;
+  availableHeight: number;
+  naturalWidth: number;
+  naturalHeight: number;
+  expanded: boolean;
+}): number {
+  const widthScale = options.availableWidth / options.naturalWidth;
+  const heightScale = options.availableHeight / options.naturalHeight;
+  return options.expanded
+    ? Math.min(widthScale, heightScale)
+    : Math.min(1, widthScale, heightScale);
 }
 
 function useMermaidTheme(): MermaidTheme {
@@ -177,11 +192,13 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
               ),
             );
         const availableHeight = Math.max(1, maxViewportHeight - verticalPadding);
-        const fitScale = Math.min(
-          1,
-          availableWidth / naturalWidth,
-          availableHeight / naturalHeight,
-        );
+        const fitScale = calculateMermaidFitScale({
+          availableWidth,
+          availableHeight,
+          naturalWidth,
+          naturalHeight,
+          expanded,
+        });
         const fitWidth = naturalWidth * fitScale;
         const viewportHeight = Math.max(
           MIN_MERMAID_VIEWPORT_HEIGHT,
@@ -262,7 +279,7 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
     const canvasWidth = viewportLayout
       ? `${viewportLayout.fitWidth * zoom}px`
       : `min(${state.naturalWidth * zoom}px, ${zoomPercent}%)`;
-    return (
+    const diagram = (
       <figure
         className={`${className} maka-mermaid-diagram${expanded ? ' maka-mermaid-diagram-expanded' : ''}`}
         data-maka-contract="mermaid"
@@ -391,6 +408,7 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
         </div>
       </figure>
     );
+    return expanded ? createPortal(diagram, document.body) : diagram;
   }
 
   const message = state.status === 'loading'
