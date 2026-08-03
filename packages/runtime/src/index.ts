@@ -1136,6 +1136,7 @@ export type { ToolActivityItem, ChatItem, SessionViewModel } from './materialize
 export { AsyncEventQueue } from './async-queue.js';
 export {
   FAKE_ASK_USER_QUESTION_PROMPT,
+  FAKE_MERMAID_HOSTILE_PROMPT,
   FAKE_MERMAID_PROMPT,
   FAKE_ASK_SANDBOX_BOUNDARY_PROMPT,
   FAKE_WAIT_FOR_STEERING_PROMPT,

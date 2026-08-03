@@ -1,5 +1,5 @@
 import { test, expect, COMPOSER_INPUT } from './fixtures';
-import { FAKE_MERMAID_PROMPT } from '@maka/runtime';
+import { FAKE_MERMAID_HOSTILE_PROMPT, FAKE_MERMAID_PROMPT } from '@maka/runtime';
 
 /**
  * Core chat loop: type a message, send it, see the deterministic fake backend
@@ -76,6 +76,12 @@ test('renders a settled Mermaid fence as a diagram', async ({ window: page }) =>
   }));
   expect(fitted.scrollWidth).toBeLessThanOrEqual(fitted.clientWidth + 1);
   expect(fitted.scrollHeight).toBeLessThanOrEqual(fitted.clientHeight + 1);
+  await expect(viewport).toHaveCSS('touch-action', 'pan-y');
+
+  const viewSource = diagram.getByRole('button', { name: '查看 Mermaid 源码' });
+  await viewSource.click();
+  await expect(diagram.locator('.maka-mermaid-source')).toContainText('flowchart TB');
+  await viewSource.click();
 
   const toolbar = diagram.locator('.maka-mermaid-toolbar');
   const toolbarBeforeZoom = await toolbar.boundingBox();
@@ -111,14 +117,23 @@ test('renders a settled Mermaid fence as a diagram', async ({ window: page }) =>
   expect(zoomedBounds.content?.bottom ?? 0).toBeLessThanOrEqual((zoomedBounds.svg?.bottom ?? 0) + 1);
   await diagram.getByRole('button', { name: '适应视窗' }).click();
   await expect(diagram).toHaveAttribute('data-maka-mermaid-zoom', '1.00');
-  const inlineSvgBounds = await diagram.locator('.maka-mermaid-svg > svg').boundingBox();
+  const inlineSvg = diagram.locator('.maka-mermaid-svg > svg');
+  await expect(inlineSvg).toBeVisible();
+  await expect.poll(async () => {
+    const bounds = await inlineSvg.boundingBox();
+    return bounds ? bounds.width * bounds.height : 0;
+  }).toBeGreaterThan(0);
+  const inlineSvgBounds = await inlineSvg.boundingBox();
   expect(inlineSvgBounds).not.toBeNull();
 
   await diagram.getByRole('button', { name: '全屏查看图表' }).click();
-  await expect(diagram).toHaveCSS('position', 'fixed');
+  const modal = page.locator('dialog.maka-mermaid-dialog');
+  await expect(modal).toHaveAttribute('open', '');
+  await expect(modal).toHaveAttribute('aria-modal', 'true');
+  const expandedDiagram = modal.locator('[data-maka-contract="mermaid"]');
   const pageSize = page.viewportSize();
   await expect.poll(async () => {
-    const bounds = await diagram.boundingBox();
+    const bounds = await modal.boundingBox();
     return bounds && pageSize
       ? Math.max(
           Math.abs(bounds.x),
@@ -129,19 +144,39 @@ test('renders a settled Mermaid fence as a diagram', async ({ window: page }) =>
       : Number.POSITIVE_INFINITY;
   }).toBeLessThanOrEqual(1);
   await expect.poll(async () => {
-    const bounds = await diagram.locator('.maka-mermaid-svg > svg').boundingBox();
+    const bounds = await expandedDiagram.locator('.maka-mermaid-svg > svg').boundingBox();
     return bounds ? bounds.width * bounds.height : 0;
   }).toBeGreaterThan((inlineSvgBounds?.width ?? 0) * (inlineSvgBounds?.height ?? 0) * 1.5);
-  await expect.poll(() => diagram.locator('.maka-mermaid-actions').evaluate((element) =>
+  await expect.poll(() => expandedDiagram.locator('.maka-mermaid-actions').evaluate((element) =>
     getComputedStyle(element).getPropertyValue('-webkit-app-region'))).toBe('no-drag');
-  const exitFullscreen = diagram.getByRole('button', { name: '退出全屏图表' });
+  const exitFullscreen = expandedDiagram.getByRole('button', { name: '退出全屏图表' });
   await expect(exitFullscreen).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect.poll(() => modal.evaluate((element) => element.contains(document.activeElement))).toBe(true);
   await exitFullscreen.click();
+  await expect(modal).not.toHaveAttribute('open', '');
   const enterFullscreen = diagram.getByRole('button', { name: '全屏查看图表' });
   await expect(enterFullscreen).toBeFocused();
 
   await enterFullscreen.click();
-  await expect(diagram.getByRole('button', { name: '退出全屏图表' })).toBeFocused();
+  await expect(expandedDiagram.getByRole('button', { name: '退出全屏图表' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(diagram.getByRole('button', { name: '全屏查看图表' })).toBeFocused();
+
+  await page.setViewportSize({ width: 340, height: 900 });
+  await expect(diagram.getByRole('button', { name: '全屏查看图表' })).toBeVisible();
+  await expect(diagram.getByRole('button', { name: '放大图表' })).toBeHidden();
+});
+
+test('keeps hostile Mermaid directives inert', async ({ window: page }) => {
+  const composer = page.locator(COMPOSER_INPUT);
+  await composer.fill(FAKE_MERMAID_HOSTILE_PROMPT);
+  await composer.press('Enter');
+
+  await expect(page.getByRole('button', { name: '重新生成' })).toBeVisible();
+  const diagram = page.locator('[data-maka-contract="mermaid"]').last();
+  await expect(diagram).toHaveAttribute('data-maka-mermaid-state', 'rendered');
+  await expect(diagram.locator('.maka-mermaid-svg > svg')).toBeVisible();
+  await expect(diagram.locator('script, foreignObject, a')).toHaveCount(0);
+  await expect(diagram.locator('[onclick], [onerror], [onload], [href^="javascript:"]')).toHaveCount(0);
 });

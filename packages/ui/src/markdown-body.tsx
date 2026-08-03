@@ -32,6 +32,57 @@ const BASE_MARKDOWN_COMPONENTS = {
   image: MarkdownImage,
 };
 
+export const MAX_AUTOMATIC_MERMAID_DIAGRAMS = 3;
+export const MAX_AUTOMATIC_MERMAID_SOURCE_LENGTH = 4_000;
+export const MAX_AUTOMATIC_MERMAID_TOTAL_SOURCE_LENGTH = 8_000;
+const DEFERRED_MERMAID_LANGUAGE = 'makamermaiddeferred';
+
+/**
+ * Mark settled Mermaid fences that exceed the per-document automatic-render
+ * budget. The private language marker survives Astryx parsing without changing
+ * the source shown to the user; the code renderer turns it into an explicit
+ * source + Render action instead of scheduling more main-thread layout work.
+ */
+export function applyMermaidRenderBudget(source: string): string {
+  const lines = source.split('\n');
+  let automaticCount = 0;
+  let automaticSourceLength = 0;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const opening = /^( {0,3})(`{3,}|~{3,})([^\n]*)$/.exec(lines[index] ?? '');
+    if (!opening) continue;
+    const [, indent = '', fence = '', info = ''] = opening;
+    const language = /^([ \t]*)mermaid(?=[ \t]|$)/i.exec(info);
+    if (!language) continue;
+
+    const fenceCharacter = fence[0];
+    if (!fenceCharacter) continue;
+    const closing = new RegExp(`^ {0,3}${fenceCharacter}{${fence.length},}[ \\t]*$`);
+    let closingIndex = index + 1;
+    while (closingIndex < lines.length && !closing.test(lines[closingIndex] ?? '')) {
+      closingIndex += 1;
+    }
+    if (closingIndex >= lines.length) continue;
+
+    const codeLength = lines.slice(index + 1, closingIndex).join('\n').length;
+    const withinBudget =
+      codeLength <= MAX_AUTOMATIC_MERMAID_SOURCE_LENGTH
+      && automaticCount < MAX_AUTOMATIC_MERMAID_DIAGRAMS
+      && automaticSourceLength + codeLength <= MAX_AUTOMATIC_MERMAID_TOTAL_SOURCE_LENGTH;
+
+    if (withinBudget) {
+      automaticCount += 1;
+      automaticSourceLength += codeLength;
+    } else {
+      const leadingWhitespace = language[1] ?? '';
+      lines[index] = `${indent}${fence}${leadingWhitespace}${DEFERRED_MERMAID_LANGUAGE}${info.slice(language[0].length)}`;
+    }
+    index = closingIndex;
+  }
+
+  return lines.join('\n');
+}
+
 const MARKDOWN_COMPONENTS = {
   default: {
     ...BASE_MARKDOWN_COMPONENTS,
@@ -57,6 +108,7 @@ export function MarkdownBody(props: {
   density?: 'default' | 'compact';
 }) {
   const safeText = neutralizeUnsafeMarkdownImages(props.text);
+  const budgetedText = props.streaming ? safeText : applyMermaidRenderBudget(safeText);
   const density = props.density ?? 'default';
   const components = props.streaming
     ? density === 'compact'
@@ -90,7 +142,7 @@ export function MarkdownBody(props: {
         components={components}
         isStreaming={props.streaming}
       >
-        {safeText}
+        {budgetedText}
       </AstryxMarkdown>
     </div>
   );
@@ -118,8 +170,15 @@ function MarkdownCode(props: {
   density: 'default' | 'compact';
   renderMermaid: boolean;
 }) {
-  if (props.renderMermaid && props.language?.trim().toLowerCase() === 'mermaid') {
-    return <MermaidDiagram code={props.code} density={props.density} />;
+  const language = props.language?.trim().toLowerCase();
+  if (props.renderMermaid && (language === 'mermaid' || language === DEFERRED_MERMAID_LANGUAGE)) {
+    return (
+      <MermaidDiagram
+        code={props.code}
+        density={props.density}
+        autoRender={language === 'mermaid'}
+      />
+    );
   }
 
   return (

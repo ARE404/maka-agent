@@ -2,7 +2,13 @@ import { strict as assert } from 'node:assert';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { it } from 'node:test';
-import { MarkdownBody } from '../markdown-body.js';
+import {
+  applyMermaidRenderBudget,
+  MarkdownBody,
+  MAX_AUTOMATIC_MERMAID_DIAGRAMS,
+  MAX_AUTOMATIC_MERMAID_SOURCE_LENGTH,
+  MAX_AUTOMATIC_MERMAID_TOTAL_SOURCE_LENGTH,
+} from '../markdown-body.js';
 import { MakaUriContext, Markdown } from '../markdown.js';
 import {
   AstryxLocaleProvider,
@@ -258,6 +264,50 @@ it('routes settled Mermaid fences to the lazy diagram surface', () => {
   assert.match(markup, /data-maka-mermaid-state="loading"/);
   assert.match(markup, /Rendering Mermaid diagram/);
   assert.match(markup, /flowchart LR/);
+});
+
+it('defers Mermaid fences beyond the per-Markdown automatic diagram budget', () => {
+  const fence = (index: number) => [
+    '```mermaid',
+    `flowchart LR\nA${index} --> B${index}`,
+    '```',
+  ].join('\n');
+  const markup = renderToStaticMarkup(
+    createElement(
+      LocaleProvider,
+      {
+        locale: 'en',
+        children: createElement(MarkdownBody, {
+          text: Array.from(
+            { length: MAX_AUTOMATIC_MERMAID_DIAGRAMS + 1 },
+            (_, index) => fence(index),
+          ).join('\n\n'),
+        }),
+      },
+    ),
+  );
+
+  assert.equal(markup.match(/data-maka-mermaid-state="loading"/g)?.length, 3);
+  assert.equal(markup.match(/data-maka-mermaid-state="deferred"/g)?.length, 1);
+  assert.match(markup, /Render diagram/);
+  assert.doesNotMatch(markup, /makamermaiddeferred/);
+});
+
+it('enforces per-diagram and total automatic Mermaid source budgets', () => {
+  const oversized = ['```mermaid', 'x'.repeat(MAX_AUTOMATIC_MERMAID_SOURCE_LENGTH + 1), '```'].join('\n');
+  assert.match(
+    applyMermaidRenderBudget(oversized),
+    /```makamermaiddeferred/,
+  );
+
+  const nearHalfTotal = 'x'.repeat(Math.floor(MAX_AUTOMATIC_MERMAID_TOTAL_SOURCE_LENGTH / 2) - 100);
+  const source = [nearHalfTotal, nearHalfTotal, 'x'.repeat(250)]
+    .map((code) => ['```mermaid', code, '```'].join('\n'))
+    .join('\n\n');
+  assert.equal(
+    applyMermaidRenderBudget(source).match(/```makamermaiddeferred/g)?.length,
+    1,
+  );
 });
 
 it('does not render Mermaid while the assistant turn is streaming', () => {

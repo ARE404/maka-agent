@@ -23,6 +23,7 @@ export const FAKE_ASK_USER_QUESTION_PROMPT = '__e2e_ask_user_question__';
 export const FAKE_ASK_SANDBOX_BOUNDARY_PROMPT = '__e2e_ask_sandbox_boundary__';
 export const FAKE_WAIT_FOR_STEERING_PROMPT = '__e2e_wait_for_steering__';
 export const FAKE_MERMAID_PROMPT = '__e2e_mermaid__';
+export const FAKE_MERMAID_HOSTILE_PROMPT = '__e2e_mermaid_hostile__';
 
 type PendingQuestion = {
   turnId: string;
@@ -103,7 +104,18 @@ export class FakeBackend implements AgentBackend {
             'N --> P[Resume task]',
             '```',
           ].join('\n')
-        : `Fake backend received: ${input.text}${attLine}\n\nThis proves the session stream, JSONL storage, and renderer loop are connected.`;
+        : input.text === FAKE_MERMAID_HOSTILE_PROMPT
+          ? [
+              'Fake backend hostile Mermaid fixture:',
+              '',
+              '```mermaid',
+              '%%{init: {"securityLevel":"loose","flowchart":{"htmlLabels":true}}}%%',
+              'flowchart LR',
+              '  A["<img src=x onerror=alert(1)>"] --> B[Safe output]',
+              '  click A "javascript:alert(1)"',
+              '```',
+            ].join('\n')
+          : `Fake backend received: ${input.text}${attLine}\n\nThis proves the session stream, JSONL storage, and renderer loop are connected.`;
     // Every delta must concatenate to text_complete; `.` would silently drop
     // line terminators and make structured Markdown reflow only at completion.
     const chunks = text.match(/[\s\S]{1,9}/g) ?? [text];

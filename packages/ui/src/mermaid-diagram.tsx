@@ -1,7 +1,9 @@
-import { IconButton } from '@astryxdesign/core';
+import { Button, IconButton } from '@astryxdesign/core';
 import { CodeBlock } from '@astryxdesign/core/CodeBlock';
+import { Collapsible } from '@astryxdesign/core/Collapsible';
+import { Dialog } from '@astryxdesign/core/Dialog';
+import { Toolbar } from '@astryxdesign/core/Toolbar';
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import type { MermaidConfig } from 'mermaid';
 import { Maximize2, Minimize2, Scan, ZoomIn, ZoomOut } from './icons.js';
 import { useUiLocale } from './locale-context.js';
@@ -19,6 +21,7 @@ const MAX_MERMAID_VIEWPORT_HEIGHT_RATIO = 0.55;
 type MermaidTheme = 'default' | 'dark';
 
 type MermaidRenderState =
+  | { status: 'deferred' }
   | { status: 'loading' }
   | { status: 'rendered'; svg: string; naturalWidth: number; naturalHeight: number }
   | { status: 'error'; reason: 'invalid' | 'too-large' };
@@ -50,18 +53,50 @@ function loadMermaid() {
   return mermaidModule;
 }
 
+function sanitizeRenderedMermaidSvg(svg: string): string {
+  const documentNode = new DOMParser().parseFromString(svg, 'image/svg+xml');
+  if (documentNode.querySelector('parsererror')) throw new Error('Invalid Mermaid SVG output');
+
+  for (const element of documentNode.querySelectorAll('script, foreignObject')) element.remove();
+  for (const link of documentNode.querySelectorAll('a')) {
+    link.replaceWith(...Array.from(link.childNodes));
+  }
+  for (const element of documentNode.querySelectorAll('*')) {
+    for (const attribute of Array.from(element.attributes)) {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value.trim();
+      const unsafeReference =
+        (name === 'href' || name.endsWith(':href'))
+        && !value.startsWith('#')
+        && !value.startsWith('data:image/');
+      const unsafeStyle = name === 'style' && /(?:javascript:|expression\s*\()/i.test(value);
+      if (name.startsWith('on') || unsafeReference || unsafeStyle) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  }
+
+  return new XMLSerializer().serializeToString(documentNode.documentElement);
+}
+
 /**
  * Mermaid owns global configuration, so initialization and rendering must be
  * one serialized operation. This also caps concurrent layout work when one
  * assistant turn contains several diagrams.
  */
-function renderMermaid(code: string, theme: MermaidTheme): Promise<string> {
+function renderMermaid(
+  code: string,
+  theme: MermaidTheme,
+  shouldRender: () => boolean,
+): Promise<string | null> {
   const task = renderQueue.then(async () => {
+    if (!shouldRender()) return null;
     const mermaid = await loadMermaid();
+    if (!shouldRender()) return null;
     mermaid.initialize(createMermaidConfig(theme));
     const id = `maka-mermaid-${++diagramSequence}`;
     const { svg } = await mermaid.render(id, code);
-    return svg;
+    return sanitizeRenderedMermaidSvg(svg);
   });
 
   renderQueue = task.then(
@@ -118,21 +153,28 @@ function useMermaidTheme(): MermaidTheme {
   return theme;
 }
 
-export function MermaidDiagram(props: { code: string; density: 'default' | 'compact' }) {
+export function MermaidDiagram(props: {
+  code: string;
+  density: 'default' | 'compact';
+  autoRender?: boolean;
+}) {
   const copy = getSharedUiCopy(useUiLocale()).markdown;
   const theme = useMermaidTheme();
+  const autoRender = props.autoRender ?? true;
+  const [manualRenderRequested, setManualRenderRequested] = useState(false);
   const [state, setState] = useState<MermaidRenderState>(() =>
     props.code.length > MAX_MERMAID_SOURCE_LENGTH
       ? { status: 'error', reason: 'too-large' }
-      : { status: 'loading' },
+      : autoRender
+        ? { status: 'loading' }
+        : { status: 'deferred' },
   );
   const [zoom, setZoom] = useState(1);
   const [expanded, setExpanded] = useState(false);
   const [panning, setPanning] = useState(false);
+  const [pannableAxis, setPannableAxis] = useState<'none' | 'horizontal' | 'vertical' | 'both'>('none');
   const [viewportLayout, setViewportLayout] = useState<MermaidViewportLayout | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
-  const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
-  const restoreFullscreenButtonFocusRef = useRef(false);
   const panRef = useRef<{
     pointerId: number;
     x: number;
@@ -146,14 +188,18 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
       setState({ status: 'error', reason: 'too-large' });
       return;
     }
+    if (!autoRender && !manualRenderRequested) {
+      setState({ status: 'deferred' });
+      return;
+    }
 
     let cancelled = false;
     setZoom(1);
     setViewportLayout(null);
     setState({ status: 'loading' });
-    void renderMermaid(props.code, theme).then(
+    void renderMermaid(props.code, theme, () => !cancelled).then(
       (svg) => {
-        if (!cancelled) {
+        if (!cancelled && svg) {
           const { width: naturalWidth, height: naturalHeight } = mermaidViewBoxSize(svg);
           setState({ status: 'rendered', svg, naturalWidth, naturalHeight });
         }
@@ -165,7 +211,7 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
     return () => {
       cancelled = true;
     };
-  }, [props.code, theme]);
+  }, [autoRender, manualRenderRequested, props.code, theme]);
 
   const naturalWidth = state.status === 'rendered' ? state.naturalWidth : 0;
   const naturalHeight = state.status === 'rendered' ? state.naturalHeight : 0;
@@ -227,27 +273,20 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
   }, [expanded, naturalHeight, naturalWidth]);
 
   useEffect(() => {
-    if (!expanded) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setExpanded(false);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [expanded]);
-
-  useEffect(() => {
-    if (!restoreFullscreenButtonFocusRef.current) return;
     const frame = requestAnimationFrame(() => {
-      fullscreenButtonRef.current?.focus({ preventScroll: true });
-      if (!expanded) restoreFullscreenButtonFocusRef.current = false;
+      const viewport = viewportRef.current;
+      if (!viewport) {
+        setPannableAxis('none');
+        return;
+      }
+      const horizontal = viewport.scrollWidth > viewport.clientWidth + 1;
+      const vertical = viewport.scrollHeight > viewport.clientHeight + 1;
+      setPannableAxis(horizontal
+        ? vertical ? 'both' : 'horizontal'
+        : vertical ? 'vertical' : 'none');
     });
     return () => cancelAnimationFrame(frame);
-  }, [expanded]);
+  }, [expanded, viewportLayout, zoom]);
 
   function updateZoom(nextZoom: number, anchor?: { clientX: number; clientY: number }) {
     const next = clampMermaidZoom(nextZoom);
@@ -290,69 +329,73 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
     const canvasWidth = viewportLayout
       ? `${viewportLayout.fitWidth * zoom}px`
       : `min(${state.naturalWidth * zoom}px, ${zoomPercent}%)`;
-    const diagram = (
+    const renderDiagram = (isExpanded: boolean, showContent: boolean) => (
       <figure
-        className={`${className} maka-mermaid-diagram${expanded ? ' maka-mermaid-diagram-expanded' : ''}`}
+        className={`${className} maka-mermaid-diagram${isExpanded ? ' maka-mermaid-diagram-expanded' : ''}`}
         data-maka-contract="mermaid"
         data-maka-mermaid-state="rendered"
         data-maka-mermaid-zoom={zoom.toFixed(2)}
         data-maka-mermaid-layout={viewportLayout ? 'ready' : 'measuring'}
         aria-label={copy.mermaidDiagram}
       >
-        <figcaption className="maka-mermaid-toolbar">
-          <span className="maka-mermaid-title">{copy.mermaidDiagram}</span>
-          <div className="maka-mermaid-actions" role="toolbar" aria-label={copy.mermaidToolbar}>
-            <IconButton
-              size="sm"
-              variant="ghost"
-              label={copy.mermaidZoomOut}
-              tooltip={copy.mermaidZoomOut}
-              isDisabled={zoom <= MIN_MERMAID_ZOOM}
-              onClick={() => updateZoom(zoom - MERMAID_ZOOM_STEP)}
-              icon={<ZoomOut aria-hidden="true" />}
-            />
-            <output className="maka-mermaid-zoom-level" aria-label={copy.mermaidZoomLevel(zoomPercent)}>
-              {zoomPercent}%
-            </output>
-            <IconButton
-              size="sm"
-              variant="ghost"
-              label={copy.mermaidZoomIn}
-              tooltip={copy.mermaidZoomIn}
-              isDisabled={zoom >= MAX_MERMAID_ZOOM}
-              onClick={() => updateZoom(zoom + MERMAID_ZOOM_STEP)}
-              icon={<ZoomIn aria-hidden="true" />}
-            />
-            <IconButton
-              size="sm"
-              variant="ghost"
-              label={copy.mermaidResetView}
-              tooltip={copy.mermaidResetView}
-              onClick={resetViewport}
-              icon={<Scan aria-hidden="true" />}
-            />
-            <IconButton
-              ref={fullscreenButtonRef}
-              size="sm"
-              variant="ghost"
-              label={expanded ? copy.mermaidCollapseView : copy.mermaidExpandView}
-              tooltip={expanded ? copy.mermaidCollapseView : copy.mermaidExpandView}
-              aria-expanded={expanded}
-              onClick={() => {
-                if (!expanded) restoreFullscreenButtonFocusRef.current = true;
-                setExpanded(!expanded);
-              }}
-              icon={expanded
-                ? <Minimize2 aria-hidden="true" />
-                : <Maximize2 aria-hidden="true" />}
-            />
-          </div>
-        </figcaption>
-        <div
+        <Toolbar
+          className="maka-mermaid-toolbar"
+          label={copy.mermaidToolbar}
+          size="sm"
+          startContent={<span className="maka-mermaid-title">{copy.mermaidDiagram}</span>}
+          endContent={(
+            <div className="maka-mermaid-actions">
+              <div className="maka-mermaid-zoom-actions">
+                <IconButton
+                  variant="ghost"
+                  label={copy.mermaidZoomOut}
+                  tooltip={copy.mermaidZoomOut}
+                  isDisabled={zoom <= MIN_MERMAID_ZOOM}
+                  onClick={() => updateZoom(zoom - MERMAID_ZOOM_STEP)}
+                  icon={<ZoomOut aria-hidden="true" />}
+                />
+                <output
+                  className="maka-mermaid-zoom-level"
+                  aria-label={copy.mermaidZoomLevel(zoomPercent)}
+                >
+                  {zoomPercent}%
+                </output>
+                <IconButton
+                  variant="ghost"
+                  label={copy.mermaidZoomIn}
+                  tooltip={copy.mermaidZoomIn}
+                  isDisabled={zoom >= MAX_MERMAID_ZOOM}
+                  onClick={() => updateZoom(zoom + MERMAID_ZOOM_STEP)}
+                  icon={<ZoomIn aria-hidden="true" />}
+                />
+                <IconButton
+                  variant="ghost"
+                  label={copy.mermaidResetView}
+                  tooltip={copy.mermaidResetView}
+                  onClick={resetViewport}
+                  icon={<Scan aria-hidden="true" />}
+                />
+              </div>
+              <IconButton
+                variant="ghost"
+                label={isExpanded ? copy.mermaidCollapseView : copy.mermaidExpandView}
+                tooltip={isExpanded ? copy.mermaidCollapseView : copy.mermaidExpandView}
+                aria-expanded={isExpanded}
+                data-autofocus={isExpanded ? true : undefined}
+                onClick={() => setExpanded(!isExpanded)}
+                icon={isExpanded
+                  ? <Minimize2 aria-hidden="true" />
+                  : <Maximize2 aria-hidden="true" />}
+              />
+            </div>
+          )}
+        />
+        {showContent && <div
           ref={viewportRef}
           className="maka-mermaid-viewport"
           data-maka-mermaid-panning={panning ? 'true' : 'false'}
-          style={expanded || !viewportLayout
+          data-maka-mermaid-pannable={pannableAxis}
+          style={isExpanded || !viewportLayout
             ? undefined
             : { height: `${viewportLayout.viewportHeight}px` }}
           aria-label={copy.mermaidViewport}
@@ -379,8 +422,7 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
           }}
           onPointerDown={(event) => {
             const viewport = viewportRef.current;
-            if (!viewport || event.button !== 0) return;
-            if (viewport.scrollWidth <= viewport.clientWidth && viewport.scrollHeight <= viewport.clientHeight) return;
+            if (!viewport || event.button !== 0 || pannableAxis === 'none') return;
             panRef.current = {
               pointerId: event.pointerId,
               x: event.clientX,
@@ -415,20 +457,51 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
             <div
               className="maka-mermaid-svg"
               // Mermaid's strict security level disables link callbacks, encodes
-              // HTML labels, and sanitizes the SVG before this trusted-library
-              // output crosses React's HTML boundary. We never call bindFunctions.
+              // HTML labels, and sanitizes the SVG. A final product-owned pass
+              // removes navigation wrappers, event attributes, scripts, and
+              // foreignObject before output crosses React's HTML boundary. We
+              // never call bindFunctions.
               dangerouslySetInnerHTML={{ __html: state.svg }}
             />
           </div>
-        </div>
+        </div>}
+        {showContent && <Collapsible
+          className="maka-mermaid-source"
+          trigger={copy.mermaidViewSource}
+          defaultIsOpen={false}
+        >
+          <CodeBlock
+            code={props.code}
+            language="mermaid"
+            hasCopyButton
+            isCollapsible
+          />
+        </Collapsible>}
       </figure>
     );
-    return expanded ? createPortal(diagram, document.body) : diagram;
+    return (
+      <>
+        {renderDiagram(false, !expanded)}
+        <Dialog
+          className="maka-mermaid-dialog"
+          isOpen={expanded}
+          onOpenChange={setExpanded}
+          variant="fullscreen"
+          purpose="form"
+          padding={0}
+          aria-label={copy.mermaidDiagram}
+        >
+          {expanded ? renderDiagram(true, true) : null}
+        </Dialog>
+      </>
+    );
   }
 
   const message = state.status === 'loading'
     ? copy.mermaidRendering
-    : state.reason === 'too-large'
+    : state.status === 'deferred'
+      ? copy.mermaidDeferred
+      : state.reason === 'too-large'
       ? copy.mermaidTooLarge
       : copy.mermaidRenderFailed;
 
@@ -444,9 +517,17 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
         hasCopyButton
         isCollapsible
       />
-      <span className="maka-mermaid-status" role="status">
-        {message}
-      </span>
+      <div className="maka-mermaid-fallback-actions">
+        <span className="maka-mermaid-status" role="status">
+          {message}
+        </span>
+        {state.status === 'deferred' && <Button
+          size="sm"
+          variant="secondary"
+          label={copy.mermaidRender}
+          onClick={() => setManualRenderRequested(true)}
+        />}
+      </div>
     </div>
   );
 }
