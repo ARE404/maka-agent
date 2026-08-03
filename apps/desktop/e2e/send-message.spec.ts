@@ -115,6 +115,25 @@ test('renders a settled Mermaid fence as a diagram', async ({ window: page }) =>
   await expect(page.locator('.maka-bubble-streaming')).toHaveCount(0);
   const diagram = page.locator('[data-maka-contract="mermaid"]').last();
   await expect(diagram).toHaveAttribute('data-maka-mermaid-state', 'rendered');
-  await expect(diagram.locator('svg')).toBeVisible();
+  await expect(diagram.locator('.maka-mermaid-svg > svg')).toBeVisible();
   await expect(diagram.locator('script, foreignObject, a')).toHaveCount(0);
+
+  const viewport = diagram.locator('.maka-mermaid-viewport');
+  const fitted = await viewport.evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(fitted.scrollWidth).toBeLessThanOrEqual(fitted.clientWidth + 1);
+
+  await diagram.getByRole('button', { name: '放大图表' }).click();
+  await expect(diagram).toHaveAttribute('data-maka-mermaid-zoom', '1.25');
+  await expect.poll(() => viewport.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+
+  await diagram.getByRole('button', { name: '适应视窗' }).click();
+  await expect(diagram).toHaveAttribute('data-maka-mermaid-zoom', '1.00');
+
+  await diagram.getByRole('button', { name: '全屏查看图表' }).click();
+  await expect(diagram).toHaveCSS('position', 'fixed');
+  await page.keyboard.press('Escape');
+  await expect(diagram.getByRole('button', { name: '全屏查看图表' })).toBeVisible();
 });

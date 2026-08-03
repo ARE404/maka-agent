@@ -60,7 +60,8 @@ export class FakeBackend implements AgentBackend {
             '',
             '```mermaid',
             'flowchart LR',
-            'A[Prompt] --> B[Rendered diagram]',
+            'A[Prompt] --> B[Parse Markdown] --> C[Load Mermaid] --> D[Render SVG]',
+            'D --> E[Fit viewport] --> F[Zoom and pan] --> G[Inspect details]',
             '```',
           ].join('\n')
         : `Fake backend received: ${input.text}${attLine}\n\nThis proves the session stream, JSONL storage, and renderer loop are connected.`;

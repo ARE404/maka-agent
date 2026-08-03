@@ -22,6 +22,14 @@ export interface SharedUiCopy {
     mermaidRendering: string;
     mermaidRenderFailed: string;
     mermaidTooLarge: string;
+    mermaidToolbar: string;
+    mermaidViewport: string;
+    mermaidZoomIn: string;
+    mermaidZoomOut: string;
+    mermaidResetView: string;
+    mermaidExpandView: string;
+    mermaidCollapseView: string;
+    mermaidZoomLevel: (percent: number) => string;
   };
   formControls: {
     selectPlaceholder: string;
@@ -113,6 +121,14 @@ const SHARED_UI_COPY = {
       mermaidRendering: '正在渲染 Mermaid 图表…',
       mermaidRenderFailed: '无法渲染 Mermaid 图表，已显示源码。',
       mermaidTooLarge: 'Mermaid 图表源码过大，已显示源码。',
+      mermaidToolbar: 'Mermaid 图表工具栏',
+      mermaidViewport: 'Mermaid 图表视窗，可拖动平移，按加号或减号缩放',
+      mermaidZoomIn: '放大图表',
+      mermaidZoomOut: '缩小图表',
+      mermaidResetView: '适应视窗',
+      mermaidExpandView: '全屏查看图表',
+      mermaidCollapseView: '退出全屏图表',
+      mermaidZoomLevel: (percent) => `缩放比例 ${percent}%`,
     },
     formControls: {
       selectPlaceholder: '选择…',
@@ -188,6 +204,14 @@ const SHARED_UI_COPY = {
       mermaidRendering: 'Rendering Mermaid diagram…',
       mermaidRenderFailed: 'Could not render the Mermaid diagram. Showing source.',
       mermaidTooLarge: 'Mermaid diagram source is too large. Showing source.',
+      mermaidToolbar: 'Mermaid diagram toolbar',
+      mermaidViewport: 'Mermaid diagram viewport. Drag to pan; press plus or minus to zoom.',
+      mermaidZoomIn: 'Zoom in on diagram',
+      mermaidZoomOut: 'Zoom out on diagram',
+      mermaidResetView: 'Fit diagram to viewport',
+      mermaidExpandView: 'View diagram fullscreen',
+      mermaidCollapseView: 'Exit diagram fullscreen',
+      mermaidZoomLevel: (percent) => `Zoom level ${percent}%`,
     },
     formControls: {
       selectPlaceholder: 'Select…',

@@ -137,16 +137,60 @@
 [role="document"] > .maka-markdown-code:first-child { margin-block-start: 0; }
 [role="document"] > .maka-markdown-code:last-child { margin-block-end: 0; }
 .maka-mermaid-diagram {
-  display: grid;
+  display: flex;
   max-width: 100%;
-  overflow: auto;
-  padding: var(--space-3);
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--background);
 }
-.maka-mermaid-svg { display: flex; min-width: max-content; justify-content: center; }
-.maka-mermaid-svg > svg { display: block; max-width: none; height: auto; }
+.maka-mermaid-toolbar {
+  display: flex;
+  min-height: 40px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--foreground-3);
+}
+.maka-mermaid-title { font: var(--maka-text-supporting); color: var(--muted-foreground); }
+.maka-mermaid-actions { display: flex; align-items: center; gap: 2px; }
+.maka-mermaid-zoom-level {
+  font: var(--maka-text-code);
+  min-width: 4.5ch;
+  color: var(--muted-foreground);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.maka-mermaid-viewport {
+  position: relative;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--space-3);
+  cursor: grab;
+  outline: none;
+  overscroll-behavior: contain;
+  touch-action: none;
+}
+.maka-mermaid-viewport:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring); }
+.maka-mermaid-viewport[data-maka-mermaid-panning="true"] { cursor: grabbing; user-select: none; }
+.maka-mermaid-canvas { min-width: 0; margin-inline: auto; }
+.maka-mermaid-svg { display: flex; width: 100%; min-width: 0; justify-content: center; }
+.maka-mermaid-svg > svg { display: block; width: 100%; max-width: none !important; height: auto; }
+.maka-mermaid-diagram-expanded {
+  position: fixed;
+  z-index: var(--z-overlay);
+  inset: 0;
+  max-width: none;
+  margin: 0 !important;
+  border: 0;
+  border-radius: 0;
+}
+.maka-mermaid-diagram-expanded .maka-mermaid-viewport { min-height: 0; flex: 1 1 auto; }
 .maka-mermaid-fallback { display: grid; gap: var(--space-1-5); }
 .maka-mermaid-status {
   font: var(--maka-text-supporting);

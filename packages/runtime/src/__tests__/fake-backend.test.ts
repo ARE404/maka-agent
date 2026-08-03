@@ -55,7 +55,7 @@ test('Mermaid fixture emits a settled fenced diagram for renderer E2E', async ()
 
   assert.match(
     completedText,
-    /```mermaid\nflowchart LR\nA\[Prompt\] --> B\[Rendered diagram\]\n```/,
+    /```mermaid\nflowchart LR\nA\[Prompt\].*G\[Inspect details\]\n```/s,
   );
 });
 
