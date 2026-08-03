@@ -131,6 +131,8 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
   const [panning, setPanning] = useState(false);
   const [viewportLayout, setViewportLayout] = useState<MermaidViewportLayout | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFullscreenButtonFocusRef = useRef(false);
   const panRef = useRef<{
     pointerId: number;
     x: number;
@@ -238,6 +240,15 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
     };
   }, [expanded]);
 
+  useEffect(() => {
+    if (!restoreFullscreenButtonFocusRef.current) return;
+    const frame = requestAnimationFrame(() => {
+      fullscreenButtonRef.current?.focus({ preventScroll: true });
+      if (!expanded) restoreFullscreenButtonFocusRef.current = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [expanded]);
+
   function updateZoom(nextZoom: number, anchor?: { clientX: number; clientY: number }) {
     const next = clampMermaidZoom(nextZoom);
     if (next === zoom) return;
@@ -321,12 +332,16 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
               icon={<Scan aria-hidden="true" />}
             />
             <IconButton
+              ref={fullscreenButtonRef}
               size="sm"
               variant="ghost"
               label={expanded ? copy.mermaidCollapseView : copy.mermaidExpandView}
               tooltip={expanded ? copy.mermaidCollapseView : copy.mermaidExpandView}
               aria-expanded={expanded}
-              onClick={() => setExpanded((value) => !value)}
+              onClick={() => {
+                if (!expanded) restoreFullscreenButtonFocusRef.current = true;
+                setExpanded(!expanded);
+              }}
               icon={expanded
                 ? <Minimize2 aria-hidden="true" />
                 : <Maximize2 aria-hidden="true" />}

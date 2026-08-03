@@ -188,10 +188,14 @@ test('renders a settled Mermaid fence as a diagram', async ({ window: page }) =>
   }).toBeGreaterThan((inlineSvgBounds?.width ?? 0) * (inlineSvgBounds?.height ?? 0) * 1.5);
   await expect.poll(() => diagram.locator('.maka-mermaid-actions').evaluate((element) =>
     getComputedStyle(element).getPropertyValue('-webkit-app-region'))).toBe('no-drag');
-  await diagram.getByRole('button', { name: '退出全屏图表' }).click();
-  await expect(diagram.getByRole('button', { name: '全屏查看图表' })).toBeVisible();
+  const exitFullscreen = diagram.getByRole('button', { name: '退出全屏图表' });
+  await expect(exitFullscreen).toBeFocused();
+  await exitFullscreen.click();
+  const enterFullscreen = diagram.getByRole('button', { name: '全屏查看图表' });
+  await expect(enterFullscreen).toBeFocused();
 
-  await diagram.getByRole('button', { name: '全屏查看图表' }).click();
+  await enterFullscreen.click();
+  await expect(diagram.getByRole('button', { name: '退出全屏图表' })).toBeFocused();
   await page.keyboard.press('Escape');
-  await expect(diagram.getByRole('button', { name: '全屏查看图表' })).toBeVisible();
+  await expect(diagram.getByRole('button', { name: '全屏查看图表' })).toBeFocused();
 });
