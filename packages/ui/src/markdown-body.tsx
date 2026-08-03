@@ -18,6 +18,7 @@ import {
 } from '@astryxdesign/core/Markdown';
 import { trimStreamingArtifacts } from '@astryxdesign/core/Markdown/utils';
 import { Link as AstryxLink } from '@astryxdesign/core/Link';
+import { CodeBlock } from '@astryxdesign/core/CodeBlock';
 import {
   isMakaUriCandidate,
   isSafeExternalScheme,
@@ -26,11 +27,31 @@ import {
 import { MakaUriContext } from './markdown.js';
 import { useUiLocale } from './locale-context.js';
 import { getSharedUiCopy } from './shared-ui-copy.js';
+import { MermaidDiagram } from './mermaid-diagram.js';
 
-const MAKA_MARKDOWN_COMPONENTS = {
+const BASE_MARKDOWN_COMPONENTS = {
   link: MarkdownLink,
   image: MarkdownImage,
-} satisfies Partial<MarkdownComponents>;
+};
+
+const MARKDOWN_COMPONENTS = {
+  default: {
+    ...BASE_MARKDOWN_COMPONENTS,
+    code: MarkdownCodeDefault,
+  },
+  compact: {
+    ...BASE_MARKDOWN_COMPONENTS,
+    code: MarkdownCodeCompact,
+  },
+  streamingDefault: {
+    ...BASE_MARKDOWN_COMPONENTS,
+    code: MarkdownCodeStreamingDefault,
+  },
+  streamingCompact: {
+    ...BASE_MARKDOWN_COMPONENTS,
+    code: MarkdownCodeStreamingCompact,
+  },
+} satisfies Record<string, Partial<MarkdownComponents>>;
 
 export function MarkdownBody(props: {
   text: string;
@@ -41,6 +62,12 @@ export function MarkdownBody(props: {
     ? trimStreamingArtifacts(props.text)
     : props.text;
   const safeText = neutralizeUnsafeMarkdownImages(parseableText);
+  const density = props.density ?? 'default';
+  const components = props.streaming
+    ? density === 'compact'
+      ? MARKDOWN_COMPONENTS.streamingCompact
+      : MARKDOWN_COMPONENTS.streamingDefault
+    : MARKDOWN_COMPONENTS[density];
 
   return (
     <div
@@ -64,11 +91,48 @@ export function MarkdownBody(props: {
         // document. Hardcoding `compact` here contradicted that scoping: the
         // review kept full heading sizes but got transcript block spacing,
         // the one combination neither half of the argument asks for.
-        density={props.density ?? 'default'}
-        components={MAKA_MARKDOWN_COMPONENTS}
+        density={density}
+        components={components}
       >
         {safeText}
       </AstryxMarkdown>
+    </div>
+  );
+}
+
+function MarkdownCodeDefault(props: { code: string; language?: string }) {
+  return <MarkdownCode {...props} density="default" renderMermaid />;
+}
+
+function MarkdownCodeCompact(props: { code: string; language?: string }) {
+  return <MarkdownCode {...props} density="compact" renderMermaid />;
+}
+
+function MarkdownCodeStreamingDefault(props: { code: string; language?: string }) {
+  return <MarkdownCode {...props} density="default" renderMermaid={false} />;
+}
+
+function MarkdownCodeStreamingCompact(props: { code: string; language?: string }) {
+  return <MarkdownCode {...props} density="compact" renderMermaid={false} />;
+}
+
+function MarkdownCode(props: {
+  code: string;
+  language?: string;
+  density: 'default' | 'compact';
+  renderMermaid: boolean;
+}) {
+  if (props.renderMermaid && props.language?.trim().toLowerCase() === 'mermaid') {
+    return <MermaidDiagram code={props.code} density={props.density} />;
+  }
+
+  return (
+    <div className={`maka-markdown-code maka-markdown-code-${props.density}`}>
+      <CodeBlock
+        code={props.code}
+        language={props.language}
+        isCollapsible
+      />
     </div>
   );
 }

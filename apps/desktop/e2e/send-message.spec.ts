@@ -1,4 +1,5 @@
 import { test, expect, COMPOSER_INPUT } from './fixtures';
+import { FAKE_MERMAID_PROMPT } from '@maka/runtime';
 
 /**
  * Core chat loop: type a message, send it, see the deterministic fake backend
@@ -103,4 +104,17 @@ test('exposes the Astryx Markdown code-copy action', async ({ window: page }) =>
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe('const answer = 42;\n\nreturn answer;');
   await expect(markdown.locator('[data-copy-feedback]')).toHaveCount(0);
+});
+
+test('renders a settled Mermaid fence as a diagram', async ({ window: page }) => {
+  const composer = page.locator(COMPOSER_INPUT);
+  await composer.fill(FAKE_MERMAID_PROMPT);
+  await composer.press('Enter');
+
+  await expect(page.getByRole('button', { name: '重新生成' })).toBeVisible();
+  await expect(page.locator('.maka-bubble-streaming')).toHaveCount(0);
+  const diagram = page.locator('[data-maka-contract="mermaid"]').last();
+  await expect(diagram).toHaveAttribute('data-maka-mermaid-state', 'rendered');
+  await expect(diagram.locator('svg')).toBeVisible();
+  await expect(diagram.locator('script, foreignObject, a')).toHaveCount(0);
 });

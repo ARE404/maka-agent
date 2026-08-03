@@ -18,6 +18,10 @@ export interface SharedUiCopy {
     opensInNewTab: string;
     copyCode: string;
     copiedCode: string;
+    mermaidDiagram: string;
+    mermaidRendering: string;
+    mermaidRenderFailed: string;
+    mermaidTooLarge: string;
   };
   formControls: {
     selectPlaceholder: string;
@@ -105,6 +109,10 @@ const SHARED_UI_COPY = {
       opensInNewTab: '（在新标签页中打开）',
       copyCode: '复制代码',
       copiedCode: '已复制代码',
+      mermaidDiagram: 'Mermaid 图表',
+      mermaidRendering: '正在渲染 Mermaid 图表…',
+      mermaidRenderFailed: '无法渲染 Mermaid 图表，已显示源码。',
+      mermaidTooLarge: 'Mermaid 图表源码过大，已显示源码。',
     },
     formControls: {
       selectPlaceholder: '选择…',
@@ -176,6 +184,10 @@ const SHARED_UI_COPY = {
       opensInNewTab: '(opens in new tab)',
       copyCode: 'Copy code',
       copiedCode: 'Code copied',
+      mermaidDiagram: 'Mermaid diagram',
+      mermaidRendering: 'Rendering Mermaid diagram…',
+      mermaidRenderFailed: 'Could not render the Mermaid diagram. Showing source.',
+      mermaidTooLarge: 'Mermaid diagram source is too large. Showing source.',
     },
     formControls: {
       selectPlaceholder: 'Select…',

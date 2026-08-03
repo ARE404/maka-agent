@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { SessionEvent, SessionHeader, StoredMessage } from '@maka/core';
-import { FAKE_ASK_USER_QUESTION_PROMPT, FakeBackend } from '../fake-backend.js';
+import {
+  FAKE_ASK_USER_QUESTION_PROMPT,
+  FAKE_MERMAID_PROMPT,
+  FakeBackend,
+} from '../fake-backend.js';
 import {
   RuntimeInteractionInvariantError,
   bindRuntimeInteractionRun,
@@ -30,6 +34,29 @@ test('text deltas preserve the exact completed response, including Markdown line
 
   assert.equal(deltas.join(''), completedText);
   assert.match(completedText, /\n\n\| 名称 \| 状态 \|/);
+});
+
+test('Mermaid fixture emits a settled fenced diagram for renderer E2E', async () => {
+  const backend = new FakeBackend({
+    sessionId: 'session-1',
+    header: { model: 'fake-model' } as SessionHeader,
+    store: {} as SessionStore,
+    appendMessage: async () => {},
+  });
+  let completedText = '';
+
+  for await (const event of backend.send({
+    turnId: 'turn-1',
+    text: FAKE_MERMAID_PROMPT,
+    context: [],
+  })) {
+    if (event.type === 'text_complete') completedText = event.text;
+  }
+
+  assert.match(
+    completedText,
+    /```mermaid\nflowchart LR\nA\[Prompt\] --> B\[Rendered diagram\]\n```/,
+  );
 });
 
 test('AskUserQuestion scenario parks the same turn until one response continues it', async () => {

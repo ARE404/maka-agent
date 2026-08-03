@@ -9,6 +9,11 @@ import {
   astryxMessageOverrides,
 } from '../astryx-i18n.js';
 import { LocaleProvider } from '../locale-context.js';
+import {
+  createMermaidConfig,
+  MAX_MERMAID_EDGES,
+  MAX_MERMAID_SOURCE_LENGTH,
+} from '../mermaid-diagram.js';
 
 it('keeps raw HTML inert instead of expanding the Markdown trust surface', () => {
   const markup = renderToStaticMarkup(createElement(MarkdownBody, {
@@ -233,6 +238,47 @@ it('uses the localized Astryx code block and syntax tokenizer', () => {
 
   assert.match(markup, /aria-label="复制代码"/);
   assert.match(markup.replace(/<[^>]*>/g, ''), /const answer = 42;/);
+});
+
+it('routes settled Mermaid fences to the lazy diagram surface', () => {
+  const markup = renderToStaticMarkup(
+    createElement(
+      LocaleProvider,
+      {
+        locale: 'en',
+        children: createElement(MarkdownBody, {
+          text: ['```mermaid', 'flowchart LR', 'A --> B', '```'].join('\n'),
+        }),
+      },
+    ),
+  );
+
+  assert.match(markup, /data-maka-contract="mermaid"/);
+  assert.match(markup, /data-maka-mermaid-state="loading"/);
+  assert.match(markup, /Rendering Mermaid diagram/);
+  assert.match(markup, /flowchart LR/);
+});
+
+it('keeps Mermaid source inert while the assistant turn is streaming', () => {
+  const markup = renderToStaticMarkup(createElement(MarkdownBody, {
+    text: ['```mermaid', 'flowchart LR', 'A --> B', '```'].join('\n'),
+    streaming: true,
+  }));
+
+  assert.doesNotMatch(markup, /data-maka-contract="mermaid"/);
+  assert.match(markup, /flowchart LR/);
+});
+
+it('pins Mermaid security and complexity limits for untrusted assistant output', () => {
+  const config = createMermaidConfig('dark');
+
+  assert.equal(config.startOnLoad, false);
+  assert.equal(config.securityLevel, 'strict');
+  assert.equal(config.suppressErrorRendering, true);
+  assert.equal(config.htmlLabels, false);
+  assert.equal(config.maxTextSize, MAX_MERMAID_SOURCE_LENGTH);
+  assert.equal(config.maxEdges, MAX_MERMAID_EDGES);
+  assert.equal(config.theme, 'dark');
 });
 
 it('keeps a single newline as a CommonMark soft break', () => {

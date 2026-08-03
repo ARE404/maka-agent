@@ -17,6 +17,7 @@ import type { SessionStore } from './session-manager.js';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export const FAKE_ASK_USER_QUESTION_PROMPT = '__e2e_ask_user_question__';
 export const FAKE_WAIT_FOR_STEERING_PROMPT = '__e2e_wait_for_steering__';
+export const FAKE_MERMAID_PROMPT = '__e2e_mermaid__';
 
 type PendingQuestion = {
   turnId: string;
@@ -52,7 +53,17 @@ export class FakeBackend implements AgentBackend {
     const messageId = randomUUID();
     const attNames = (input.attachments ?? []).map((a) => a.name);
     const attLine = attNames.length > 0 ? `\nAttachments received: ${attNames.join(', ')}` : '';
-    let text = `Fake backend received: ${input.text}${attLine}\n\nThis proves the session stream, JSONL storage, and renderer loop are connected.`;
+    let text =
+      input.text === FAKE_MERMAID_PROMPT
+        ? [
+            'Fake backend Mermaid fixture:',
+            '',
+            '```mermaid',
+            'flowchart LR',
+            'A[Prompt] --> B[Rendered diagram]',
+            '```',
+          ].join('\n')
+        : `Fake backend received: ${input.text}${attLine}\n\nThis proves the session stream, JSONL storage, and renderer loop are connected.`;
     // Every delta must concatenate to text_complete; `.` would silently drop
     // line terminators and make structured Markdown reflow only at completion.
     const chunks = text.match(/[\s\S]{1,9}/g) ?? [text];
