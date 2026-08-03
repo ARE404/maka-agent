@@ -128,6 +128,24 @@ test('renders a settled Mermaid fence as a diagram', async ({ window: page }) =>
   await diagram.getByRole('button', { name: '放大图表' }).click();
   await expect(diagram).toHaveAttribute('data-maka-mermaid-zoom', '1.25');
   await expect.poll(() => viewport.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  const zoomedBounds = await diagram.evaluate((element) => {
+    const svg = element.querySelector('.maka-mermaid-svg > svg');
+    const content = svg?.querySelector('g');
+    const svgRect = svg?.getBoundingClientRect();
+    const contentRect = content?.getBoundingClientRect();
+    return {
+      svg: svgRect
+        ? { top: svgRect.top, bottom: svgRect.bottom, width: svgRect.width, height: svgRect.height }
+        : null,
+      content: contentRect
+        ? { top: contentRect.top, bottom: contentRect.bottom }
+        : null,
+    };
+  });
+  expect(zoomedBounds.svg).not.toBeNull();
+  expect(zoomedBounds.content).not.toBeNull();
+  expect(zoomedBounds.content?.top ?? 0).toBeGreaterThanOrEqual((zoomedBounds.svg?.top ?? 0) - 1);
+  expect(zoomedBounds.content?.bottom ?? 0).toBeLessThanOrEqual((zoomedBounds.svg?.bottom ?? 0) + 1);
 
   await diagram.getByRole('button', { name: '适应视窗' }).click();
   await expect(diagram).toHaveAttribute('data-maka-mermaid-zoom', '1.00');

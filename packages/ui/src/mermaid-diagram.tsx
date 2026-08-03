@@ -16,7 +16,7 @@ type MermaidTheme = 'default' | 'dark';
 
 type MermaidRenderState =
   | { status: 'loading' }
-  | { status: 'rendered'; svg: string; naturalWidth: number }
+  | { status: 'rendered'; svg: string; naturalWidth: number; naturalHeight: number }
   | { status: 'error'; reason: 'invalid' | 'too-large' };
 
 let mermaidModule: Promise<typeof import('mermaid').default> | undefined;
@@ -67,10 +67,13 @@ function currentMermaidTheme(): MermaidTheme {
   return document.documentElement.classList.contains('dark') ? 'dark' : 'default';
 }
 
-function mermaidViewBoxWidth(svg: string): number {
-  const viewBox = /\bviewBox=["']\s*[-+\d.e]+[\s,]+[-+\d.e]+[\s,]+([-+\d.e]+)/i.exec(svg);
+function mermaidViewBoxSize(svg: string): { width: number; height: number } {
+  const viewBox = /\bviewBox=["']\s*[-+\d.e]+[\s,]+[-+\d.e]+[\s,]+([-+\d.e]+)[\s,]+([-+\d.e]+)/i.exec(svg);
   const width = Number(viewBox?.[1]);
-  return Number.isFinite(width) && width > 0 ? width : 1200;
+  const height = Number(viewBox?.[2]);
+  return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0
+    ? { width, height }
+    : { width: 1200, height: 675 };
 }
 
 function clampMermaidZoom(value: number): number {
@@ -123,7 +126,10 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
     setState({ status: 'loading' });
     void renderMermaid(props.code, theme).then(
       (svg) => {
-        if (!cancelled) setState({ status: 'rendered', svg, naturalWidth: mermaidViewBoxWidth(svg) });
+        if (!cancelled) {
+          const { width: naturalWidth, height: naturalHeight } = mermaidViewBoxSize(svg);
+          setState({ status: 'rendered', svg, naturalWidth, naturalHeight });
+        }
       },
       () => {
         if (!cancelled) setState({ status: 'error', reason: 'invalid' });
@@ -287,7 +293,10 @@ export function MermaidDiagram(props: { code: string; density: 'default' | 'comp
             setPanning(false);
           }}
         >
-          <div className="maka-mermaid-canvas" style={{ width: canvasWidth }}>
+          <div
+            className="maka-mermaid-canvas"
+            style={{ width: canvasWidth, aspectRatio: `${state.naturalWidth} / ${state.naturalHeight}` }}
+          >
             <div
               className="maka-mermaid-svg"
               // Mermaid's strict security level disables link callbacks, encodes
