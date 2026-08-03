@@ -280,6 +280,7 @@ export type {
 } from './message-authority.js';
 export { isRuntimeHostedRootAuthority } from './message-authority.js';
 export {
+  bindRuntimeInteractionRun,
   RuntimeInteractionAdmissionRejectedError,
   RuntimeInteractionClosedError,
   RuntimeInteractionFailStopError,
@@ -298,6 +299,8 @@ export type {
   RuntimeInteractionRunFacet,
   RuntimeInteractionRunIdentity,
   RuntimeInteractionRunOwner,
+  RuntimeSandboxBoundaryContinuation,
+  RuntimeSandboxBoundaryOutcome,
   RuntimeUserQuestionAnswer,
   RuntimeUserQuestionClosureReason,
   RuntimeUserQuestionContinuation,
@@ -1134,6 +1137,7 @@ export { AsyncEventQueue } from './async-queue.js';
 export {
   FAKE_ASK_USER_QUESTION_PROMPT,
   FAKE_MERMAID_PROMPT,
+  FAKE_ASK_SANDBOX_BOUNDARY_PROMPT,
   FAKE_WAIT_FOR_STEERING_PROMPT,
   FakeBackend,
 } from './fake-backend.js';
