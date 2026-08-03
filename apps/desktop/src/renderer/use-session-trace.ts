@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { generalizedErrorMessage, generalizedErrorMessageChinese } from '@maka/core';
 import type { SessionTrace } from '@maka/core/session-trace';
-import { useUiLocale } from '@maka/ui';
-import { getDesktopConversationCopy } from './locales/conversation-copy.js';
 import { createTraceRefreshCoalescer } from './session-trace-refresh.js';
 
 interface SessionTraceSnapshot {
@@ -32,9 +30,11 @@ const TRACE_REFRESH_DEBOUNCE_MS = 400;
 export function useSessionTrace(
   sessionId: string | undefined,
   active: boolean,
+  // Handed in rather than read from the locale context, so this hook — the one
+  // whose comment once outran its code — is renderable in a test without the
+  // UI package behind it.
+  copy: { loadFailed: string; locale: 'zh' | 'en' },
 ): SessionTraceSnapshot & { retry: () => void } {
-  const locale = useUiLocale();
-  const copy = getDesktopConversationCopy(locale).inspector;
   const revisionRef = useRef(0);
   const [snapshot, setSnapshot] = useState<SessionTraceSnapshot>(EMPTY_SNAPSHOT);
 
@@ -71,14 +71,14 @@ export function useSessionTrace(
             ...(current.sessionId === targetSessionId ? { trace: current.trace } : {}),
             loading: false,
             error:
-              locale === 'zh'
+              copy.locale === 'zh'
                 ? generalizedErrorMessageChinese(error, copy.loadFailed)
                 : generalizedErrorMessage(error, copy.loadFailed),
           }));
         },
       );
     },
-    [copy.loadFailed, locale],
+    [copy.loadFailed, copy.locale],
   );
 
   useEffect(() => {
@@ -96,7 +96,10 @@ export function useSessionTrace(
     const unsubscribe = window.maka.sessions.subscribeEvents(sessionId, (event) => {
       coalescer.observe(event);
     });
-    load(sessionId, false);
+    // Preserve on re-activation too: switching tabs away and back is not new
+    // information about the session, so blanking the timeline would be the
+    // panel forgetting rather than reloading.
+    load(sessionId, true);
     return () => {
       revisionRef.current += 1;
       coalescer.cancel();

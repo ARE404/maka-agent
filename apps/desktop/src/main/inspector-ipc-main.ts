@@ -43,8 +43,22 @@ export async function readSessionTrace(
   let unreadableRecords = 0;
   // Per run rather than per session: the authority stream is keyed that way, so
   // reading it run by run is reading it as it is stored, not reshaping it.
+  //
+  // Each run is read independently because a read failure is just another way a
+  // record can be unreadable. One corrupt row, or a run whose header has gone
+  // missing, would otherwise fail the whole trace on every retry — the opposite
+  // of the "counted, not dropped" rule this projection is built on.
   const runEvents = await Promise.all(
-    runs.map((run) => deps.readRunEvents(sessionId, run.runId)),
+    runs.map(async (run) => {
+      try {
+        return await deps.readRunEvents(sessionId, run.runId);
+      } catch {
+        // Nothing is known about how many records the run held, so it counts as
+        // one gap rather than a guess at its size.
+        unreadableRecords += 1;
+        return [];
+      }
+    }),
   );
   for (const events of runEvents) {
     for (const event of events) {

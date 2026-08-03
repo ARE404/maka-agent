@@ -59,6 +59,20 @@ describe('inspector trace read', () => {
       {
         readSessionRuntimeEvents: async () => [
           runtimeEvent({
+            id: 'dispatch-1',
+            ts: 500,
+            actions: {
+              toolDispatch: {
+                protocol: 't1_after_preflight_v1',
+                operationId: 'op-1',
+                providerToolCallId: 'tool-call-1',
+                toolName: 'Bash',
+                canonicalArgsHash: 'hash',
+                recoveryMode: 'replay_safe',
+              },
+            },
+          }),
+          runtimeEvent({
             id: 'usage-1',
             ts: 2_000,
             actions: { tokenUsage: { input: 10, output: 5, total: 15, runtimeSteps: 1 } },
@@ -84,6 +98,11 @@ describe('inspector trace read', () => {
     assert.equal(trace.totals.costUsd, 0.002);
     assert.equal(trace.coverage.modelCalls, 'no_known_gap');
     assert.equal(trace.coverage.unreadableRecords, 0);
+    // Only the runtime-event ledger can satisfy these: a tool step exists in no
+    // metering record, and the turn's start precedes the model call it drove.
+    const tool = trace.turns[0]?.steps.find((step) => step.kind === 'tool');
+    assert.equal(tool?.kind === 'tool' ? tool.toolName : undefined, 'Bash');
+    assert.equal(trace.turns[0]?.startedAt, 500, 'the turn starts at the dispatch, not the call');
   });
 
   it('counts a record it cannot decode instead of dropping it', async () => {
@@ -148,5 +167,25 @@ describe('inspector trace read', () => {
     };
     assert.equal(result.ok, false);
     assert.equal(result.error?.code, 'INSPECTOR_TRACE_FAILED');
+  });
+
+  it('counts a run it cannot read at all, instead of failing the whole trace', async () => {
+    // A read failure is another way a record can be unreadable. One corrupt run
+    // must not turn every retry into the same total failure.
+    const trace = await readSessionTrace(
+      {
+        readSessionRuntimeEvents: async () => [],
+        listSessionRuns: async () => [{ runId: 'run-ok' }, { runId: 'run-corrupt' }],
+        readRunEvents: async (_sessionId, runId) => {
+          if (runId === 'run-corrupt') throw new Error('run header missing');
+          return [{ type: MODEL_CALL_ATTEMPT_EVENT_TYPE, data: attempt() }];
+        },
+      },
+      'session-1',
+    );
+
+    assert.equal(trace.totals.modelAttempts, 1, 'the readable run still projects');
+    assert.equal(trace.coverage.unreadableRecords, 1, 'and the lost run is one counted gap');
+    assert.equal(trace.coverage.modelCalls, 'partial');
   });
 });
