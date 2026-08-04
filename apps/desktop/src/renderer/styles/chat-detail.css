@@ -109,6 +109,48 @@
   color: var(--maka-color-text-warning, inherit);
 }
 
+.maka-inspector-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--maka-space-2, 8px);
+  flex-wrap: wrap;
+}
+
+.maka-inspector-filter-query {
+  display: flex;
+  align-items: center;
+  gap: var(--maka-space-1, 4px);
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.maka-inspector-filter-query input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.maka-inspector-filter-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.maka-inspector-filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--maka-space-1, 4px);
+  white-space: nowrap;
+}
+
+.maka-inspector-hidden {
+  margin: 0;
+  color: var(--maka-color-text-secondary, inherit);
+  font-variant-numeric: tabular-nums;
+}
+
 .maka-inspector-error {
   display: flex;
   align-items: center;
