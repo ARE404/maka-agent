@@ -98,7 +98,7 @@ const E2E_FIXTURE_SCENARIOS = new Set<E2eFixtureScenario>([
   // streaming-vs-committed horizontal alignment is locked deterministically.
   'streaming-answer',
   // #646: a running session with an armed turn but nothing streaming yet —
-  // captures the "正在处理…" model-wait indicator + composer Stop.
+  // captures the "正在处理…" model-wait indicator + composer Pause.
   'model-processing',
   'sandbox-boundary',
   'stale-sessions',
@@ -490,7 +490,7 @@ function buildE2eFixtureState(fixture: E2eFixture | null): E2eFixtureState | nul
       // #646: a running session whose live projection is armed with
       // NO streaming / thinking / tool seeded, so the derivation fires and the
       // "正在处理…" indicator rides the tail user turn while the composer shows
-      // Stop. The session's on-disk status is `running` so the status gate self-
+      // Pause. The session's on-disk status is `running` so the status gate self-
       // heals like the real backgrounded-session path.
       return {
         ...state,

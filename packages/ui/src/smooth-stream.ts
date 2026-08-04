@@ -66,6 +66,12 @@ export interface SmoothStreamOptions {
    */
   streaming: boolean;
   /**
+   * Freeze the display cursor while the upstream stream keeps running. New
+   * raw text may continue to arrive; clearing this flag resumes from the same
+   * displayed prefix and lets the normal backlog catch-up policy take over.
+   */
+  paused?: boolean;
+  /**
    * Force an immediate full-text display, bypassing all smoothing.
    * Callers should set this when:
    *   - `prefers-reduced-motion: reduce` matches,
@@ -230,6 +236,19 @@ export interface InitialDisplayInputs {
   snap: boolean;
 }
 
+export function shouldAdvanceSmoothStream(inputs: {
+  rawGraphemeCount: number;
+  displayedGraphemeCount: number;
+  paused: boolean;
+  snap: boolean;
+}): boolean {
+  return (
+    !inputs.paused &&
+    !inputs.snap &&
+    inputs.displayedGraphemeCount < inputs.rawGraphemeCount
+  );
+}
+
 /**
  * Pure: how much of `rawText` should be displayed on first mount?
  *
@@ -327,8 +346,14 @@ export function useSmoothStreamContent(
   // cancels the prior handle before the next effect schedules a new
   // one. Two concurrent RAF writers are impossible by construction.
   useEffect(() => {
-    if (snap) return;
-    if (displayedCount >= rawLength) {
+    const paused = options.paused === true;
+    if (!shouldAdvanceSmoothStream({
+      rawGraphemeCount: rawLength,
+      displayedGraphemeCount: displayedCount,
+      paused,
+      snap,
+    })) {
+      if (snap || paused) return;
       refs.current.liveCatchUpStartedAt = 0;
       // Caught up. If we're still streaming, the next arrival will
       // trigger the EMA effect; this effect will re-run and schedule
@@ -402,7 +427,7 @@ export function useSmoothStreamContent(
       cancelled = true;
       cancelAnimationFrame(handle);
     };
-  }, [rawLength, displayedCount, options.streaming, snap, minCps, maxCps, liveCatchUpBudget, completeBudget]);
+  }, [rawLength, displayedCount, options.streaming, options.paused, snap, minCps, maxCps, liveCatchUpBudget, completeBudget]);
 
   const displayed = useMemo(() => {
     if (displayedCount >= rawLength) return rawText;

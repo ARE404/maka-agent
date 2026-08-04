@@ -7,6 +7,7 @@ import {
   resolveInitialDisplayedCount,
   resolveLiveBacklogCps,
   segmentGraphemes,
+  shouldAdvanceSmoothStream,
   updateEma,
 } from '@maka/ui/smooth-stream';
 
@@ -126,6 +127,21 @@ describe('smooth stream helpers', () => {
     for (const [input, expected] of cases) {
       assert.equal(resolveInitialDisplayedCount(input), expected);
     }
+  });
+
+  it('freezes frame advancement while playback is paused', () => {
+    const base = {
+      rawGraphemeCount: 100,
+      displayedGraphemeCount: 40,
+      snap: false,
+    };
+    assert.equal(shouldAdvanceSmoothStream({ ...base, paused: false }), true);
+    assert.equal(shouldAdvanceSmoothStream({ ...base, paused: true }), false);
+    assert.equal(
+      shouldAdvanceSmoothStream({ ...base, displayedGraphemeCount: 100, paused: false }),
+      false,
+    );
+    assert.equal(shouldAdvanceSmoothStream({ ...base, paused: false, snap: true }), false);
   });
 
   it('redacts secrets before any streamed prefix can render', () => {

@@ -11,6 +11,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { Icon } from '@astryxdesign/core/Icon';
 import { useMountedRef } from './use-mounted-ref.js';
 import {
   ArrowUp,
@@ -18,7 +19,9 @@ import {
   ListTodo,
   Mic,
   Network,
+  Pause,
   Pencil,
+  Play,
   Plus,
   Sparkles,
   Upload,
@@ -168,6 +171,11 @@ export const Composer = forwardRef<
     continuing?: boolean;
     /** True while the current streaming session is processing a stop request. */
     stopPending?: boolean;
+    /** True while a live answer has display-layer content that can be paused or resumed. */
+    streamPlaybackAvailable?: boolean;
+    /** Freezes only the rendered live answer; the model stream continues upstream. */
+    streamPlaybackPaused?: boolean;
+    onStreamPlaybackChange?(paused: boolean): void;
     /** Runtime-only key used to keep unsent drafts isolated per session. */
     draftKey?: string;
     onSend(text: string): boolean | void | Promise<boolean | void>;
@@ -1050,15 +1058,21 @@ export const Composer = forwardRef<
 
   const importActionBusy = pendingImportAction !== null;
   const noModelConnection = props.noModelConnection === true;
+  const hasSendableDraft = Boolean(composerWireText(text));
+  const pausedDraftStartsNextTurn = Boolean(
+    props.streamPlaybackPaused && hasSendableDraft,
+  );
   const sendDisabled =
     props.disabled ||
     sendPending ||
     importActionBusy ||
-    !text.trim() ||
+    !hasSendableDraft ||
     noModelConnection;
   // The disabled Send is explanatory only in the no-model dead-end; other
   // disabled reasons (empty draft, in-flight import) keep the neutral label.
-  const sendTitle = noModelConnection && !props.disabled ? copy.noModelSendTitle : copy.sendLabel;
+  const sendTitle = noModelConnection && !props.disabled
+    ? copy.noModelSendTitle
+    : copy.sendLabel;
   const modelChipLabel = props.modelLabel?.trim() || copy.selectModel;
   const modelSwitcherDisabledReason = props.streaming
     ? copy.switchDisabledStreaming
@@ -1502,7 +1516,22 @@ export const Composer = forwardRef<
               ) : null}
             </div>
           )}
-          sendButton={props.streaming ? (
+          sendButton={props.streamPlaybackAvailable
+            && props.onStreamPlaybackChange
+            && !pausedDraftStartsNextTurn ? (
+            <IconButton
+              variant="primary"
+              type="button"
+              className="maka-composer-playback-button"
+              data-state={props.streamPlaybackPaused ? 'paused' : 'playing'}
+              label={props.streamPlaybackPaused ? copy.resumePlayback : copy.pausePlayback}
+              tooltip={props.streamPlaybackPaused ? copy.resumePlayback : copy.pausePlayback}
+              onClick={() => props.onStreamPlaybackChange?.(!props.streamPlaybackPaused)}
+              icon={props.streamPlaybackPaused
+                ? <Icon icon={Play} size="sm" />
+                : <Icon icon={Pause} size="sm" />}
+            />
+          ) : props.streaming && !pausedDraftStartsNextTurn ? (
             <UiButton
               variant="primary"
               isDisabled={props.stopPending}

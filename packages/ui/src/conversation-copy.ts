@@ -63,6 +63,8 @@ export interface ConversationCopy {
     sendLabel: string;
     stopLabel: string;
     stopping: string;
+    pausePlayback: string;
+    resumePlayback: string;
     streaming: string;
     processing: string;
     continuing: string;
@@ -324,6 +326,7 @@ const CONVERSATION_COPY = {
     composer: {
       placeholder: '描述任务，@ 引用文件，/ 选择技能…', textareaAriaLabel: '消息输入框', pastedQuoteLabel: '粘贴的文本', selectedSkillsAriaLabel: '已选择的 Skill', removeSkillAriaLabel: (name) => `移除 Skill：${name}`, awaitingPermission: '等待你确认权限…',
       sending: '正在发送…', importing: '正在导入…', sendLabel: '发送', stopLabel: '停止', stopping: '停止中…',
+      pausePlayback: '暂停显示回答', resumePlayback: '继续显示回答',
       streaming: 'Maka 正在回答…', processing: 'Maka 正在处理…', continuing: 'Maka 继续中…',
       interruptHint: '或点停止中断', addContext: '添加上下文',
       selectModel: '选择模型', dropToImport: '松开以导入文件内容', addingAttachment: '正在添加附件', addFileOrDirectory: '添加文件或目录',
@@ -468,6 +471,7 @@ const CONVERSATION_COPY = {
     composer: {
       placeholder: 'Describe a task, @ to reference files, / for skills…', textareaAriaLabel: 'Message input', pastedQuoteLabel: 'Pasted text', selectedSkillsAriaLabel: 'Selected Skills', removeSkillAriaLabel: (name) => `Remove Skill: ${name}`, awaitingPermission: 'Waiting for your permission decision…',
       sending: 'Sending…', importing: 'Importing…', sendLabel: 'Send', stopLabel: 'Stop', stopping: 'Stopping…',
+      pausePlayback: 'Pause response display', resumePlayback: 'Resume response display',
       streaming: 'Maka is responding…', processing: 'Maka is working…', continuing: 'Maka is continuing…',
       interruptHint: 'or click Stop to interrupt', addContext: 'Add context',
       selectModel: 'Choose model', dropToImport: 'Drop to import file contents', addingAttachment: 'Adding attachment', addFileOrDirectory: 'Add file or directory',

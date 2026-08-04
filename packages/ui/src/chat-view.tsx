@@ -42,6 +42,8 @@ export function ChatView(props: {
   shellRunUpdates?: readonly ShellRunUpdate[];
   /** Called once the streaming bubble has displayed the final text and can hand off to history. */
   onStreamingSettled?(messageId?: string): void;
+  /** Freeze the active live-turn projection while upstream events continue arriving. */
+  streamPlaybackPaused?: boolean;
   /**
    * #646: true while the first-token wait indicator ("正在处理…") should show —
    * the turn is armed at send with no content event yet. Rendered as a transient
@@ -206,6 +208,11 @@ export function ChatView(props: {
   onAskAboutSelection?(input: { text: string; turnId?: string }): void;
 }) {
   const copy = getConversationCopy(useUiLocale()).chat;
+  const visibleLiveTurn = useFrozenWhile(props.liveTurn, props.streamPlaybackPaused === true);
+  const visibleShellRunUpdates = useFrozenWhile(
+    props.shellRunUpdates,
+    props.streamPlaybackPaused === true,
+  );
   // chat + storedTools survive for the empty-state and streaming-bubble
   // paths; the main message log is now driven by `turns` (per @kenji UI-04
   // turn-grouping projection).
@@ -213,7 +220,7 @@ export function ChatView(props: {
   // deltas only clone the active turn; settled turn identities stay stable so
   // memoized TurnViews skip reconciliation on the hottest update path.
   const drainingMessageIdsKey = JSON.stringify(
-    props.liveTurn?.steps.flatMap((step) => step.text ? [step.stepId] : []) ?? [],
+    visibleLiveTurn?.steps.flatMap((step) => step.text ? [step.stepId] : []) ?? [],
   );
   const drainingMessageIds = useMemo(
     () => new Set<string>(JSON.parse(drainingMessageIdsKey) as string[]),
@@ -231,12 +238,12 @@ export function ChatView(props: {
     [visibleMessages],
   );
   const liveTurns = useMemo(
-    () => overlayLiveTurn(settledTurns, props.liveTurn),
-    [settledTurns, props.liveTurn],
+    () => overlayLiveTurn(settledTurns, visibleLiveTurn),
+    [settledTurns, visibleLiveTurn],
   );
   const turns = useMemo(
-    () => overlayShellRunUpdates(liveTurns, props.shellRunUpdates ?? []),
-    [liveTurns, props.shellRunUpdates],
+    () => overlayShellRunUpdates(liveTurns, visibleShellRunUpdates ?? []),
+    [liveTurns, visibleShellRunUpdates],
   );
   // #642 single render path: the in-flight answer is injected into the tail
   // turn's TurnView (the SAME node as the eventual committed turn) instead of a
@@ -264,11 +271,11 @@ export function ChatView(props: {
   // being in-flight are separate signals. Wait indicators alone still mark
   // streaming, but delayed flags can lag one frame past complete; terminal
   // evidence must outrank them so copy/regenerate stay actionable.
-  const liveInFlight = !!(props.liveTurn && !props.liveTurn.terminal);
+  const liveInFlight = !!(visibleLiveTurn && !visibleLiveTurn.terminal);
   const waitIndicators = !!(props.processingIndicator || props.continuingIndicator);
-  const streamingActive = liveInFlight || (!props.liveTurn?.terminal && waitIndicators);
+  const streamingActive = liveInFlight || (!visibleLiveTurn?.terminal && waitIndicators);
   const tailTurnId = liveInFlight
-    ? props.liveTurn!.turnId
+    ? visibleLiveTurn!.turnId
     : (streamingActive ? turns[turns.length - 1]?.turnId : undefined);
   // One rail tick per turn that carries a user prompt (Codex-style prompt
   // navigation). Memoized so the rail's IntersectionObserver isn't rebuilt
@@ -482,13 +489,18 @@ export function ChatView(props: {
                       onLineageBadgeClick={stableLineageBadgeClick}
                       onReadAttachmentBytes={props.onReadAttachmentBytes}
                       searchHighlighted={highlightedTurnId === turn.turnId}
+                      streamPlaybackPaused={
+                        turn.turnId === visibleLiveTurn?.turnId
+                          ? props.streamPlaybackPaused
+                          : undefined
+                      }
                       liveStreaming={
                         turn.turnId === tailTurnId
                           ? {
                               onStreamingSettled: props.onStreamingSettled,
                               processingIndicator: props.processingIndicator,
                               continuingIndicator: props.continuingIndicator,
-                              providerRetry: props.liveTurn?.providerRetry,
+                              providerRetry: visibleLiveTurn?.providerRetry,
                             }
                           : undefined
                       }
@@ -509,8 +521,8 @@ export function ChatView(props: {
                 <section className="maka-turn" data-live-streaming="true">
                   <ChatMessage sender="assistant" className="maka-chat-message maka-assistant-answer">
                     <div className="maka-assistant-answer-content">
-                      {props.liveTurn?.providerRetry ? (
-                        <ModelProviderRetryIndicator retry={props.liveTurn.providerRetry} />
+                      {visibleLiveTurn?.providerRetry ? (
+                        <ModelProviderRetryIndicator retry={visibleLiveTurn.providerRetry} />
                       ) : (
                         <>
                           {props.processingIndicator && <ModelProcessingIndicator />}
@@ -583,6 +595,13 @@ export function ChatView(props: {
       </div>
     </main>
   );
+}
+
+/** Keep the last renderable value stable without applying backpressure upstream. */
+function useFrozenWhile<T>(value: T, frozen: boolean): T {
+  const visibleRef = useRef(value);
+  if (!frozen) visibleRef.current = value;
+  return frozen ? visibleRef.current : value;
 }
 
 export function DeepResearchProgressPanel({

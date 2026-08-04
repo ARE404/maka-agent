@@ -281,6 +281,7 @@ function AppShellContent({
   const [newChatSwarmModeActive, setNewChatSwarmModeActive] = useState(false);
   const [newChatGraphModeActive, setNewChatGraphModeActive] = useState(false);
   const [pendingOrchestrationModeBySession, setPendingOrchestrationModeBySession] = useState<Record<string, boolean>>({});
+  const [streamPlaybackPausedBySession, setStreamPlaybackPausedBySession] = useState<Record<string, boolean>>({});
   // P3: session ids with a live embedded-browser view. The right-side
   // BrowserPanel mounts only for these, so ordinary chats reserve no space.
   const [liveBrowserSessionIds, setLiveBrowserSessionIds] = useState<string[]>([]);
@@ -601,6 +602,43 @@ function AppShellContent({
     shellRunUpdatesBySession,
     activeSession,
   });
+  const streamPlaybackInFlight = Boolean(
+    (sessionAwaitingModel && turnInFlight) || activeStreamingLive,
+  );
+  const streamPlaybackHasDisplay = Boolean(
+    activeLiveTurn?.steps.some((step) =>
+      Boolean(step.text?.text || step.thinking?.text || step.tools.length > 0),
+    ),
+  );
+  // Playback starts with the turn, before the first token arrives. Once the
+  // backend finishes, keep the controls mounted while the live projection still
+  // owns buffered content; ChatView clears that projection only after the
+  // smoother has displayed its tail.
+  const streamPlaybackAvailable = Boolean(
+    activeId && (streamPlaybackInFlight || streamPlaybackHasDisplay),
+  );
+  const activeStreamPlaybackPaused = Boolean(
+    activeId && streamPlaybackAvailable && streamPlaybackPausedBySession[activeId] === true,
+  );
+  const setActiveStreamPlaybackPaused = useCallback((paused: boolean) => {
+    const sessionId = activeIdRef.current;
+    if (!sessionId) return;
+    setStreamPlaybackPausedBySession((current) => {
+      if (paused) return { ...current, [sessionId]: true };
+      if (current[sessionId] !== true) return current;
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
+  }, [activeIdRef]);
+  const clearStreamPlaybackPaused = useCallback((sessionId: string) => {
+    setStreamPlaybackPausedBySession((current) => {
+      if (current[sessionId] !== true) return current;
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
+  }, []);
   // Surface a credential-lifecycle alert directly in the chat header when
   // the active session's connection is in `needs_reauth` / `error` or has
   // been deleted entirely with no usable default. We skip the async hasSecret
@@ -1570,6 +1608,43 @@ function AppShellContent({
     upsertSessionSummary,
   });
 
+  const stop = createAppShellStopAction({
+    uiLocale,
+    activeIdRef,
+    addPendingSessionAction,
+    clearPendingSessionAction,
+    setStopPendingBySession,
+    stopPendingRef,
+    toastApi,
+  });
+  const stopForComposer = async (): Promise<void> => {
+    await stop();
+  };
+
+  async function preparePausedPlaybackForNextTurn(): Promise<boolean> {
+    if (!activeStreamPlaybackPaused) return true;
+    const sessionId = activeIdRef.current;
+    if (!sessionId) return false;
+
+    // A paused answer may still be receiving tokens, or it may only have a
+    // completed display tail left to drain. Stop only the former, and wait for
+    // runtime ownership to settle before admitting the next turn.
+    if (streamPlaybackInFlight && !(await stop())) return false;
+    if (activeIdRef.current !== sessionId) return false;
+
+    // Never resume the old display as a side effect of sending. Drop its live
+    // projection; durable content already shown stays in the transcript, while
+    // send() immediately arms a fresh projection for the next turn.
+    setLiveTurnBySession((current) => {
+      if (!current[sessionId]) return current;
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
+    clearStreamPlaybackPaused(sessionId);
+    return true;
+  }
+
   async function sendWithAttachments(text: string): Promise<boolean | void> {
     const revision = revisionDraftRef.current;
     const revisionSend = Boolean(
@@ -1643,6 +1718,7 @@ function AppShellContent({
       }
       const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
       const quotes = pendingQuotes.length > 0 ? pendingQuotes : undefined;
+      if (!(await preparePausedPlaybackForNextTurn())) return false;
       const ok = await send(swarmCommand.task, pending, {
         turnOrchestration: { mode: 'swarm', source: 'slash_command' },
         ...(quotes ? { quotes } : {}),
@@ -1676,6 +1752,7 @@ function AppShellContent({
       }
       const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
       const quotes = pendingQuotes.length > 0 ? pendingQuotes : undefined;
+      if (!(await preparePausedPlaybackForNextTurn())) return false;
       const ok = await send(graphCommand.task, pending, {
         turnOrchestration: { mode: 'graph', source: 'slash_command' },
         ...(quotes ? { quotes } : {}),
@@ -1689,6 +1766,7 @@ function AppShellContent({
       ? revisionDraftRef.current
       : undefined;
     const quotes = pendingQuotes.length > 0 ? pendingQuotes : undefined;
+    if (!(await preparePausedPlaybackForNextTurn())) return false;
     const ok = await send(text, pending, {
       ...(quotes ? { quotes } : {}),
     });
@@ -1705,16 +1783,6 @@ function AppShellContent({
     }
     return ok;
   }
-
-  const stop = createAppShellStopAction({
-    uiLocale,
-    activeIdRef,
-    addPendingSessionAction,
-    clearPendingSessionAction,
-    setStopPendingBySession,
-    stopPendingRef,
-    toastApi,
-  });
 
   const { handleEvent, reconcilePersistedMessages, settleAssistantStreaming } = useStableActions(createAppShellSessionEventHandlers, {
     uiLocale,
@@ -1759,7 +1827,12 @@ function AppShellContent({
   // because a stuck slot would otherwise hide the committed answer forever
   // (`streamingMessageId` suppresses it while draining).
   useEffect(() => {
-    if (!activeId || !activeStreamingComplete || !activeStreamingMessageId) return;
+    if (
+      !activeId ||
+      activeStreamPlaybackPaused ||
+      !activeStreamingComplete ||
+      !activeStreamingMessageId
+    ) return;
     const committedAssistantArrived = messages.some(
       (message) => message.type === 'assistant' && message.id === activeStreamingMessageId,
     );
@@ -1768,7 +1841,7 @@ function AppShellContent({
       void settleAssistantStreaming(activeId, activeStreamingMessageId);
     }, SETTLE_FALLBACK_GRACE_MS);
     return () => window.clearTimeout(timer);
-  }, [activeId, activeStreamingComplete, activeStreamingMessageId, messages, settleAssistantStreaming]);
+  }, [activeId, activeStreamPlaybackPaused, activeStreamingComplete, activeStreamingMessageId, messages, settleAssistantStreaming]);
 
   const hasModalOpen = helpOpen || paletteOpen || searchModalOpen;
 
@@ -2235,27 +2308,22 @@ function AppShellContent({
                   respondToSandboxBoundary={respondToSandboxBoundary}
                   activeQuestion={activeQuestion}
                   respondToUserQuestion={respondToUserQuestion}
-                  stop={stop}
-                  // #646: Stop must be available for the WHOLE turn - the moment the
-                  // user most wants to interrupt is a long wait with nothing on
-                  // screen (first token, or a slow provider's step-to-step lull).
-                  // Drive Stop off `turnInFlight` (armed at send, cleared at the
-                  // terminal event), not the wait indicators, so it never blinks out
-                  // in a mid-turn gap. But `turnInFlight` alone goes STALE: the event
-                  // stream only follows `activeId`, so a session whose turn completes
-                  // while backgrounded never receives its terminal event and keeps its
-                  // arm. Gate on `sessionAwaitingModel` (status === 'running', kept
-                  // truthful for backgrounded sessions by sessions:changed and made
-                  // synchronous at send by markSessionRunningOptimistic) so returning
-                  // to such a session shows Send, not a stuck Stop that hides it.
-                  // `activeStreamingLive` is folded in defensively for the rare replay
-                  // where the arm was over-cleared.
-                  streaming={(sessionAwaitingModel && turnInFlight) || activeStreamingLive}
-                  // #646: in the first-token wait (Stop up, nothing streams yet) the
+                  stop={stopForComposer}
+                  // #646: the turn is active from send, including the first-token wait
+                  // and step-to-step gaps. Playback uses the same lifecycle, so Pause
+                  // is available immediately. Escape remains the explicit termination
+                  // path. The running-session gate self-heals a stale arm when
+                  // a backgrounded session completes without delivering its terminal
+                  // renderer event; `activeStreamingLive` covers rare replay gaps.
+                  streaming={streamPlaybackInFlight}
+                  // #646: in the first-token wait (Pause up, nothing streams yet) the
                   // hint reads "Maka 正在处理…"; in a mid-turn lull it reads the calm
                   // "Maka 继续中…". Both are mutually exclusive with activeStreamingLive.
                   processing={showProcessingIndicator && !activeStreamingLive}
                   continuing={showContinuingIndicator && !activeStreamingLive}
+                  streamPlaybackAvailable={streamPlaybackAvailable}
+                  streamPlaybackPaused={activeStreamPlaybackPaused}
+                  onStreamPlaybackChange={setActiveStreamPlaybackPaused}
                   voiceCaptureState={voiceInput.captureState}
                   voiceProviderLabel={voiceInput.providerLabel}
                   onToggleVoiceCapture={
@@ -2265,7 +2333,7 @@ function AppShellContent({
                     composerVoiceCaptureReady ? voiceInput.cancelCapture : undefined
                   }
                   onSend={sendWithAttachments}
-                  onStop={stop}
+                  onStop={stopForComposer}
                   revisionNotice={
                     revisionDraft && activeId === revisionDraft.draftSessionId
                       ? {
@@ -2435,8 +2503,12 @@ function AppShellContent({
                 messageLoading={activeMessageLoading}
                 processingIndicator={showProcessingIndicator}
                 continuingIndicator={showContinuingIndicator}
+                streamPlaybackPaused={activeStreamPlaybackPaused}
                     onStreamingSettled={
-                      activeId ? (messageId) => settleAssistantStreaming(activeId, messageId) : undefined
+                      activeId ? (messageId) => {
+                        clearStreamPlaybackPaused(activeId);
+                        void settleAssistantStreaming(activeId, messageId);
+                      } : undefined
                     }
                 activeSession={activeSessionForView}
                 activeConnectionLabel={activeConnectionLabel}

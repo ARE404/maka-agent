@@ -25,7 +25,7 @@ export function createAppShellStopAction(deps: {
   setStopPendingBySession: BooleanRecordUpdater;
   stopPendingRef: RefBox<Set<string>>;
   toastApi: ToastApi;
-}): () => Promise<void> {
+}): () => Promise<boolean> {
   const {
     uiLocale,
     activeIdRef,
@@ -38,13 +38,13 @@ export function createAppShellStopAction(deps: {
 
   async function stop() {
     const sessionId = activeIdRef.current;
-    if (!sessionId || !addPendingSessionAction(sessionId, stopPendingRef, setStopPendingBySession)) return;
+    if (!sessionId || !addPendingSessionAction(sessionId, stopPendingRef, setStopPendingBySession)) return false;
     try {
       await window.maka.sessions.stop(sessionId, { source: 'stop_button' });
+      return true;
     } catch (error) {
-      // The Composer wires this through both the Stop button onClick
-      // and the Escape key. Both invoke `onStop` without awaiting, so
-      // a rejected IPC would otherwise surface as an
+      // The Composer's Escape path and the question prompt both invoke
+      // `onStop` without awaiting, so a rejected IPC would otherwise surface as an
       // UnhandledPromiseRejection and the user would see nothing.
       // Surface it as a toast so the user knows the model wasn't
       // actually interrupted and can retry.
@@ -52,6 +52,7 @@ export function createAppShellStopAction(deps: {
         const copy = getDesktopConversationCopy(uiLocale).actions;
         toastApi.error(copy.stopFailedTitle, localizedShellErrorMessage(error, copy.stopFailedFallback, uiLocale));
       }
+      return false;
     } finally {
       clearPendingSessionAction(sessionId, stopPendingRef, setStopPendingBySession);
     }

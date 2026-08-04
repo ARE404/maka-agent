@@ -594,7 +594,7 @@ describe('e2e-fixture mode', () => {
     }
   });
 
-  it('model-processing arms a running session with no live stream so the "正在处理…" indicator + Stop show (#646)', async () => {
+  it('model-processing arms a running session with no live stream so the "正在处理…" indicator + Pause show (#646)', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-e2e-fixture-processing-'));
     try {
       const fixture = resolveE2eFixture('model-processing', false);

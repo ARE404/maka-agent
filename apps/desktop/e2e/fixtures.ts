@@ -231,6 +231,7 @@ export const test = base.extend<{
   longTranscriptWindow: Page;
   sidebarLongSessionsWindow: Page;
   disclosureOutputWindow: Page;
+  streamPlaybackWindow: Page;
   sandboxBoundaryWindow: Page;
   readOnlyBoundaryWindow: Page;
   staleSessionsWindow: Page;
@@ -317,6 +318,17 @@ export const test = base.extend<{
         seed: false,
         readinessSelector: '.astryx-chat-tool-calls [role="button"][aria-expanded="false"]',
         e2eFixtureScenario: 'disclosure-output',
+        locale: 'zh',
+      },
+      use,
+    );
+  },
+  streamPlaybackWindow: async ({}, use) => {
+    await withE2eWindow(
+      {
+        seed: false,
+        readinessSelector: COMPOSER_INPUT,
+        e2eFixtureScenario: 'model-processing',
         locale: 'zh',
       },
       use,

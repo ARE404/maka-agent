@@ -23,7 +23,7 @@ import type { TurnTimelineItem, TurnViewModel } from './materialize.js';
 import { foldTimeline, type FoldedTimelineChild } from './timeline-fold.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
 import { QuoteRefChip } from './quote-ref-chip.js';
-import { Marker, markerVariants, TextShimmer } from './primitives/chat.js';
+import { ActivityText, Marker, markerVariants } from './primitives/chat.js';
 import { ToolTrow } from './tool-activity.js';
 import { useUiLocale } from './locale-context.js';
 import { getConversationCopy } from './conversation-copy.js';
@@ -319,6 +319,8 @@ export const TurnView = memo(function TurnView(props: {
   editUserMessageDisabled?: boolean;
   /** True when a search result just navigated to this turn. */
   searchHighlighted?: boolean;
+  /** Freeze the active answer's display cursor while upstream output continues. */
+  streamPlaybackPaused?: boolean;
   /**
    * #642 single render path: set only on the active streaming tail turn. When
    * present, the assistant `ChatMessage` renders the live 深度思考 + answer bubble as
@@ -516,12 +518,17 @@ export const TurnView = memo(function TurnView(props: {
                 through the derived fold as collapsed Processing blocks. */}
             {foldedTimeline.map((item, index) =>
               item.kind === 'processing' ? (
-                <ProcessingBlock key={`processing-${item.id}`} entries={item.children} />
+                <ProcessingBlock
+                  key={`processing-${item.id}`}
+                  entries={item.children}
+                  paused={props.streamPlaybackPaused}
+                />
               ) : (
                 <TurnTimelineEntry
                   key={timelineEntryKey(item, index)}
                   item={item}
                   onStreamingSettled={props.liveStreaming?.onStreamingSettled}
+                  paused={props.streamPlaybackPaused}
                 />
               ),
             )}
@@ -732,7 +739,7 @@ export function ModelProcessingIndicator() {
         aria-hidden="true"
         className="maka-turn-processing-spinner"
       />
-      <TextShimmer active className="maka-turn-indicator-text">{copy.processing}</TextShimmer>
+      <ActivityText active className="maka-turn-indicator-text">{copy.processing}</ActivityText>
     </div>
   );
 }
@@ -772,13 +779,20 @@ export function ModelProviderRetryIndicator(props: { retry: ProviderRetryEvent }
   );
 }
 
-function StreamingAssistantBubble(props: { text: string; live: boolean; truncated?: boolean; onSettled?: () => void }) {
+function StreamingAssistantBubble(props: {
+  text: string;
+  live: boolean;
+  paused?: boolean;
+  truncated?: boolean;
+  onSettled?: () => void;
+}) {
   const copy = getConversationCopy(useUiLocale()).messages;
   // Redact before smoother so typewriter prefixes never leak mid-token.
   const snap = useStreamSnap();
   const safeText = prepareSmoothStreamText(props.text);
   const { displayed, catchingUp } = useSmoothStreamContent(safeText, {
     streaming: props.live,
+    paused: props.paused,
     snap,
   });
   const settledRef = useRef(false);
@@ -788,10 +802,10 @@ function StreamingAssistantBubble(props: { text: string; live: boolean; truncate
   }, [safeText, props.live]);
 
   useEffect(() => {
-    if (props.live || catchingUp || settledRef.current) return;
+    if (props.live || props.paused || catchingUp || settledRef.current) return;
     settledRef.current = true;
     props.onSettled?.();
-  }, [props.live, catchingUp, props.onSettled]);
+  }, [props.live, props.paused, catchingUp, props.onSettled]);
 
   return (
     <ChatMessageBubble variant="ghost" className="maka-chat-message-bubble maka-chat-message-bubble-assistant maka-bubble-streaming">
@@ -830,10 +844,11 @@ function timelineEntryKey(item: TurnTimelineItem, index: number): string {
 function TurnTimelineEntry(props: {
   item: TurnTimelineItem;
   onStreamingSettled?: (messageId?: string) => void;
+  paused?: boolean;
 }) {
   const { item } = props;
   if (item.kind === 'thinking') {
-    return <DeepThinking text={item.text} live={item.live === true} truncated={item.truncated === true} />;
+    return <DeepThinking text={item.text} live={item.live === true} paused={props.paused} truncated={item.truncated === true} />;
   }
   if (item.kind === 'tools') return <ToolTrow items={item.items} />;
   if (item.kind === 'text' && item.live) {
@@ -841,6 +856,7 @@ function TurnTimelineEntry(props: {
       <StreamingAssistantBubble
         text={item.text}
         live={item.complete !== true}
+        paused={props.paused}
         truncated={item.truncated === true}
         onSettled={() => props.onStreamingSettled?.(item.messageId)}
       />
@@ -849,23 +865,27 @@ function TurnTimelineEntry(props: {
   return <MessageBody role="assistant" text={item.text} ts={item.ts} />;
 }
 
-function ProcessingBlock(props: { entries: FoldedTimelineChild[] }) {
+function ProcessingBlock(props: { entries: FoldedTimelineChild[]; paused?: boolean }) {
   const { entries } = props;
   return (
     <div className="maka-processing-sequence">
       {entries.map((entry, index) => (
-        <TurnTimelineEntry key={timelineEntryKey(entry, index)} item={entry} />
+        <TurnTimelineEntry key={timelineEntryKey(entry, index)} item={entry} paused={props.paused} />
       ))}
     </div>
   );
 }
 
-function DeepThinking(props: { text: string; live: boolean; truncated?: boolean }) {
+function DeepThinking(props: { text: string; live: boolean; paused?: boolean; truncated?: boolean }) {
   const copy = getConversationCopy(useUiLocale()).messages;
   const snap = useStreamSnap();
   // Defense-in-depth: redact before smoother so prefixes never leak mid-token.
   const safeText = prepareSmoothStreamText(props.text);
-  const { displayed } = useSmoothStreamContent(safeText, { streaming: props.live, snap });
+  const { displayed } = useSmoothStreamContent(safeText, {
+    streaming: props.live,
+    paused: props.paused,
+    snap,
+  });
   const visibleText = props.live ? displayed : safeText;
   const label = props.truncated ? `${copy.thinking} · ${copy.truncated}` : copy.thinking;
   return (

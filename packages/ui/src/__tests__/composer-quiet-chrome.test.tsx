@@ -203,6 +203,64 @@ describe('composer quiet chrome', () => {
     assert.doesNotMatch(markup, /maka-composer-realtime-voice-button/);
   });
 
+  it('makes playback the only visible streaming action', () => {
+    const playing = render(
+      <Composer
+        onSend={() => true}
+        onStop={() => {}}
+        streaming
+        streamPlaybackAvailable
+        streamPlaybackPaused={false}
+        onStreamPlaybackChange={() => {}}
+      />,
+    );
+    const playbackStart = playing.lastIndexOf('<button', playing.indexOf('maka-composer-playback-button'));
+    const playbackEnd = playing.indexOf('</button>', playbackStart);
+    const playbackButton = playing.slice(playbackStart, playbackEnd + '</button>'.length);
+    assert.match(playbackButton, /data-variant="primary"/);
+    assert.match(playbackButton, /data-state="playing"/);
+    assert.match(playbackButton, /aria-label="暂停显示回答"/);
+    assert.match(playbackButton, /lucide-pause/);
+    assert.match(playbackButton, /astryx-icon/);
+    assert.doesNotMatch(playbackButton, /width="16"|height="16"/);
+
+    assert.doesNotMatch(playing, /maka-composer-stop-button/);
+    assert.doesNotMatch(playing, /aria-label="结束生成"/);
+
+    const paused = render(
+      <Composer
+        onSend={() => true}
+        onStop={() => {}}
+        streamPlaybackAvailable
+        streamPlaybackPaused
+        onStreamPlaybackChange={() => {}}
+      />,
+    );
+    assert.match(paused, /data-state="paused"/);
+    assert.match(paused, /aria-label="继续显示回答"/);
+    assert.match(paused, /lucide-play/);
+    assert.match(paused, /astryx-icon/);
+    assert.doesNotMatch(paused, /maka-composer-stop-button/);
+    assert.match(
+      paused.slice(
+        paused.lastIndexOf('<button', paused.indexOf('maka-composer-playback-button')),
+        paused.indexOf('</button>', paused.indexOf('maka-composer-playback-button')) + '</button>'.length,
+      ),
+      /data-variant="primary"/,
+    );
+  });
+
+  it('does not render a dead playback control without a change handler', () => {
+    const markup = render(
+      <Composer
+        onSend={() => true}
+        onStop={() => {}}
+        streamPlaybackAvailable
+      />,
+    );
+    assert.doesNotMatch(markup, /maka-composer-playback-button/);
+  });
+
   it('places the workspace picker above the composer card for new chats', () => {
     const markup = render(
       <Composer
