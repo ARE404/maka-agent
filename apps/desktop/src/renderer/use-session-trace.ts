@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { generalizedErrorMessage, generalizedErrorMessageChinese } from '@maka/core';
-import type { UiLocale } from '@maka/core/ui-locale';
+import {
+  generalizedErrorMessage,
+  generalizedErrorMessageChinese,
+  type UiLocale,
+} from '@maka/core';
 import type { SessionTrace } from '@maka/core/session-trace';
 import { createTraceRefreshCoalescer } from './session-trace-refresh.js';
 
