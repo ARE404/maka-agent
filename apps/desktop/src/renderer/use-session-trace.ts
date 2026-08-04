@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { generalizedErrorMessage, generalizedErrorMessageChinese } from '@maka/core';
+import type { UiLocale } from '@maka/core/ui-locale';
 import type { SessionTrace } from '@maka/core/session-trace';
 import { createTraceRefreshCoalescer } from './session-trace-refresh.js';
 
@@ -13,7 +14,7 @@ interface SessionTraceSnapshot {
 const EMPTY_SNAPSHOT: SessionTraceSnapshot = { loading: false };
 
 /** Long enough to absorb a turn's closing burst, short enough to feel live. */
-const TRACE_REFRESH_DEBOUNCE_MS = 400;
+export const TRACE_REFRESH_DEBOUNCE_MS = 400;
 
 /**
  * Reads the per-session causal trace (#1625).
@@ -33,21 +34,20 @@ export function useSessionTrace(
   // Handed in rather than read from the locale context, so this hook — the one
   // whose comment once outran its code — is renderable in a test without the
   // UI package behind it.
-  copy: { loadFailed: string; locale: 'zh' | 'en' },
+  copy: { loadFailed: string; locale: UiLocale },
 ): SessionTraceSnapshot & { retry: () => void } {
   const revisionRef = useRef(0);
   const [snapshot, setSnapshot] = useState<SessionTraceSnapshot>(EMPTY_SNAPSHOT);
 
   const load = useCallback(
-    (targetSessionId: string, preserveTrace: boolean) => {
+    (targetSessionId: string) => {
       const revision = ++revisionRef.current;
       setSnapshot((current) => ({
         sessionId: targetSessionId,
-        // Keep the last trace on screen through a refresh: a live turn would
-        // otherwise blank the timeline on every event.
-        ...(preserveTrace && current.sessionId === targetSessionId
-          ? { trace: current.trace }
-          : {}),
+        // Keep the last trace on screen through every read: a live turn would
+        // otherwise blank the timeline on each event, and re-activation would
+        // blank it on each glance.
+        ...(current.sessionId === targetSessionId ? { trace: current.trace } : {}),
         loading: true,
       }));
       void window.maka.inspector.trace(targetSessionId).then(
@@ -88,7 +88,7 @@ export function useSessionTrace(
       return;
     }
     const coalescer = createTraceRefreshCoalescer({
-      refresh: () => load(sessionId, true),
+      refresh: () => load(sessionId),
       delayMs: TRACE_REFRESH_DEBOUNCE_MS,
       schedule: (callback, delayMs) => setTimeout(callback, delayMs),
       cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
@@ -96,10 +96,7 @@ export function useSessionTrace(
     const unsubscribe = window.maka.sessions.subscribeEvents(sessionId, (event) => {
       coalescer.observe(event);
     });
-    // Preserve on re-activation too: switching tabs away and back is not new
-    // information about the session, so blanking the timeline would be the
-    // panel forgetting rather than reloading.
-    load(sessionId, true);
+    load(sessionId);
     return () => {
       revisionRef.current += 1;
       coalescer.cancel();
@@ -108,7 +105,7 @@ export function useSessionTrace(
   }, [active, load, sessionId]);
 
   const retry = useCallback(() => {
-    if (sessionId) load(sessionId, true);
+    if (sessionId) load(sessionId);
   }, [load, sessionId]);
 
   if (snapshot.sessionId !== sessionId) {

@@ -5,6 +5,7 @@ import {
   MODEL_CALL_ATTEMPT_SCHEMA_VERSION,
   type ModelCallAttempt,
 } from '@maka/core/model-call-attempt';
+import type { IpcMain } from 'electron';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import { readSessionTrace, registerInspectorIpc } from '../inspector-ipc-main.js';
 
@@ -145,13 +146,16 @@ describe('inspector trace read', () => {
   it('answers a failed read as a typed error rather than a rejected invoke', async () => {
     // The renderer treats the channel as `Result`; an unwrapped rejection would
     // surface as an unhandled invoke failure instead of a retryable panel state.
-    const handlers = new Map<string, (event: unknown, ...args: never[]) => unknown>();
+    // Typed against Electron's own signature rather than cast past it: the
+    // point of this test is that the registration matches the real surface.
+    type InvokeHandler = Parameters<IpcMain['handle']>[1];
+    const handlers = new Map<string, InvokeHandler>();
     registerInspectorIpc({
       ipcMain: {
-        handle: (channel: string, handler: (event: unknown, ...args: never[]) => unknown) => {
+        handle: (channel, handler) => {
           handlers.set(channel, handler);
         },
-      } as never,
+      },
       readSessionRuntimeEvents: async () => {
         throw new Error('ledger unavailable');
       },
@@ -161,7 +165,7 @@ describe('inspector trace read', () => {
 
     const handler = handlers.get('inspector:trace');
     assert.ok(handler, 'the channel is registered');
-    const result = (await handler(undefined, 'session-1' as never)) as {
+    const result = (await handler(undefined as never, 'session-1')) as {
       ok: boolean;
       error?: { code: string };
     };

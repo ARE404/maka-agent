@@ -9,7 +9,10 @@ import {
 import type { SessionEvent } from '@maka/core/events';
 import type { Result } from '@maka/core/result';
 import { cleanupFakeDom, installReactRenderer } from './fake-dom.js';
-import { useSessionTrace } from '../../renderer/use-session-trace.js';
+import {
+  TRACE_REFRESH_DEBOUNCE_MS,
+  useSessionTrace,
+} from '../../renderer/use-session-trace.js';
 
 /**
  * The hook whose doc comment once described a subscription it did not have.
@@ -77,15 +80,21 @@ function event(type: SessionEvent['type']): SessionEvent {
   return { type, id: `${type}-1`, turnId: 'turn-1', ts: 1 } as SessionEvent;
 }
 
-function Probe(props: { sessionId?: string; active: boolean }) {
-  useSessionTrace(props.sessionId, props.active, COPY);
+function Probe(props: {
+  sessionId?: string;
+  active: boolean;
+  onSnapshot?: (trace: SessionTrace | undefined) => void;
+}) {
+  const snapshot = useSessionTrace(props.sessionId, props.active, COPY);
+  props.onSnapshot?.(snapshot.trace);
   return null;
 }
 
 async function flushRefresh(): Promise<void> {
-  // The coalescer's real timer, plus a microtask turn for the read it starts.
+  // The coalescer's real timer, plus a margin for the read it starts. Derived
+  // from the constant so the two cannot drift apart.
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 450));
+    await new Promise((resolve) => setTimeout(resolve, TRACE_REFRESH_DEBOUNCE_MS + 50));
   });
 }
 
@@ -166,5 +175,46 @@ describe('useSessionTrace', () => {
     await flushRefresh();
 
     assert.equal(harness.reads.length, 1, 'the scheduled read dies with the panel');
+  });
+
+  it('keeps the previous timeline across hide and re-activation', () => {
+    // Switching tabs away and back is not new information about the session, so
+    // blanking the timeline would read as the panel forgetting. Nothing pinned
+    // this before, so reverting it passed the suite unchanged.
+    const { root } = installReactRenderer();
+    const harness = installMakaBridge();
+    const seen: Array<SessionTrace | undefined> = [];
+    const render = async (active: boolean) => {
+      await act(async () => {
+        root.render(
+          createElement(Probe, {
+            sessionId: 'session-1',
+            active,
+            onSnapshot: (snapshotTrace) => seen.push(snapshotTrace),
+          }),
+        );
+      });
+    };
+
+    return (async () => {
+      await render(true);
+      assert.equal(seen.at(-1)?.sessionId, 'session-1', 'the first read populates it');
+
+      await render(false);
+      await render(true);
+
+      // Every frame of the re-activation read still carries the previous trace:
+      // no render in between saw `undefined`.
+      // Once a trace has arrived, no later render may go back to nothing —
+      // renders before it are the initial mount and its loading frame.
+      const firstTrace = seen.findIndex((snapshotTrace) => snapshotTrace !== undefined);
+      assert.notEqual(firstTrace, -1, 'a trace arrived at all');
+      assert.equal(
+        seen.slice(firstTrace).every((snapshotTrace) => snapshotTrace !== undefined),
+        true,
+        'the timeline never blanks once it has content',
+      );
+      assert.equal(harness.reads.length, 2, 're-activation still re-reads');
+    })();
   });
 });

@@ -44,10 +44,17 @@ export async function readSessionTrace(
   // Per run rather than per session: the authority stream is keyed that way, so
   // reading it run by run is reading it as it is stored, not reshaping it.
   //
-  // Each run is read independently because a read failure is just another way a
-  // record can be unreadable. One corrupt row, or a run whose header has gone
-  // missing, would otherwise fail the whole trace on every retry — the opposite
-  // of the "counted, not dropped" rule this projection is built on.
+  // Each run's events are read independently because a read failure is just
+  // another way a record can be unreadable: one corrupt event row would
+  // otherwise fail the whole trace on every retry, the opposite of the
+  // "counted, not dropped" rule this projection is built on.
+  //
+  // The two reads above are NOT covered by that. `listSessionRunsForRecovery`
+  // parses every header row with no per-row tolerance
+  // (`agent-run-store.ts:333`), so one corrupt header still rejects the whole
+  // trace. Fixing it there changes the contract every recovery caller depends
+  // on, which is a decision about recovery rather than about this read model —
+  // so it is stated here rather than quietly half-fixed.
   const runEvents = await Promise.all(
     runs.map(async (run) => {
       try {
