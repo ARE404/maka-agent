@@ -1,4 +1,7 @@
 import { useMemo, useState } from 'react';
+import { Button } from '@astryxdesign/core/Button';
+import { Switch } from '@astryxdesign/core/Switch';
+import { TextInput } from '@astryxdesign/core/TextInput';
 import { useUiLocale } from '@maka/ui';
 import { getDesktopConversationCopy } from './locales/conversation-copy.js';
 import {
@@ -84,49 +87,52 @@ export function SessionInspectorPanel(props: { sessionId: string; active: boolea
 
       {!model.empty && (
         <div className="maka-inspector-filter">
-          <label className="maka-inspector-filter-query">
-            <span className="maka-inspector-filter-label">{copy.filterLabel}</span>
-            <input
-              type="search"
-              value={filter.query ?? ''}
-              placeholder={copy.filterPlaceholder}
-              onChange={(changed) => setFilter({ ...filter, query: changed.target.value })}
-            />
-          </label>
-          <label className="maka-inspector-filter-toggle">
-            <input
-              type="checkbox"
-              checked={filter.failedOnly ?? false}
-              onChange={(changed) => setFilter({ ...filter, failedOnly: changed.target.checked })}
-            />
-            <span>{copy.filterFailedOnly}</span>
-          </label>
+          <TextInput
+            size="sm"
+            label={copy.filterLabel}
+            isLabelHidden
+            hasClear
+            value={filter.query ?? ''}
+            placeholder={copy.filterPlaceholder}
+            onChange={(value) => setFilter({ ...filter, query: value })}
+          />
+          <Switch
+            label={copy.filterFailedOnly}
+            value={filter.failedOnly ?? false}
+            onChange={(checked) => setFilter({ ...filter, failedOnly: checked })}
+          />
           {model.filtered && (
-            <button type="button" onClick={() => setFilter({})}>
-              {copy.filterClear}
-            </button>
+            <Button
+              variant="ghost"
+              size="sm"
+              label={copy.filterClear}
+              onClick={() => setFilter({})}
+            />
           )}
         </div>
       )}
 
       {/* Three different silences, kept apart: a read that failed, a filter
           that matches nothing, and a session that did nothing. Only the last
-          one is "nothing to trace". */}
-      {model.empty && !snapshot.loading && !snapshot.error && (
-        <p className="maka-inspector-empty">{copy.empty}</p>
-      )}
-
-      {!model.empty && model.turns.length === 0 && model.filtered && (
-        <p className="maka-inspector-empty" data-maka-contract="session-inspector-no-matches">
-          {copy.noMatches}
-        </p>
-      )}
-
-      {model.filtered && hidden > 0 && model.turns.length > 0 && (
-        <p className="maka-inspector-hidden" data-maka-contract="session-inspector-hidden">
-          {hidden} {copy.hiddenByFilter}
-        </p>
-      )}
+          one is "nothing to trace".
+          One persistent live region rather than three conditional ones: a
+          container that mounts and unmounts is not announced, and these
+          messages change as the reader types. */}
+      <div role="status" aria-live="polite" className="maka-inspector-status">
+        {model.empty && !snapshot.loading && !snapshot.error && (
+          <p className="maka-inspector-empty">{copy.empty}</p>
+        )}
+        {!model.empty && model.turns.length === 0 && model.filtered && (
+          <p className="maka-inspector-empty" data-maka-contract="session-inspector-no-matches">
+            {copy.noMatches}
+          </p>
+        )}
+        {model.filtered && hidden > 0 && model.turns.length > 0 && (
+          <p className="maka-inspector-hidden" data-maka-contract="session-inspector-hidden">
+            {hidden} {copy.hiddenByFilter}
+          </p>
+        )}
+      </div>
 
       <ol className="maka-inspector-turns">
         {model.turns.map((turn) => (

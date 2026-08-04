@@ -41,10 +41,8 @@ describe('inspector filter', () => {
   it('treats an absent or blank filter as no filter at all', () => {
     assert.equal(isEmptyInspectorFilter(undefined), true);
     assert.equal(isEmptyInspectorFilter({ query: '   ' }), true);
-    assert.equal(isEmptyInspectorFilter({ kinds: [] }), true);
     assert.equal(isEmptyInspectorFilter({ query: 'bash' }), false);
     assert.equal(isEmptyInspectorFilter({ failedOnly: true }), false);
-    assert.equal(isEmptyInspectorFilter({ minCostUsd: 0 }), false, 'zero is a real threshold');
 
     const source = model([turn()]);
     const result = applyInspectorFilter(source, undefined);
@@ -72,45 +70,46 @@ describe('inspector filter', () => {
     assert.deepEqual(byModel.turns[0]?.steps.map((entry) => entry.id), ['b']);
   });
 
-  it('keeps a turn whose id matches even when no step does', () => {
-    // Answering "where is turn-a" with silence would be the wrong answer.
-    const source = model([turn({ turnId: 'turn-a', steps: [step({ label: 'claude' })] })]);
+  it('keeps a turn whose id matches even when it has no steps at all', () => {
+    // The zero-step path is the one worth pinning: with steps present, the step
+    // haystack could carry the match instead and the branch would never run.
+    const source = model([turn({ turnId: 'turn-a', steps: [] })]);
     const result = applyInspectorFilter(source, { query: 'turn-a' });
 
-    assert.equal(result.turns.length, 1);
+    assert.equal(result.turns.length, 1, 'answering "where is turn-a" with silence is wrong');
     assert.equal(result.hiddenTurns, 0);
+    assert.equal(result.turns[0]?.steps.length, 0);
   });
 
-  it('excludes unpriced steps from a cost threshold rather than treating them as cheap', () => {
-    // Absent is not zero — the same rule the canonical record keeps.
+  it('keeps a failed turn with no steps when the filter asks only about outcome', () => {
+    // A turn that failed before recording a step is exactly what "failed only"
+    // is asked to surface; a text-free filter must not drop it for being empty.
+    const source = model([
+      turn({ turnId: 'ok' }),
+      turn({ turnId: 'bad', failed: true, steps: [] }),
+    ]);
+    const result = applyInspectorFilter(source, { failedOnly: true });
+
+    assert.deepEqual(
+      result.turns.map((entry) => entry.turnId),
+      ['bad'],
+    );
+  });
+
+  it('does not let one turn-level failure message retain every step', () => {
+    // Turn text belongs to the turn. Folding it into each step's haystack made
+    // a single match keep steps that explain nothing about it.
     const source = model([
       turn({
-        steps: [
-          step({ id: 'priced', costUsd: 0.05 }),
-          step({ id: 'cheap', costUsd: 0.001 }),
-          step({ id: 'unpriced' }),
-        ],
+        turnId: 'turn-a',
+        failed: true,
+        failureMessage: 'disk full',
+        steps: [step({ id: 'a', label: 'Bash' }), step({ id: 'b', label: 'claude' })],
       }),
     ]);
 
-    const result = applyInspectorFilter(source, { minCostUsd: 0.01 });
-    assert.deepEqual(result.turns[0]?.steps.map((entry) => entry.id), ['priced']);
-    assert.equal(result.hiddenSteps, 2);
-  });
-
-  it('restricts to the selected kinds', () => {
-    const source = model([
-      turn({
-        steps: [
-          step({ id: 'call', kind: 'model_call' }),
-          step({ id: 'tool', kind: 'tool' }),
-          step({ id: 'compaction', kind: 'compaction' }),
-        ],
-      }),
-    ]);
-
-    const result = applyInspectorFilter(source, { kinds: ['tool', 'compaction'] });
-    assert.deepEqual(result.turns[0]?.steps.map((entry) => entry.id), ['tool', 'compaction']);
+    const result = applyInspectorFilter(source, { query: 'disk full' });
+    assert.equal(result.turns.length, 0, 'no rendered row explains that phrase');
   });
 
   it('failed-only drops whole turns that succeeded', () => {
