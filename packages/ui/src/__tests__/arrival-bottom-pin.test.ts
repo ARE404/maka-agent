@@ -10,8 +10,10 @@ import {
  * Clamps `scrollTop` the way a real scroller does, so the assertions below can
  * be written as the contract — flush against the bottom — rather than as the
  * literal value the pin happens to assign. Writing `scrollHeight` is how the
- * pin asks for "as far down as this goes"; an unclamping fake would let a pin
- * that overshot by a viewport still look correct.
+ * pin asks for "as far down as this goes", and a real scroller answers by
+ * clamping, so overshoot is unobservable here exactly as it is in the product.
+ * What the clamp buys is the other direction: any arithmetic that stops the
+ * scroller short shows up as a distance, whatever produced it.
  */
 function fakeViewport(initial: { scrollTop: number; scrollHeight: number; clientHeight: number }) {
   const listeners = new Map<string, Set<(event: Event) => void>>();
