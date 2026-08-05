@@ -254,6 +254,77 @@ test('returning to the session after visiting skills re-settles the new transcri
   expectHonestClimb(await climbToTop(page));
 });
 
+// A switched-to transcript must be AT its latest turn the first time it is
+// painted, not travel there. Astryx positions the first fill of its scroller
+// instantly and springs every later growth, and that one-shot belongs to the
+// hook instance — ChatSurfaceLayout mounts once for the whole shell, so it is
+// spent on whichever session was open at boot. Every switch afterwards arrived
+// as "later growth" (mount window, fill chunks, warm-up inflation) and the
+// scroller spring-flew ~10k px over ~1.2s in front of the reader.
+//
+// Sampled per frame rather than polled: the regression is an animation, and a
+// poll reads it as a sequence of positions that each look reasonable.
+test('a session switch lands on the latest turn instead of flying to it', async ({ longTranscriptWindow: page }) => {
+  await expect(page.locator('.maka-turn')).toHaveCount(24);
+  await settleGeometry(page, { pinned: true });
+
+  // Leave for another seeded session, so returning is a real session switch
+  // rather than a section change. Fixture windows don't pass OS hit-testing —
+  // dispatch clicks.
+  await page.locator('button[aria-label="展开侧边栏"]').dispatchEvent('click');
+  await page.getByText('模型管理与工具调用示例').first().dispatchEvent('click');
+  await expect(page.locator('[data-turn-id^="long-transcript-turn"]')).toHaveCount(0);
+
+  const watchPromise = page.evaluate(
+    () =>
+      new Promise<{ maxDistance: number; growthSteps: number; frames: number }>((resolve, reject) => {
+        const root = document.querySelector('[data-chat-scroll-container="true"]') as HTMLElement;
+        const heights = new Set<number>();
+        let maxDistance = 0;
+        let frames = 0;
+        const deadline = performance.now() + 30_000;
+        const sample = () => {
+          const turns = root.querySelectorAll('[data-turn-id^="long-transcript-turn"]').length;
+          if (turns > 0) {
+            frames += 1;
+            heights.add(root.scrollHeight);
+            maxDistance = Math.max(
+              maxDistance,
+              Math.round(root.scrollHeight - root.scrollTop - root.clientHeight),
+            );
+          }
+          // The arrival is over when the warm-up says the geometry settled and
+          // the pin has handed following back to Astryx.
+          const arrived =
+            turns > 0 &&
+            root.dataset.turnWarmup === 'settled' &&
+            root.dataset.arrivalPin !== 'pinned';
+          if (arrived) {
+            resolve({ maxDistance, growthSteps: heights.size, frames });
+            return;
+          }
+          if (performance.now() > deadline) {
+            reject(new Error(`The transcript never finished arriving (frames=${frames})`));
+            return;
+          }
+          requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      }),
+  );
+
+  await page.getByText('超长会话滚动几何').first().dispatchEvent('click');
+  const watch = await watchPromise;
+  const diagnostics = JSON.stringify(watch);
+  // The document has to have grown under the watch for the distance below to
+  // mean anything: the mount window, the idle fill chunks and the warm-up each
+  // move it, and a run that observed one height measured nothing.
+  expect(watch.growthSteps, diagnostics).toBeGreaterThanOrEqual(3);
+  // Flush in EVERY frame the transcript existed, not merely once it settled.
+  // Sub-pixel scrollTop leaves the rounded distance on 1 (see settleGeometry).
+  expect(watch.maxDistance, diagnostics).toBeLessThanOrEqual(2);
+});
+
 // The empty surface is back here as a live metric, unlike the flush contract
 // the header notes moved out to static CSS. What centres the hero is the
 // ABSENCE of Astryx's push-to-bottom spacer, and the rule that collapses it
