@@ -282,7 +282,24 @@ test('a session switch lands on the latest turn instead of flying to it', async 
         const heights = new Set<number>();
         let maxDistance = 0;
         let frames = 0;
+        let settled = false;
         const deadline = performance.now() + 30_000;
+        const fail = (why: string) => {
+          if (settled) return;
+          settled = true;
+          reject(new Error(`${why} (frames=${frames}, heights=${heights.size}, maxDistance=${maxDistance})`));
+        };
+        // Watchdog off the frame clock, like climbToTop's: the deadline below
+        // is only reached if frames keep arriving, so a compositor that stops
+        // ticking would otherwise hang here until the 60s test timeout, whose
+        // "Target page closed" says nothing about what the scroller did.
+        const watchdog = setTimeout(() => fail('The frame clock stopped while watching the arrival'), 35_000);
+        const finish = (result: { maxDistance: number; growthSteps: number; frames: number }) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(watchdog);
+          resolve(result);
+        };
         const sample = () => {
           const turns = root.querySelectorAll('[data-turn-id^="long-transcript-turn"]').length;
           if (turns > 0) {
@@ -300,11 +317,11 @@ test('a session switch lands on the latest turn instead of flying to it', async 
             root.dataset.turnWarmup === 'settled' &&
             root.dataset.arrivalPin !== 'pinned';
           if (arrived) {
-            resolve({ maxDistance, growthSteps: heights.size, frames });
+            finish({ maxDistance, growthSteps: heights.size, frames });
             return;
           }
           if (performance.now() > deadline) {
-            reject(new Error(`The transcript never finished arriving (frames=${frames})`));
+            fail('The transcript never finished arriving');
             return;
           }
           requestAnimationFrame(sample);
