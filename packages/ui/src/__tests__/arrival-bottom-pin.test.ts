@@ -154,6 +154,47 @@ describe('createArrivalBottomPin', () => {
     assert.deepEqual(states, ['pinned', 'released']);
   });
 
+  it('follows a growth, rides its synthetic scroll, and still yields to the reader after it', () => {
+    const viewport = fakeViewport({ scrollTop: 0, scrollHeight: 800, clientHeight: 600 });
+    const observer = fakeSizeObserver();
+    const pin = createArrivalBottomPin({
+      viewport,
+      content: {} as Element,
+      createSizeObserver: observer.factory,
+    });
+
+    viewport.scrollHeight = 15_000;
+    observer.grow();
+    // Chromium fires a scroll event for the resize itself. It reports a
+    // position the reader never chose, and the pin must not read it as intent.
+    viewport.emit('scroll');
+    assert.equal(pin.isPinned(), true);
+
+    viewport.scrollTop = 9_000;
+    viewport.emit('scroll');
+    assert.equal(pin.isPinned(), false);
+  });
+
+  it('takes its geometry snapshot from growth it did not write itself', () => {
+    // Not every growth reaches the observed content element: the dock (graph
+    // status, plan panel) lives inside the scroller but outside the message
+    // list, so it moves scrollHeight with a scroll event and nothing else. The
+    // snapshot has to follow that too, or the NEXT genuine upward scroll is
+    // compared against a stale height, reads as "geometry changed", and the
+    // reader silently loses control of the transcript.
+    const viewport = fakeViewport({ scrollTop: 0, scrollHeight: 800, clientHeight: 600 });
+    const pin = createArrivalBottomPin({ viewport, content: null });
+
+    assert.equal(viewport.scrollTop, 800);
+    viewport.scrollHeight = 15_000;
+    viewport.emit('scroll');
+    assert.equal(pin.isPinned(), true);
+
+    viewport.scrollTop = 700;
+    viewport.emit('scroll');
+    assert.equal(pin.isPinned(), false);
+  });
+
   it('releases on an upward wheel and on a touch drag, before the scroll lands', () => {
     for (const [type, event] of [
       ['wheel', { deltaY: -120 }],
