@@ -231,16 +231,21 @@ describe('createArrivalBottomPin', () => {
     }
   });
 
-  it('keeps following through a downward wheel', () => {
-    const viewport = fakeViewport({ scrollTop: 0, scrollHeight: 800, clientHeight: 600 });
-    const observer = fakeSizeObserver();
-    const pin = createArrivalBottomPin({
-      viewport,
-      content: {} as Element,
-      createSizeObserver: observer.factory,
-    });
-    viewport.emit('wheel', { deltaY: 120 } as Partial<Event>);
-    assert.equal(pin.isPinned(), true);
+  it('keeps following through a wheel that is not the reader going up', () => {
+    // Down is where the pin is already heading. Zero is a horizontal wheel or
+    // a trackpad's rounding — no vertical intent at all, and reading it as one
+    // would drop the pin on a sideways swipe across a wide code block.
+    for (const deltaY of [120, 0]) {
+      const viewport = fakeViewport({ scrollTop: 0, scrollHeight: 800, clientHeight: 600 });
+      const observer = fakeSizeObserver();
+      const pin = createArrivalBottomPin({
+        viewport,
+        content: {} as Element,
+        createSizeObserver: observer.factory,
+      });
+      viewport.emit('wheel', { deltaY } as Partial<Event>);
+      assert.equal(pin.isPinned(), true, `deltaY=${deltaY}`);
+    }
   });
 
   it('detaches every observer and listener on dispose', () => {
