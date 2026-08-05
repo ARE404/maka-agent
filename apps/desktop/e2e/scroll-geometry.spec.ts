@@ -337,6 +337,11 @@ test('a session switch lands on the latest turn instead of flying to it', async 
   // mean anything: the mount window, the idle fill chunks and the warm-up each
   // move it, and a run that observed one height measured nothing.
   expect(watch.growthSteps, diagnostics).toBeGreaterThanOrEqual(3);
+  // And the watch has to have looked BETWEEN those steps. A run whose frames
+  // all landed on a change never observed a quiet frame — which is precisely
+  // where a spring mid-flight would be caught — so the flush assertion below
+  // would be reading only the moments the document moved.
+  expect(watch.frames, diagnostics).toBeGreaterThan(watch.growthSteps);
   // Flush in EVERY frame the transcript existed, not merely once it settled.
   // Sub-pixel scrollTop leaves the rounded distance on 1 (see settleGeometry).
   expect(watch.maxDistance, diagnostics).toBeLessThanOrEqual(2);
