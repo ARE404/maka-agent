@@ -6,10 +6,28 @@ import {
   type ArrivalPinSizeObserver,
 } from '../arrival-bottom-pin.js';
 
+/**
+ * Clamps `scrollTop` the way a real scroller does, so the assertions below can
+ * be written as the contract — flush against the bottom — rather than as the
+ * literal value the pin happens to assign. Writing `scrollHeight` is how the
+ * pin asks for "as far down as this goes"; an unclamping fake would let a pin
+ * that overshot by a viewport still look correct.
+ */
 function fakeViewport(initial: { scrollTop: number; scrollHeight: number; clientHeight: number }) {
   const listeners = new Map<string, Set<(event: Event) => void>>();
+  let scrollTop = initial.scrollTop;
   return {
-    ...initial,
+    scrollHeight: initial.scrollHeight,
+    clientHeight: initial.clientHeight,
+    get scrollTop() {
+      return scrollTop;
+    },
+    set scrollTop(value: number) {
+      scrollTop = Math.max(0, Math.min(value, this.scrollHeight - this.clientHeight));
+    },
+    get distanceFromBottom() {
+      return this.scrollHeight - scrollTop - this.clientHeight;
+    },
     addEventListener(type: string, listener: (event: Event) => void) {
       const set = listeners.get(type) ?? new Set();
       set.add(listener);
@@ -117,20 +135,20 @@ describe('createArrivalBottomPin', () => {
     });
 
     // Positioned on creation: the transcript's first commit is already growth.
-    assert.equal(viewport.scrollTop, 800);
+    assert.equal(viewport.distanceFromBottom, 0);
     assert.equal(observer.observed, content);
     viewport.scrollHeight = 15_000;
     observer.grow();
-    assert.equal(viewport.scrollTop, 15_000);
+    assert.equal(viewport.distanceFromBottom, 0);
     viewport.scrollHeight = 32_908;
     observer.grow();
-    assert.equal(viewport.scrollTop, 32_908);
+    assert.equal(viewport.distanceFromBottom, 0);
     assert.deepEqual(states, ['pinned']);
     assert.equal(pin.isPinned(), true);
   });
 
   it('stops following once the reader scrolls up, and stays released', () => {
-    const viewport = fakeViewport({ scrollTop: 0, scrollHeight: 800, clientHeight: 600 });
+    const viewport = fakeViewport({ scrollTop: 0, scrollHeight: 4_000, clientHeight: 600 });
     const observer = fakeSizeObserver();
     const states: string[] = [];
     const pin = createArrivalBottomPin({
@@ -140,17 +158,17 @@ describe('createArrivalBottomPin', () => {
       createSizeObserver: observer.factory,
     });
 
-    viewport.scrollTop = 200;
+    viewport.scrollTop = 1_000;
     viewport.emit('scroll');
     assert.equal(pin.isPinned(), false);
-    viewport.scrollHeight = 4_000;
-    observer.grow();
-    assert.equal(viewport.scrollTop, 200);
-    // A later growth step must not re-pin: releasing is permanent for this
-    // arrival, the way Astryx's own unlock is.
     viewport.scrollHeight = 9_000;
     observer.grow();
-    assert.equal(viewport.scrollTop, 200);
+    assert.equal(viewport.scrollTop, 1_000);
+    // A later growth step must not re-pin: releasing is permanent for this
+    // arrival, the way Astryx's own unlock is.
+    viewport.scrollHeight = 15_000;
+    observer.grow();
+    assert.equal(viewport.scrollTop, 1_000);
     assert.deepEqual(states, ['pinned', 'released']);
   });
 
@@ -165,6 +183,7 @@ describe('createArrivalBottomPin', () => {
 
     viewport.scrollHeight = 15_000;
     observer.grow();
+    assert.equal(viewport.distanceFromBottom, 0);
     // Chromium fires a scroll event for the resize itself. It reports a
     // position the reader never chose, and the pin must not read it as intent.
     viewport.emit('scroll');
@@ -182,10 +201,10 @@ describe('createArrivalBottomPin', () => {
     // snapshot has to follow that too, or the NEXT genuine upward scroll is
     // compared against a stale height, reads as "geometry changed", and the
     // reader silently loses control of the transcript.
-    const viewport = fakeViewport({ scrollTop: 0, scrollHeight: 800, clientHeight: 600 });
+    const viewport = fakeViewport({ scrollTop: 0, scrollHeight: 4_000, clientHeight: 600 });
     const pin = createArrivalBottomPin({ viewport, content: null });
 
-    assert.equal(viewport.scrollTop, 800);
+    assert.equal(viewport.distanceFromBottom, 0);
     viewport.scrollHeight = 15_000;
     viewport.emit('scroll');
     assert.equal(pin.isPinned(), true);
@@ -247,7 +266,7 @@ describe('createArrivalBottomPin', () => {
       content: null,
       createSizeObserver: observer.factory,
     });
-    assert.equal(viewport.scrollTop, 800);
+    assert.equal(viewport.distanceFromBottom, 0);
     assert.equal(observer.observed, undefined);
   });
 });
