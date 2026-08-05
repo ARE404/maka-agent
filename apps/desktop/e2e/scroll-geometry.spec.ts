@@ -482,7 +482,14 @@ test('progressive fill preserves the reading anchor while earlier turns mount', 
           // The wheel fast path unlocks unconditionally while the spring is
           // animating, and a dispatched WheelEvent reaches that listener
           // even though fixture windows swallow real wheel input.
-          root.dispatchEvent(
+          //
+          // Dispatched at the message list, not the scroller root: the arrival
+          // pin's eager release requires the gesture to have started inside the
+          // transcript, and a wheel targeting the root is not that. It would
+          // still release through the upward write below, but only on a scroll
+          // event that no growth shares a rendering update with — a coin flip
+          // under CPU throttling, and this loop only gets 20 of them.
+          (root.querySelector('.maka-chat-message-list') ?? root).dispatchEvent(
             new WheelEvent('wheel', { deltaY: -120, bubbles: true, cancelable: true }),
           );
           root.scrollTop = Math.max(0, (root.scrollHeight - root.clientHeight) / 2);
