@@ -22,10 +22,10 @@
  * caller releases this at the end of the arrival window rather than keeping it.
  *
  * Any sign the reader took control releases the pin for good, using the same
- * signals Astryx unlocks on: an upward wheel, a touch drag, or a scroll that
- * moved up on its own — one where the geometry did NOT change in the same
- * event, since Chromium fires a synthetic scroll for every content resize and
- * the arrival window is nothing but resizes.
+ * signals Astryx unlocks on: an upward wheel or a touch drag over the
+ * transcript, or a scroll that moved up on its own — one where the geometry did
+ * NOT change in the same event, since Chromium fires a synthetic scroll for
+ * every content resize and the arrival window is nothing but resizes.
  */
 
 export interface ArrivalPinViewport {
@@ -93,6 +93,7 @@ export function createArrivalBottomPin(options: {
   createSizeObserver?: ArrivalPinSizeObserverFactory;
 }): ArrivalBottomPin {
   const viewport = options.viewport;
+  const content = options.content;
   let pinned = true;
   let lastScrollTop = viewport.scrollTop;
   let lastScrollHeight = viewport.scrollHeight;
@@ -134,11 +135,26 @@ export function createArrivalBottomPin(options: {
 
   // Wheel and touch are read before the scroll they cause, which is what makes
   // them worth listening to on top of `onScroll`: they release the pin in the
-  // same frame the reader acts, rather than one growth later.
-  const onWheel = (event: Event): void => {
-    if ((event as WheelEvent).deltaY < 0) release();
+  // same frame the reader acts, rather than one growth later — a growth landing
+  // between the gesture and its scroll event would otherwise re-pin under them.
+  //
+  // Scoped to gestures over the transcript. The dock — composer, plan panel,
+  // graph status — sits inside this scroller, so its wheels and touches bubble
+  // here too, and neither is evidence that the reader left the latest turn.
+  // Nothing is lost by being strict: a gesture that really moves the scroller
+  // still reaches `onScroll`, which decides on what the geometry did rather
+  // than on where the pointer was.
+  const overTranscript = (event: Event): boolean => {
+    const target = event.target;
+    if (!content || typeof content.contains !== 'function' || !target) return true;
+    return content.contains(target as Node);
   };
-  const onTouchMove = (): void => { release(); };
+  const onWheel = (event: Event): void => {
+    if ((event as WheelEvent).deltaY < 0 && overTranscript(event)) release();
+  };
+  const onTouchMove = (event: Event): void => {
+    if (overTranscript(event)) release();
+  };
 
   viewport.addEventListener('scroll', onScroll, { passive: true });
   viewport.addEventListener('wheel', onWheel, { passive: true });
@@ -148,7 +164,6 @@ export function createArrivalBottomPin(options: {
     ?? (typeof ResizeObserver === 'function'
       ? (callback: () => void) => new ResizeObserver(callback)
       : undefined);
-  const content = options.content;
   const sizeObserver = content ? createSizeObserver?.(pin) : undefined;
   if (content) sizeObserver?.observe(content);
 

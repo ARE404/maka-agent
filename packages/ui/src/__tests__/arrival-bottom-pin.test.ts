@@ -45,6 +45,20 @@ function fakeViewport(initial: { scrollTop: number; scrollHeight: number; client
   };
 }
 
+/**
+ * A transcript element that answers `contains` for the nodes inside it, so the
+ * gesture handlers can be exercised the way the DOM presents them: the dock's
+ * wheels and touches bubble through the same scroller as the transcript's.
+ */
+function fakeTranscript() {
+  const inside = { name: 'turn' } as unknown as Node;
+  const dock = { name: 'composer' } as unknown as Node;
+  const element = {
+    contains: (node: Node | null) => node === inside,
+  } as unknown as Element;
+  return { element, inside, dock };
+}
+
 function fakeSizeObserver() {
   let notify: (() => void) | undefined;
   let observed: Element | undefined;
@@ -214,21 +228,41 @@ describe('createArrivalBottomPin', () => {
     assert.equal(pin.isPinned(), false);
   });
 
-  it('releases on an upward wheel and on a touch drag, before the scroll lands', () => {
+  it('releases on an upward wheel and on a touch drag over the transcript', () => {
+    const transcript = fakeTranscript();
     for (const [type, event] of [
-      ['wheel', { deltaY: -120 }],
-      ['touchmove', {}],
+      ['wheel', { deltaY: -120, target: transcript.inside }],
+      ['touchmove', { target: transcript.inside }],
     ] as const) {
-      const viewport = fakeViewport({ scrollTop: 0, scrollHeight: 800, clientHeight: 600 });
+      const viewport = fakeViewport({ scrollTop: 0, scrollHeight: 4_000, clientHeight: 600 });
       const observer = fakeSizeObserver();
       const pin = createArrivalBottomPin({
         viewport,
-        content: {} as Element,
+        content: transcript.element,
         createSizeObserver: observer.factory,
       });
-      viewport.emit(type, event as Partial<Event>);
+      viewport.emit(type, event as unknown as Partial<Event>);
       assert.equal(pin.isPinned(), false, type);
     }
+  });
+
+  it('does not read a gesture over the dock as the reader leaving the turn', () => {
+    // The composer, plan panel and graph status live inside this scroller, so
+    // their wheels and touches arrive here too — and a wheel over the composer
+    // that really does scroll the transcript still releases the pin, through
+    // the scroll event it causes rather than through where the pointer was.
+    const transcript = fakeTranscript();
+    const viewport = fakeViewport({ scrollTop: 0, scrollHeight: 4_000, clientHeight: 600 });
+    const pin = createArrivalBottomPin({ viewport, content: transcript.element });
+
+    viewport.emit('wheel', { deltaY: -120, target: transcript.dock } as unknown as Partial<Event>);
+    viewport.emit('touchmove', { target: transcript.dock } as unknown as Partial<Event>);
+    assert.equal(pin.isPinned(), true);
+    assert.equal(viewport.distanceFromBottom, 0);
+
+    viewport.scrollTop = 1_000;
+    viewport.emit('scroll');
+    assert.equal(pin.isPinned(), false);
   });
 
   it('keeps following through a wheel that is not the reader going up', () => {
