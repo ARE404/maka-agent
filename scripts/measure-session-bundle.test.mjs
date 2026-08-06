@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { redactText, sanitizeJsonFile } from './measure-session-bundle.mjs';
+import { createSessionStore, exportSessionBundleState } from '@maka/storage';
+import {
+  prepareStateExport,
+  readSessionExportId,
+  redactText,
+  sanitizeJsonFile,
+} from './measure-session-bundle.mjs';
 
 const scriptPath = fileURLToPath(new URL('./measure-session-bundle.mjs', import.meta.url));
 
@@ -14,8 +20,7 @@ test('session bundle measurement rejects overlapping workspace and export roots'
   const workspace = join(root, 'workspace');
   const sessionExport = join(workspace, 'session-export');
   try {
-    await mkdir(join(sessionExport, 'sessions', 'session-overlap'), { recursive: true });
-    await writeFile(join(sessionExport, 'sessions', 'session-overlap', 'session.jsonl'), '{}\n');
+    await mkdir(sessionExport, { recursive: true });
 
     const error = await runFailure([
       scriptPath,
@@ -46,6 +51,79 @@ test('session bundle sanitization redacts secrets', async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('session bundle measurement reads identity from the exported operational-state database', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'maka-session-bundle-identity-'));
+  try {
+    const { sessionId, exportRoot } = await createSessionExport(base);
+    assert.equal(await readSessionExportId(exportRoot), sessionId);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('session bundle measurement materializes a real state export', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'maka-session-bundle-prepare-'));
+  try {
+    const { sessionId, exportRoot } = await createSessionExport(base);
+    const destination = join(base, 'materialized');
+
+    await prepareStateExport(exportRoot, destination, sessionId);
+
+    assert.ok((await stat(join(destination, 'runtime.sqlite'))).isFile());
+    assert.equal(await readSessionExportId(destination), sessionId);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('session bundle measurement rejects an export with no operational-state database', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'maka-session-bundle-legacy-'));
+  const exportRoot = join(base, 'legacy-export');
+  try {
+    await mkdir(join(exportRoot, 'sessions', 'session-legacy'), { recursive: true });
+    await writeFile(join(exportRoot, 'sessions', 'session-legacy', 'session.jsonl'), '{}\n');
+
+    await assert.rejects(
+      prepareStateExport(exportRoot, join(base, 'materialized')),
+      /state export must contain runtime\.sqlite/,
+    );
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+async function createSessionExport(base) {
+  const stateRoot = join(base, 'state');
+  const configRoot = join(base, 'config');
+  const exportRoot = join(base, 'export');
+  await mkdir(configRoot, { recursive: true });
+  const sessions = createSessionStore(stateRoot);
+  const session = await sessions.create({
+    cwd: join(base, 'cwd'),
+    backend: 'fake',
+    llmConnectionSlug: 'fake',
+    model: 'fake-model',
+    permissionMode: 'ask',
+    name: 'Measured',
+    labels: [],
+  });
+  await sessions.appendMessage(session.id, {
+    type: 'user',
+    id: 'measured-message',
+    turnId: 'turn-1',
+    ts: 1,
+    text: 'measured-message',
+  });
+  await sessions.close?.();
+  await exportSessionBundleState({
+    stateRoot,
+    configRoot,
+    destinationRoot: exportRoot,
+    sessionId: session.id,
+  });
+  return { sessionId: session.id, exportRoot };
+}
 
 function run(args) {
   return new Promise((resolve, reject) => {
