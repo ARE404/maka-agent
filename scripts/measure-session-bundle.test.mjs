@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -77,7 +77,24 @@ test('session bundle measurement materializes a real state export', async () => 
   }
 });
 
-test('session bundle measurement rejects an export with no operational-state database', async () => {
+test('session bundle measurement leaves the supplied export untouched', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'maka-session-bundle-immutable-'));
+  try {
+    const { sessionId, exportRoot } = await createSessionExport(base);
+    const before = (await readdir(exportRoot)).sort();
+
+    await prepareStateExport(exportRoot, join(base, 'first'), sessionId);
+
+    assert.deepEqual((await readdir(exportRoot)).sort(), before);
+    // A read that materialized -wal/-shm beside the database would write into an
+    // export the caller owns, and this second run would reject its own leftovers.
+    await prepareStateExport(exportRoot, join(base, 'second'), sessionId);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('session bundle measurement rejects a legacy sessions/** export', async () => {
   const base = await mkdtemp(join(tmpdir(), 'maka-session-bundle-legacy-'));
   const exportRoot = join(base, 'legacy-export');
   try {
@@ -86,7 +103,22 @@ test('session bundle measurement rejects an export with no operational-state dat
 
     await assert.rejects(
       prepareStateExport(exportRoot, join(base, 'materialized')),
-      /state export must contain runtime\.sqlite/,
+      /protected or unclassified state entry: sessions\/session-legacy\/session\.jsonl/,
+    );
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('session bundle measurement rejects an export with no operational-state database', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'maka-session-bundle-empty-'));
+  const exportRoot = join(base, 'empty-export');
+  try {
+    await mkdir(exportRoot, { recursive: true });
+
+    await assert.rejects(
+      prepareStateExport(exportRoot, join(base, 'materialized')),
+      /session export has no runtime\.sqlite/,
     );
   } finally {
     await rm(base, { recursive: true, force: true });

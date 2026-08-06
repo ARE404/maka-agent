@@ -376,16 +376,20 @@ export async function prepareStateExport(sourceRoot, destinationRoot, expectedSe
   const sourceStats = await stat(source).catch(() => undefined);
   if (!sourceStats?.isDirectory()) throw new Error(`session export is not a directory: ${source}`);
   const entries = await readTreeEntries(source);
+  // Identity comes out of the database, so screen the tree before opening it. An
+  // unrecognized entry here covers a stray -wal or -shm sidecar, which the immutable
+  // read would silently ignore rather than honor, and requiring the database as a
+  // walked entry keeps a symlinked one from passing identity and then being skipped
+  // by the copy below.
+  for (const entry of entries) assertPortableStateEntry(entry.path);
+  if (!entries.some((entry) => entry.path === OPERATIONAL_STATE_DATABASE_NAME)) {
+    throw new Error(`session export has no ${OPERATIONAL_STATE_DATABASE_NAME}: ${source}`);
+  }
   const sessionId = await readSessionExportId(source);
   if (expectedSessionId !== undefined && expectedSessionId !== sessionId) {
     throw new Error(`session export identity changed while preparing: ${source}`);
   }
   await validateStateExportEntries(source, entries, sessionId);
-  // readSessionExportId opened the database directly; require it as a walked entry
-  // too, so a symlinked database cannot pass identity and then be skipped by the copy.
-  if (!entries.some((entry) => entry.path === OPERATIONAL_STATE_DATABASE_NAME)) {
-    throw new Error(`session export has no ${OPERATIONAL_STATE_DATABASE_NAME}: ${source}`);
-  }
   for (const entry of entries) {
     if (entry.path === STORAGE_ROOT_AUTHORITY_MARKER) continue;
     const destination = join(destinationRoot, entry.path);
@@ -398,15 +402,19 @@ export async function prepareStateExport(sourceRoot, destinationRoot, expectedSe
   }
 }
 
+function assertPortableStateEntry(path) {
+  if (path === STORAGE_ROOT_AUTHORITY_MARKER) return;
+  const [topLevel] = path.split('/');
+  if (!PORTABLE_STATE_TOP_LEVEL.has(topLevel)) {
+    throw new Error(`session export contains protected or unclassified state entry: ${path}`);
+  }
+}
+
 async function validateStateExportEntries(sourceRoot, entries, sessionId) {
   for (const entry of entries) {
     if (entry.path === STORAGE_ROOT_AUTHORITY_MARKER) continue;
     const [topLevel, child] = entry.path.split('/');
-    if (!PORTABLE_STATE_TOP_LEVEL.has(topLevel)) {
-      throw new Error(
-        `session export contains protected or unclassified state entry: ${entry.path}`,
-      );
-    }
+    assertPortableStateEntry(entry.path);
     if (topLevel === OPERATIONAL_STATE_DATABASE_NAME) {
       if (entry.path !== OPERATIONAL_STATE_DATABASE_NAME) {
         throw new Error(
@@ -801,13 +809,24 @@ export async function readSessionExportId(root) {
   if (!databaseStats?.isFile()) {
     throw new Error(`state export must contain ${OPERATIONAL_STATE_DATABASE_NAME}: ${root}`);
   }
-  const database = new DatabaseSync(databasePath, { readOnly: true });
+  // `immutable=1`, not a plain read-only open: a read-only connection to a WAL
+  // database still materializes -wal/-shm beside it, which writes into an export
+  // the caller handed us and makes a second run fail its own entry allowlist.
+  const database = new DatabaseSync(`${pathToFileURL(databasePath).href}?immutable=1`, {
+    readOnly: true,
+  });
   let sessionIds;
   try {
     sessionIds = database
-      .prepare('SELECT session_id FROM session_metadata ORDER BY session_id')
+      .prepare('SELECT session_id FROM session_metadata')
       .all()
       .map((row) => row.session_id);
+  } catch (error) {
+    throw new Error(
+      `state export ${OPERATIONAL_STATE_DATABASE_NAME} is not readable session state: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
   } finally {
     database.close();
   }
