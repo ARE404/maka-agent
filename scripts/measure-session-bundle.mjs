@@ -812,11 +812,12 @@ export async function readSessionExportId(root) {
   // `immutable=1`, not a plain read-only open: a read-only connection to a WAL
   // database still materializes -wal/-shm beside it, which writes into an export
   // the caller handed us and makes a second run fail its own entry allowlist.
-  const database = new DatabaseSync(`${pathToFileURL(databasePath).href}?immutable=1`, {
-    readOnly: true,
-  });
+  let database;
   let sessionIds;
   try {
+    database = new DatabaseSync(`${pathToFileURL(databasePath).href}?immutable=1`, {
+      readOnly: true,
+    });
     sessionIds = database
       .prepare('SELECT session_id FROM session_metadata')
       .all()
@@ -828,7 +829,7 @@ export async function readSessionExportId(root) {
       }`,
     );
   } finally {
-    database.close();
+    database?.close();
   }
   if (sessionIds.length === 0) {
     throw new Error(`state export contains no session: ${root}`);

@@ -94,6 +94,43 @@ test('session bundle measurement leaves the supplied export untouched', async ()
   }
 });
 
+test('session bundle measurement rejects a stray database sidecar in the supplied export', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'maka-session-bundle-sidecar-'));
+  try {
+    const { sessionId, exportRoot } = await createSessionExport(base);
+    // The identity read is immutable, so it ignores a sidecar rather than honoring
+    // it. Tolerating one here would let a stale database drive the measurement.
+    await writeFile(join(exportRoot, 'runtime.sqlite-wal'), '');
+
+    await assert.rejects(
+      prepareStateExport(exportRoot, join(base, 'materialized'), sessionId),
+      /protected or unclassified state entry: runtime\.sqlite-wal/,
+    );
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('session bundle measurement screens the export tree before opening the database', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'maka-session-bundle-screen-'));
+  const exportRoot = join(base, 'unscreened-export');
+  try {
+    await mkdir(exportRoot, { recursive: true });
+    await writeFile(join(exportRoot, 'runtime.sqlite'), 'not a database');
+    await writeFile(join(exportRoot, 'runtime.sqlite-wal'), '');
+
+    // Both faults are present, so the message says which check ran first. Screening
+    // after the open reports the unreadable database instead, and that ordering is
+    // what lets an immutable read silently ignore a sidecar it should have refused.
+    await assert.rejects(
+      prepareStateExport(exportRoot, join(base, 'materialized')),
+      /protected or unclassified state entry: runtime\.sqlite-wal/,
+    );
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test('session bundle measurement rejects a legacy sessions/** export', async () => {
   const base = await mkdtemp(join(tmpdir(), 'maka-session-bundle-legacy-'));
   const exportRoot = join(base, 'legacy-export');
