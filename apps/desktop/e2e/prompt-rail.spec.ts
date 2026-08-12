@@ -125,6 +125,68 @@ test('the rail stays inside the scrollport at both scroll extremes', async ({
   }
 });
 
+test('the pointer is always on a tick while it travels down the rail', async ({
+  promptRailWindow: page,
+}) => {
+  // The hover falloff reads which tick the pointer entered. A gap between the
+  // hit boxes is a band where it is over the rail and over no tick, so the
+  // effect drops out and picks up again every few pixels of travel. Walked a
+  // pixel at a time rather than sampled between two ticks: a single midpoint
+  // would pass on a rail whose gaps sat anywhere else.
+  const travel = await page.evaluate(() => {
+    const bars = [...document.querySelectorAll('.maka-prompt-rail-tick-bar')];
+    if (bars.length < 2) throw new Error('the prompt rail needs at least two ticks');
+    const first = bars[0]!.getBoundingClientRect();
+    const last = bars[bars.length - 1]!.getBoundingClientRect();
+    const x = Math.round(first.left + first.width / 2);
+    const misses: number[] = [];
+    for (let y = Math.round(first.top + first.height / 2); y <= Math.round(last.top + last.height / 2); y += 1) {
+      const found = document.elementFromPoint(x, y);
+      if (!found?.closest('.maka-prompt-rail-tick')) misses.push(y);
+    }
+    return { misses: misses.length, span: Math.round(last.bottom - first.top) };
+  });
+
+  expect(travel.span).toBeGreaterThan(0);
+  expect(travel.misses).toBe(0);
+});
+
+test('the first click of a session lands on its prompt and holds', async ({
+  promptRailWindow: page,
+}) => {
+  // Clicked before anything else touches the transcript, which is the case
+  // that used to fail: the head of a 30-prompt session is not mounted yet, so
+  // the jump has to mount it, and the fill that follows changes scrollHeight
+  // under Astryx's auto-follow lock. The lock ignores scroll-ups that arrive
+  // with a changed height, so it stayed on and pulled the transcript back to
+  // the bottom — the click looked dead until the reader scrolled by hand.
+  //
+  // Motion has to be on, and this is the one assertion here that depends on
+  // it: under reduced motion the jump is an instant scroll that has already
+  // landed before the next fill step, and the bug does not reproduce. The
+  // shipped app scrolls smoothly (#2680), which leaves the jump in flight for
+  // exactly as long as it takes the lock to win.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.locator('.maka-prompt-rail-tick').first().click({ force: true });
+
+  const landed = async () =>
+    page.evaluate(() => {
+      const scroller = document.querySelector('[data-chat-scroll-container="true"]')!;
+      const first = document.querySelector('[data-turn-id]');
+      if (!first) return null;
+      return Math.round(
+        first.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
+      );
+    });
+
+  // Within a turn's own top padding of the scrollport's top edge.
+  await expect.poll(landed, { message: 'the clicked prompt reaches the top' }).toBeLessThan(24);
+  // And stays: the fill runs on idle callbacks after the jump, so a jump that
+  // only wins the first frame reads as landing and then sliding away.
+  await page.waitForTimeout(1_200);
+  expect(await landed()).toBeLessThan(24);
+});
+
 test('a tick is what the pointer lands on, not the scrollbar', async ({
   promptRailWindow: page,
 }) => {
