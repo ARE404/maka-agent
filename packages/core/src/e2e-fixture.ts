@@ -6,6 +6,7 @@ import type { UiLocale } from './ui-locale.js';
 export type E2eFixtureScenario =
   | 'fetched-empty'
   | 'turn-narrative'
+  | 'chat-prompt-rail'
   | 'settings-data'
   | 'settings-bots-onboarding'
   | 'settings-general'

@@ -338,6 +338,7 @@ export const test = base.extend<{
   gitReviewWindow: { page: Page; projectRoot: string };
   invocableSkillsWindow: Page;
   linkColorWindow: Page;
+  promptRailWindow: Page;
 }>({
   // Seeded: a pre-staged connection clears onboarding so the composer is ready.
   window: async ({}, use) => {
@@ -373,6 +374,20 @@ export const test = base.extend<{
       seed: false,
       readinessSelector: '.settingsBotConfigDocLink',
       e2eFixtureScenario: 'settings-bots-onboarding',
+    }, use);
+  },
+  // A multi-prompt transcript for the prompt anchor rail. Shown, because every
+  // assertion in prompt-rail.spec.ts is geometry the compositor has to settle.
+  promptRailWindow: async ({}, use) => {
+    await withE2eWindow({
+      seed: false,
+      // A rendered turn, deliberately not the rail: Playwright treats a
+      // zero-area element as hidden, so gating readiness on a tick would turn
+      // every rail regression into a 20s cold-start timeout instead of the
+      // assertion that names it.
+      readinessSelector: '[data-turn-id]',
+      e2eFixtureScenario: 'chat-prompt-rail',
+      showWindow: true,
     }, use);
   },
 });

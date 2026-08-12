@@ -134,6 +134,12 @@
    pointer (0 = hovered) and rests at the falloff distance, so the whole ramp is
    one expression and the resting width is its own tail. */
 .maka-prompt-rail-tick-bar {
+  /* Load-bearing since #2580 put the tick on Astryx's Button: the bar used to
+     be a direct child of the flex tick, which blockified it, and now it sits
+     inside the Button's own label span in normal flow. An inline box takes no
+     width or height, so without this the bar computes to 0x0 and the whole
+     rail paints nothing. */
+  display: block;
   width: calc(14px + ((3 - var(--maka-prompt-rail-proximity, 3)) * 3px));
   height: 3px;
   border-radius: var(--radius-pill);

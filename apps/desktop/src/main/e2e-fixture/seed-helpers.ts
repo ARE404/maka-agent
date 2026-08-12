@@ -14,6 +14,14 @@ import {
 export const E2E_FIXTURE_NOW = Date.UTC(2026, 4, 22, 3, 0, 0);
 
 export const TURN_SESSION_ID = 'e2e-fixture-turn';
+export const PROMPT_RAIL_SESSION_ID = 'e2e-fixture-prompt-rail';
+/**
+ * Prompts seeded for the prompt-rail fixture. Clears the rail's own
+ * three-prompt floor (it renders nothing below that) with room to spare, and
+ * gives the transcript enough height to overflow the scrollport — without
+ * that, the rail's pinning has nothing to be pinned against.
+ */
+export const PROMPT_RAIL_PROMPT_COUNT = 8;
 export const LONG_SIDEBAR_SESSION_PREFIX = 'e2e-fixture-sidebar-long-';
 export const LONG_SIDEBAR_SESSION_COUNT = 60;
 export const LONG_SIDEBAR_PROJECT_ID = 'e2e-fixture-project';

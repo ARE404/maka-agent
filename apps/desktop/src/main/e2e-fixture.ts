@@ -10,10 +10,16 @@ import {
   LONG_SIDEBAR_PROJECT_ID,
   LONG_SIDEBAR_PROJECT_NAME,
   LONG_SIDEBAR_SESSION_PREFIX,
+  PROMPT_RAIL_SESSION_ID,
   TURN_SESSION_ID,
   writeSession,
 } from './e2e-fixture/seed-helpers.js';
-import { turnMessages, turnSession } from './e2e-fixture/scenarios-chat.js';
+import {
+  promptRailMessages,
+  promptRailSession,
+  turnMessages,
+  turnSession,
+} from './e2e-fixture/scenarios-chat.js';
 import { seedMcpFixture, seedSkillsMarketFixture } from './e2e-fixture/scenarios-modules.js';
 import { longSidebarSessions } from './e2e-fixture/scenarios-sessions.js';
 import {
@@ -27,6 +33,7 @@ import { usageStatsSessions } from './e2e-fixture/scenarios-usage.js';
 const E2E_FIXTURE_SCENARIOS = new Set<E2eFixtureScenario>([
   'fetched-empty',
   'turn-narrative',
+  'chat-prompt-rail',
   'settings-data',
   'settings-bots-onboarding',
   'settings-general',
@@ -125,6 +132,10 @@ export function getE2eFixtureState(fixture: E2eFixture | null): E2eFixtureState 
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'models' };
     case 'turn-narrative':
       return { ...state, activeSessionId: TURN_SESSION_ID, workbarCollapsed: false, workbarTab: 'tasks' };
+    case 'chat-prompt-rail':
+      // Workbar collapsed: the rail lives on the chat scrollport's right edge,
+      // and the panel would take the width the measurements are about.
+      return { ...state, activeSessionId: PROMPT_RAIL_SESSION_ID, workbarCollapsed: true };
     case 'settings-data':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'data' };
     case 'settings-bots-onboarding':
@@ -180,6 +191,9 @@ export async function seedE2eFixture(input: {
   }
   await writeSession(input.workspaceRoot, turnSession(now), turnMessages(now));
 
+  if (scenario === 'chat-prompt-rail') {
+    await writeSession(input.workspaceRoot, promptRailSession(now), promptRailMessages(now));
+  }
   if (scenario === 'sidebar-search-modal-open') {
     for (const seed of longSidebarSessions(now)) {
       await writeSession(input.workspaceRoot, seed.header, seed.messages);
