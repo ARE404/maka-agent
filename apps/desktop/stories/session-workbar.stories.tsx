@@ -417,6 +417,9 @@ const populatedContext: ContextDiagnosticsResult = {
   modelId: 'glm-5.1',
   completedAt: NOW + 42_900,
   inputTokens: 18_900,
+  // Providers that cache always count the hits, and most real sessions carry
+  // one — the bar splits the prompt only when the snapshot reports it.
+  cacheReadInputTokens: 15_200,
   contextWindow: 200_000,
   composition: {
     segments: [
