@@ -16,17 +16,141 @@ const HOVER_FALLOFF_TICKS = 3;
  * as restraint.
  */
 const PREVIEW_DELAY_MS = 120;
+
+/** Quiet frames after the transcript is filled that end a jump's hold. */
+const JUMP_SETTLE_QUIET_FRAMES = 3;
 /**
- * How long a click-driven jump suppresses the highlight's glide when no
- * `scrollend` arrives — a smooth scroll of the whole transcript takes a few
- * hundred milliseconds, and overshooting only means the next scroll-driven
- * move is placed rather than animated.
+ * Frames a hold may run before it gives up regardless. Only a backstop against
+ * a transcript that never reports itself filled — the fill boundary is what
+ * normally ends the hold, and this is ~4s at 60Hz.
  */
-const JUMP_SETTLE_TIMEOUT_MS = 700;
+const JUMP_HOLD_FRAME_BUDGET = 240;
+/** How close to the scrollport's top edge counts as landed. */
+const JUMP_LANDED_TOLERANCE_PX = 4;
+/** Input that means the reader has taken the transcript back. */
+const READER_SCROLL_EVENTS = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
 
 interface PromptRailResizeObserver {
   observe(target: Element): void;
   disconnect(): void;
+}
+
+/** Frame scheduler seam, so the jump hold can be driven by a test. */
+export interface PromptRailFrameScheduler {
+  request(callback: () => void): number;
+  cancel(handle: number): void;
+}
+
+const browserFrameScheduler: PromptRailFrameScheduler = {
+  request: (callback) => requestAnimationFrame(callback),
+  cancel: (handle) => cancelAnimationFrame(handle),
+};
+
+/**
+ * Hold a jump's destination while the transcript grows under it.
+ *
+ * Two different things move the transcript out from under a jump, and
+ * releasing auto-follow (`onNavigateStart`) only answers the first:
+ *
+ *  - Astryx's auto-follow spring, which keeps pulling toward the bottom
+ *    because it never sees the jump as a reader-initiated scroll up.
+ *  - The progressive mount's own scroll compensation, which holds the reader's
+ *    position across each fill step. Mounting the turn a jump asked for is
+ *    itself a fill step, so the compensation lands after the scroll and
+ *    restores the position the jump just left.
+ *
+ * Re-aiming outlasts both: through each fill step, and once more if a still
+ * frame finds the target off the top edge, which is what a scroll cancelled
+ * part-way leaves behind. A frame where nothing moved and the target is where
+ * the click asked costs one `getBoundingClientRect` and nothing else.
+ *
+ * `releaseAutoFollow` runs on every frame of the hold rather than once at the
+ * click, because Astryx re-locks on any `scrollend` that settles near the
+ * bottom — and a jump out of a session that opens at the bottom produces
+ * exactly that while the mount is still catching up, so a single release is
+ * undone before the jump has gone anywhere. Traced: released at the click,
+ * re-aimed to the target at 154ms, dragged back to the bottom by 166ms.
+ *
+ * The hold ends on the progressive mount's own boundary — the transcript
+ * reporting itself filled, then holding still for a few frames — rather than
+ * on a clock, so a long transcript is not released mid-fill. It also ends the
+ * moment the reader touches the transcript: a jump may outlive its own scroll,
+ * but it must never outlive the reader's interest in it.
+ */
+export function holdJumpDestination(input: {
+  root: Element;
+  readTargetId: () => string | null;
+  /** Progressive mount has every turn in the DOM (ChatView's `turnsFilled`). */
+  isTranscriptFilled: () => boolean;
+  /** Astryx's auto-follow release, re-asserted for the life of the hold. */
+  releaseAutoFollow?: (() => void) | undefined;
+  onSettled: () => void;
+  scheduler?: PromptRailFrameScheduler;
+}): () => void {
+  const { root, readTargetId, isTranscriptFilled, releaseAutoFollow, onSettled } = input;
+  const scheduler = input.scheduler ?? browserFrameScheduler;
+  let handle = 0;
+  let done = false;
+  let lastHeight = root.scrollHeight;
+  let lastTop = root.scrollTop;
+  let quietFrames = 0;
+  let framesRun = 0;
+
+  const stop = (): void => {
+    if (done) return;
+    done = true;
+    scheduler.cancel(handle);
+    for (const type of READER_SCROLL_EVENTS) root.removeEventListener(type, stop);
+    onSettled();
+  };
+
+  const reaim = (): boolean => {
+    const turnId = readTargetId();
+    if (turnId === null) return false;
+    const target = root.querySelector(`[data-turn-id="${CSS.escape(turnId)}"]`);
+    if (!target) return false;
+    const offset = target.getBoundingClientRect().top - root.getBoundingClientRect().top;
+    if (Math.abs(offset) <= JUMP_LANDED_TOLERANCE_PX) return false;
+    const before = root.scrollTop;
+    // `auto`: this is a correction, not a second journey.
+    (target as HTMLElement).scrollIntoView({ behavior: 'auto', block: 'start' });
+    lastTop = root.scrollTop;
+    // A correction that moves nothing means the target is as close to the top
+    // as this scroller can put it — the last turn of a transcript cannot reach
+    // it at all. Report it as landed, or the hold would keep trying until its
+    // frame budget ran out.
+    return root.scrollTop !== before;
+  };
+
+  const hold = (): void => {
+    if (done) return;
+    handle = scheduler.request(hold);
+    framesRun += 1;
+    releaseAutoFollow?.();
+    const grew = root.scrollHeight !== lastHeight;
+    const moved = root.scrollTop !== lastTop;
+    lastHeight = root.scrollHeight;
+    lastTop = root.scrollTop;
+    // Growth is the mount working through the transcript; re-aim through it.
+    // A still frame that is nonetheless off-target is the other failure: a
+    // scroll that was cancelled part-way and will never resume on its own,
+    // which is what happens when the mount's compensation lands on top of one.
+    const corrected = grew || (!moved && isTranscriptFilled()) ? reaim() : false;
+    // Quiet means nothing moved at all — not the content, not the position.
+    // Height alone was not enough: with the transcript already mounted there
+    // is nothing to re-aim through, and the hold released three frames in,
+    // handing the highlight and the auto-follow release back while the jump's
+    // own scroll was still in flight.
+    if (!grew && !moved && !corrected && isTranscriptFilled()) quietFrames += 1;
+    else quietFrames = 0;
+    if (quietFrames >= JUMP_SETTLE_QUIET_FRAMES || framesRun >= JUMP_HOLD_FRAME_BUDGET) stop();
+  };
+
+  for (const type of READER_SCROLL_EVENTS) {
+    root.addEventListener(type, stop, { passive: true });
+  }
+  handle = scheduler.request(hold);
+  return stop;
 }
 
 type PromptRailResizeObserverFactory = (
@@ -45,54 +169,6 @@ export function keepActivePromptRailTickVisible(rail: HTMLElement): void {
   if (tickBox.top < railBox.top) rail.scrollTop -= railBox.top - tickBox.top;
   else if (tickBox.bottom > railBox.bottom)
     rail.scrollTop += tickBox.bottom - railBox.bottom;
-}
-
-/** Frame scheduler seam, so the jump hold can be driven by a test. */
-export interface PromptRailFrameScheduler {
-  request(callback: () => void): number;
-  cancel(handle: number): void;
-}
-
-const browserFrameScheduler: PromptRailFrameScheduler = {
-  request: (callback) => requestAnimationFrame(callback),
-  cancel: (handle) => cancelAnimationFrame(handle),
-};
-
-/**
- * Hold a jump's destination while the transcript grows under it.
- *
- * A jump into a part of the transcript the progressive mount has not reached
- * has to mount it first, and the fill that follows changes the scroller's
- * height for several frames afterwards. Astryx's auto-follow lock unlocks on a
- * scroll up, but deliberately ignores any scroll event that arrives with a
- * changed `scrollHeight`, reading it as a resize artefact rather than the
- * reader moving — so a jump landing mid-fill leaves the lock on, and the lock
- * pulls the transcript back to the bottom. Re-aiming on each height change
- * holds the destination until the fill stops, and the last of those scrolls
- * lands with a stable height, which is the one the lock finally reads.
- *
- * Only height changes re-aim: correcting every frame would flatten the smooth
- * scroll into a jump, and reacting to nothing at all is the bug.
- */
-export function holdJumpDestination(
-  root: Element,
-  readTargetId: () => string | null,
-  scheduler: PromptRailFrameScheduler = browserFrameScheduler,
-): () => void {
-  let handle = 0;
-  let lastHeight = root.scrollHeight;
-  const hold = (): void => {
-    handle = scheduler.request(hold);
-    if (root.scrollHeight === lastHeight) return;
-    lastHeight = root.scrollHeight;
-    const turnId = readTargetId();
-    if (turnId === null) return;
-    const target = root.querySelector(`[data-turn-id="${CSS.escape(turnId)}"]`);
-    // `auto`: this is a correction, not a second journey.
-    if (target) (target as HTMLElement).scrollIntoView({ behavior: 'auto', block: 'start' });
-  };
-  handle = scheduler.request(hold);
-  return () => scheduler.cancel(handle);
 }
 
 export function observeActivePromptRailVisibility(
@@ -114,25 +190,53 @@ export interface PromptAnchorRailTurn {
 export interface PromptAnchorRailProps {
   turns: readonly PromptAnchorRailTurn[];
   scrollRef: RefObject<HTMLElement | null>;
-  scrollBehavior: ScrollBehavior;
   /** When progressive mount has not yet placed the turn in the DOM. */
   onNavigateFallback?: (turnId: string) => void;
   /** Bumped when turn DOM membership changes without `turns` changing. */
   mountedTurnsRevision?: number;
+  /**
+   * Release Astryx's auto-follow before a jump scrolls.
+   *
+   * ChatLayout keeps the transcript pinned to the bottom while a turn streams
+   * and unlocks when the reader scrolls up, which it detects by comparing
+   * scrollTop between scroll events — but it discards any scroll event that
+   * arrives with a changed scrollHeight, since Chrome fires those on content
+   * resize and they are not the reader moving. A jump into a turn the
+   * progressive mount has not reached has to mount it first, so its own scroll
+   * always arrives with a changed height and is discarded: auto-follow stays on
+   * and pulls the transcript back to the bottom.
+   */
+  onNavigateStart?: (() => void) | undefined;
+  /**
+   * Progressive mount has placed every turn in the DOM (ChatView's
+   * `turnsFilled`). A jump holds its destination until this goes true and the
+   * transcript stops moving; see `holdJumpDestination`.
+   */
+  transcriptFilled?: boolean;
 }
 
 /** Right-edge rail: one tick per user prompt, scrolls to `[data-turn-id]`. */
-export const PromptAnchorRail = memo(function PromptAnchorRail({ turns, scrollRef, scrollBehavior, onNavigateFallback, mountedTurnsRevision }: PromptAnchorRailProps): React.ReactElement | null {
+export const PromptAnchorRail = memo(function PromptAnchorRail({ turns, scrollRef, onNavigateFallback, mountedTurnsRevision, onNavigateStart, transcriptFilled }: PromptAnchorRailProps): React.ReactElement | null {
   const copy = getConversationCopy(useUiLocale()).sessions;
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [safeArea, setSafeArea] = useState<{ scrollport: number; dock: number } | null>(null);
   const railRef = useRef<HTMLElement | null>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const [jumping, setJumping] = useState(false);
+  // Identified by a sequence number rather than a boolean so a second click
+  // during a jump starts its own claim instead of inheriting what is left of
+  // the first one's — which would leave the earlier jump's lifetime governing
+  // the later jump's target.
+  const [jump, setJump] = useState<{ sequence: number; turnId: string } | null>(null);
+  const jumpSequenceRef = useRef(0);
   // The turn a click aimed at, held until that click's scroll settles. A ref,
   // not state: the observer effect reads it on every scroll frame and must not
   // be torn down and rebuilt over the whole transcript when it changes.
   const jumpTargetRef = useRef<string | null>(null);
+  // Read by the hold, which outlives the render that started it.
+  const transcriptFilledRef = useRef(transcriptFilled ?? true);
+  transcriptFilledRef.current = transcriptFilled ?? true;
+  const onNavigateStartRef = useRef(onNavigateStart);
+  onNavigateStartRef.current = onNavigateStart;
 
   useEffect(() => {
     const root = scrollRef.current;
@@ -234,45 +338,60 @@ export const PromptAnchorRail = memo(function PromptAnchorRail({ turns, scrollRe
   // The highlight glides between prompts because the reader is following it as
   // the transcript scrolls under it. A click is the opposite: the reader picked
   // the destination, so the highlight switches there once and holds, and the
-  // scroll the click started moves underneath it without moving it. `jumping`
-  // (the CSS side) kills the glide for that one switch; `jumpTargetRef` (read
-  // by the observer above) is what keeps the scroll from walking the highlight
-  // through every prompt it passes on the way.
+  // scroll the click started moves underneath it without moving it. The `jump`
+  // state (the CSS side) kills the glide for that one switch; `jumpTargetRef`
+  // (read by the observer above) is what keeps the scroll from walking the
+  // highlight through every prompt it passes on the way. Keyed on the jump's
+  // sequence, so a second click starts its own claim rather than inheriting
+  // the remains of the first one's.
+  //
+  // The claim ends where the progressive mount does, not on a clock: the hold
+  // below re-aims through the fill and reports back when the transcript is
+  // filled and still, or when the reader takes it back.
   useEffect(() => {
-    if (!jumping) return;
+    if (!jump) return;
     const root = scrollRef.current;
-    const settle = (): void => {
-      jumpTargetRef.current = null;
-      setJumping(false);
-    };
-    // `scrollend` alone would end the jump the moment the transcript grows
-    // under it (see the frame loop below), so the jump holds for its full
-    // window and the timer is what ends it.
-    const timer = window.setTimeout(settle, JUMP_SETTLE_TIMEOUT_MS);
-    if (!root) return () => window.clearTimeout(timer);
-
-    // The other half of the same click: a jump into an unmounted part of the
-    // transcript has to survive the fill that follows it. See
-    // `holdJumpDestination`.
-    const releaseHold = holdJumpDestination(root, () => jumpTargetRef.current);
-
-    return () => {
-      window.clearTimeout(timer);
-      releaseHold();
-    };
-  }, [jumping, scrollRef]);
+    if (!root) return;
+    return holdJumpDestination({
+      root,
+      readTargetId: () => jumpTargetRef.current,
+      isTranscriptFilled: () => transcriptFilledRef.current,
+      releaseAutoFollow: onNavigateStartRef.current,
+      onSettled: () => {
+        // Only the latest jump releases the highlight: a later click has
+        // already claimed it, and its own hold owns it now. Decided against
+        // the ref rather than inside the state updater, which React may run
+        // twice.
+        if (jumpSequenceRef.current !== jump.sequence) return;
+        jumpTargetRef.current = null;
+        setJump((current) => (current?.sequence === jump.sequence ? null : current));
+      },
+    });
+  }, [jump, scrollRef]);
 
   function jumpTo(turnId: string): void {
-    const el = scrollRef.current?.querySelector(`[data-turn-id="${CSS.escape(turnId)}"]`);
+    const root = scrollRef.current;
+    const el = root?.querySelector(`[data-turn-id="${CSS.escape(turnId)}"]`);
+    // Before the scroll, not after: auto-follow has to be released while the
+    // transcript is still where the reader left it, or the release lands after
+    // it has already pulled the view back to the bottom.
+    onNavigateStart?.();
     // Claimed before the scroll starts: a same-frame `scroll` event would
     // otherwise reach the observer while the highlight is still unowned.
     jumpTargetRef.current = turnId;
     if (el && 'scrollIntoView' in el) {
-      (el as HTMLElement).scrollIntoView({ behavior: scrollBehavior, block: 'start' });
+      // Instant, whatever the app's scroll-motion policy says. A jump is a
+      // teleport the reader asked for, not a journey — and an animated one
+      // does not survive this surface: traced against a 30-prompt session, the
+      // smooth scroll was cancelled by the mount's own scroll compensation and
+      // by auto-follow's spring, and stalled two pixels from where it started.
+      // Landing reliably beats animating unreliably.
+      (el as HTMLElement).scrollIntoView({ behavior: 'auto', block: 'start' });
     } else if (!el) {
       onNavigateFallback?.(turnId);
     }
-    setJumping(true);
+    jumpSequenceRef.current += 1;
+    setJump({ sequence: jumpSequenceRef.current, turnId });
     setActiveTurnId(turnId);
   }
 
@@ -294,7 +413,7 @@ export const PromptAnchorRail = memo(function PromptAnchorRail({ turns, scrollRe
       <nav
         className="maka-prompt-rail"
         aria-label={copy.promptRailAriaLabel}
-        data-jumping={jumping ? 'true' : undefined}
+        data-jumping={jump ? 'true' : undefined}
         ref={railRef}
         onPointerLeave={() => setHoveredIndex(null)}
       >

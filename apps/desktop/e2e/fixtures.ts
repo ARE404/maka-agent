@@ -246,6 +246,7 @@ async function withE2eWindow(
     locale,
     platform,
     showWindow,
+    scrollMotion,
     invocableSkills,
     gitReviewExtraFiles,
   }: {
@@ -253,6 +254,8 @@ async function withE2eWindow(
     readinessSelector: string;
     e2eFixtureScenario?: string;
     locale?: 'zh' | 'en';
+    /** Opt this window back into animated scrolling; see `scroll-motion-policy`. */
+    scrollMotion?: 'auto' | 'smooth';
     /** #1312: force app:info's platform so the window boots natively into that platform's `data-os` cascade. */
     platform?: 'darwin' | 'win32' | 'linux';
     /** Show fixtures whose contract depends on compositor-paced frames. */
@@ -286,6 +289,7 @@ async function withE2eWindow(
         scenario: e2eFixtureScenario,
         locale,
         platform,
+        scrollMotion,
         // xvfb throttles a hidden window's compositor to ~1fps. Geometry
         // fixtures opt in locally; every fixture is visible on isolated CI X.
         showWindow: showWindow || isCiLinuxDisplay(),
@@ -339,6 +343,7 @@ export const test = base.extend<{
   invocableSkillsWindow: Page;
   linkColorWindow: Page;
   promptRailWindow: Page;
+  promptRailMotionWindow: Page;
 }>({
   // Seeded: a pre-staged connection clears onboarding so the composer is ready.
   window: async ({}, use) => {
@@ -388,6 +393,19 @@ export const test = base.extend<{
       readinessSelector: '[data-turn-id]',
       e2eFixtureScenario: 'chat-prompt-rail',
       showWindow: true,
+    }, use);
+  },
+  // The same transcript, scrolling the way the shipped app scrolls. Separate
+  // from `promptRailWindow` because it is only the jump that needs a scroll
+  // still in flight, and paying for one everywhere costs several seconds per
+  // window and settles less predictably.
+  promptRailMotionWindow: async ({}, use) => {
+    await withE2eWindow({
+      seed: false,
+      readinessSelector: '[data-turn-id]',
+      e2eFixtureScenario: 'chat-prompt-rail',
+      showWindow: true,
+      scrollMotion: 'smooth',
     }, use);
   },
 });

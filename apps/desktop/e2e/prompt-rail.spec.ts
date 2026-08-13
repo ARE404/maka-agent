@@ -152,7 +152,7 @@ test('the pointer is always on a tick while it travels down the rail', async ({
 });
 
 test('the first click of a session lands on its prompt and holds', async ({
-  promptRailWindow: page,
+  promptRailMotionWindow: page,
 }) => {
   // Clicked before anything else touches the transcript, which is the case
   // that used to fail: the head of a 30-prompt session is not mounted yet, so
@@ -161,30 +161,51 @@ test('the first click of a session lands on its prompt and holds', async ({
   // with a changed height, so it stayed on and pulled the transcript back to
   // the bottom — the click looked dead until the reader scrolled by hand.
   //
-  // Motion has to be on, and this is the one assertion here that depends on
-  // it: under reduced motion the jump is an instant scroll that has already
-  // landed before the next fill step, and the bug does not reproduce. The
-  // shipped app scrolls smoothly (#2680), which leaves the jump in flight for
-  // exactly as long as it takes the lock to win.
-  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // This window is the only one in the suite that scrolls smoothly, which is
+  // why it is its own fixture. Every capture otherwise collapses scroll
+  // motion, and a jump that finishes in one frame is never in flight long
+  // enough to meet the lock at all. `emulateMedia` cannot arrange it: the
+  // collapse is keyed on `data-maka-e2e-fixture`, not on the media query.
+  expect(await page.evaluate(() => document.documentElement.dataset.makaScrollMotion)).toBe(
+    'smooth',
+  );
+
+  // The first tick's turn, named rather than inferred: the first mounted
+  // `[data-turn-id]` is whatever the tail window happens to hold, and at the
+  // opening scroll position its top is already above the scrollport, which
+  // passes an upper-bound-only check without the jump doing anything at all.
+  const targetTurnId = 'turn-prompt-rail-1';
   await page.locator('.maka-prompt-rail-tick').first().click({ force: true });
 
-  const landed = async () =>
-    page.evaluate(() => {
+  const landing = async () =>
+    page.evaluate((turnId) => {
       const scroller = document.querySelector('[data-chat-scroll-container="true"]')!;
-      const first = document.querySelector('[data-turn-id]');
-      if (!first) return null;
-      return Math.round(
-        first.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
-      );
-    });
+      const turn = document.querySelector(`[data-turn-id="${turnId}"]`);
+      if (!turn) return null;
+      const tick = document.querySelector('.maka-prompt-rail-tick');
+      return {
+        offset: Math.round(
+          turn.getBoundingClientRect().top - scroller.getBoundingClientRect().top,
+        ),
+        tickIsCurrent: tick?.getAttribute('aria-current') === 'true',
+      };
+    }, targetTurnId);
 
-  // Within a turn's own top padding of the scrollport's top edge.
-  await expect.poll(landed, { message: 'the clicked prompt reaches the top' }).toBeLessThan(24);
+  // Bounded on both sides: below is the turn never arriving, above is it
+  // arriving and then being pulled off the top of the scrollport.
+  await expect
+    .poll(async () => (await landing())?.offset, { message: 'the clicked prompt reaches the top' })
+    .toBeGreaterThan(-24);
+  expect((await landing())?.offset).toBeLessThan(24);
+  expect((await landing())?.tickIsCurrent).toBe(true);
+
   // And stays: the fill runs on idle callbacks after the jump, so a jump that
   // only wins the first frame reads as landing and then sliding away.
   await page.waitForTimeout(1_200);
-  expect(await landed()).toBeLessThan(24);
+  const settled = await landing();
+  expect(settled?.offset).toBeGreaterThan(-24);
+  expect(settled?.offset).toBeLessThan(24);
+  expect(settled?.tickIsCurrent).toBe(true);
 });
 
 test('a tick is what the pointer lands on, not the scrollbar', async ({

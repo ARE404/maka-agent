@@ -6,11 +6,13 @@ import {
   type PromptRailFrameScheduler,
 } from '../prompt-anchor-rail.js';
 
-test('a jump re-aims at its destination every time the transcript grows', () => {
-  // The e2e suite cannot stage this: whether the lock wins depends on which
-  // frame the progressive fill lands on relative to a smooth scroll still in
-  // flight, and it went green against the unfixed renderer often enough to be
-  // worthless as a guard. The mechanism is deterministic here.
+/**
+ * The e2e suite cannot stage what these cover. Whether a jump survives depends
+ * on which frame the progressive fill lands on, and the e2e case went green
+ * against a renderer that did not survive it. Driving the frames here makes it
+ * deterministic.
+ */
+function railHoldHarness() {
   // The helper builds its selector with `CSS.escape`, which the renderer has
   // and Node does not. Stubbed rather than worked around in the source: the
   // escaping is what keeps a turn id safe inside a selector, and a fallback
@@ -27,52 +29,160 @@ test('a jump re-aims at its destination every time the transcript grows', () => 
     cancel: () => {},
   };
   const scrolled: Array<ScrollIntoViewOptions | undefined> = [];
-  const target = {
-    scrollIntoView: (options?: ScrollIntoViewOptions) => scrolled.push(options),
+  const listeners = new Map<string, EventListener>();
+  const state = {
+    scrollHeight: 1_000,
+    scrollTop: 900,
+    /** The target's top edge, relative to the scrollport's. 0 = landed. */
+    targetTop: 600,
+    filled: false,
+    queried: '',
+    settled: 0,
   };
-  let scrollHeight = 1_000;
-  let queried: string | undefined;
+  const target = {
+    getBoundingClientRect: () => ({ top: state.targetTop }) as DOMRect,
+    scrollIntoView: (options?: ScrollIntoViewOptions) => {
+      scrolled.push(options);
+      // A real scroller lands the target at the top and moves to get there.
+      state.scrollTop += state.targetTop;
+      state.targetTop = 0;
+    },
+  };
   const root = {
     get scrollHeight() {
-      return scrollHeight;
+      return state.scrollHeight;
     },
+    get scrollTop() {
+      return state.scrollTop;
+    },
+    getBoundingClientRect: () => ({ top: 0 }) as DOMRect,
     querySelector: (selector: string) => {
-      queried = selector;
+      state.queried = selector;
       return target;
     },
+    addEventListener: (type: string, listener: EventListener) => listeners.set(type, listener),
+    removeEventListener: (type: string) => listeners.delete(type),
   } as unknown as Element;
 
-  const release = holdJumpDestination(root, () => 'turn-7', scheduler);
-  const runFrame = (): void => frames.shift()?.();
+  return {
+    root,
+    scheduler,
+    scrolled,
+    state,
+    listeners,
+    /** Runs the frame the hold has queued, and only that one. */
+    runFrame: (): void => frames.shift()?.(),
+    restore: (): void => {
+      (globalThis as { CSS?: unknown }).CSS = priorCss;
+    },
+  };
+}
 
-  runFrame();
-  assert.equal(scrolled.length, 0, 'a steady transcript is left alone');
+test('a jump re-aims at its destination every time the transcript grows', () => {
+  const harness = railHoldHarness();
+  const { root, scheduler, scrolled, state } = harness;
 
-  scrollHeight = 1_400;
-  runFrame();
+  const release = holdJumpDestination({
+    root,
+    readTargetId: () => 'turn-7',
+    isTranscriptFilled: () => state.filled,
+    onSettled: () => {
+      state.settled += 1;
+    },
+    scheduler,
+  });
+
+  state.scrollHeight = 1_400;
+  harness.runFrame();
   assert.equal(scrolled.length, 1, 'a fill step re-aims the jump');
   assert.deepEqual(scrolled[0], { behavior: 'auto', block: 'start' });
-  assert.equal(queried, '[data-turn-id="turn-7"]');
+  assert.equal(state.queried, '[data-turn-id="turn-7"]');
 
-  runFrame();
-  assert.equal(scrolled.length, 1, 'the same height does not re-aim again');
+  harness.runFrame();
+  assert.equal(scrolled.length, 1, 'a target already at the top is left alone');
 
-  scrollHeight = 1_800;
-  runFrame();
+  // Every later fill step moves it again, and every one is followed back.
+  state.scrollHeight = 1_800;
+  state.targetTop = 320;
+  harness.runFrame();
   assert.equal(scrolled.length, 2, 'every later fill step re-aims too');
 
-  // Once the jump is over its target is cleared, and a still-growing
-  // transcript must no longer be pulled back to it. Started on its own queue:
-  // the first hold has a frame pending, and shifting that one instead would
-  // measure the loop this case is not about.
+  // A scroll that was cancelled part-way leaves the target off-target on an
+  // otherwise still frame. That is the other way a jump used to be lost.
+  state.filled = true;
+  state.targetTop = 240;
+  harness.runFrame();
+  assert.equal(scrolled.length, 3, 'a stalled jump is corrected, not accepted');
+
   release();
-  frames.length = 0;
-  const released = holdJumpDestination(root, () => null, scheduler);
-  scrollHeight = 2_200;
-  runFrame();
-  assert.equal(scrolled.length, 2, 'a settled jump releases the transcript');
-  released();
-  (globalThis as { CSS?: unknown }).CSS = priorCss;
+  harness.restore();
+});
+
+test('a jump holds until the transcript reports itself filled and still', () => {
+  const harness = railHoldHarness();
+  const { root, scheduler, state } = harness;
+
+  holdJumpDestination({
+    root,
+    readTargetId: () => 'turn-7',
+    isTranscriptFilled: () => state.filled,
+    onSettled: () => {
+      state.settled += 1;
+    },
+    scheduler,
+  });
+
+  // Landed already, so nothing below is a correction — only the boundary.
+  state.targetTop = 0;
+
+  // Still filling: quiet frames must not count, however many pass. This is the
+  // case a fixed timeout got wrong — it expired mid-fill and handed a
+  // still-growing transcript back to whatever else was moving it.
+  for (let index = 0; index < 20; index += 1) harness.runFrame();
+  assert.equal(state.settled, 0, 'an unfilled transcript keeps its hold');
+
+  state.filled = true;
+  harness.runFrame();
+  harness.runFrame();
+  assert.equal(state.settled, 0, 'settling waits for a few still frames');
+  harness.runFrame();
+  assert.equal(state.settled, 1, 'filled and still ends the hold');
+
+  harness.restore();
+});
+
+test('a jump gives the transcript back the moment the reader touches it', () => {
+  const harness = railHoldHarness();
+  const { root, scheduler, state, listeners } = harness;
+
+  holdJumpDestination({
+    root,
+    readTargetId: () => 'turn-7',
+    isTranscriptFilled: () => state.filled,
+    onSettled: () => {
+      state.settled += 1;
+    },
+    scheduler,
+  });
+
+  assert.deepEqual(
+    [...listeners.keys()],
+    ['wheel', 'touchstart', 'pointerdown', 'keydown'],
+    'every way a reader can take over is listened for',
+  );
+
+  state.targetTop = 0;
+  listeners.get('wheel')?.(new Event('wheel'));
+  assert.equal(state.settled, 1, 'a wheel ends the hold even mid-fill');
+  assert.equal(listeners.size, 0, 'and the hold stops listening');
+
+  // Whatever the transcript does next is no longer the jump's business.
+  state.scrollHeight = 9_000;
+  harness.runFrame();
+  assert.equal(harness.scrolled.length, 0, 'a released hold does not re-aim');
+  assert.equal(state.settled, 1, 'and settles exactly once');
+
+  harness.restore();
 });
 
 test('keeps the active tick visible when the rail viewport resizes', () => {
