@@ -38,6 +38,7 @@ import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from '@maka/core/attachmen
 import {
   LATEST_CONTEXT_PROJECTION_TYPE,
   supersedesLatestContext,
+  type LatestContextOrder,
   type AgentRunProjectionKey,
   type AgentRunAppendOptions,
   type LatestContextProjectionInput,
@@ -1137,6 +1138,19 @@ function shouldPreserveProjectionDuringRepair(
   type: AgentRunProjectionKey,
 ): boolean {
   if (!current) return false;
+  if (type === LATEST_CONTEXT_PROJECTION_TYPE) {
+    // Same ordering rule as the append-time guard, so repair and write cannot
+    // disagree about which request is the latest one. An incumbent whose order
+    // cannot be read is NOT preserved: the reader already treats an
+    // undecodable row as unanswered and rebuilds from the ledger, so keeping
+    // it would make that rebuild unwritable and leave every later refresh
+    // rescanning the whole session (#2323).
+    const incumbent = latestContextOrder(current);
+    if (!incumbent) return false;
+    const arriving = candidate && latestContextOrder(candidate);
+    if (!arriving) return true;
+    return !supersedesLatestContext(arriving, incumbent);
+  }
   if (type !== 'history_compact_checkpoint_recorded') return true;
   const currentSourceBound = historyCompactProjectionIsSourceBound(current);
   const candidateSourceBound = candidate ? historyCompactProjectionIsSourceBound(candidate) : false;
@@ -1149,6 +1163,19 @@ function shouldPreserveProjectionDuringRepair(
       candidateCoverage === undefined ||
       currentCoverage >= candidateCoverage)
   );
+}
+
+/**
+ * The ordering facts a stored latest-context row carries, or `undefined` when
+ * the row cannot state them — a damaged snapshot, or one written by a shape
+ * this build does not understand.
+ */
+function latestContextOrder(event: AgentRunEvent): LatestContextOrder | undefined {
+  const data = event.data as { completedAt?: unknown; attemptId?: unknown } | undefined;
+  if (!data || typeof data.completedAt !== 'number' || typeof data.attemptId !== 'string') {
+    return undefined;
+  }
+  return { completedAt: data.completedAt, attemptId: data.attemptId };
 }
 
 function historyCompactProjectionIsSourceBound(event: AgentRunEvent): boolean {

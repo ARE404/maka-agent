@@ -459,6 +459,60 @@ test('a request that finished earlier cannot move the answer backwards', async (
   }
 });
 
+test('a damaged projection is repaired, not preserved forever', async () => {
+  // The reader treats an undecodable row as unanswered and rebuilds from the
+  // ledger — but the generic repair policy used to preserve any existing row,
+  // so the rebuilt answer could never replace the damaged one and every later
+  // refresh rescanned the whole session (#2323).
+  const root = await mkdtemp(join(tmpdir(), 'maka-context-diagnostics-'));
+  try {
+    const writer = createSqliteAgentRunStore(root);
+    await writer.createRun(runHeader('run-1', 1));
+    await writer.appendEvent(
+      'session-1',
+      'run-1',
+      meteringEvent('run-1', 'attempt-1', 10, 'model', 40, 200),
+      { durable: true, latestContext: latestContext('attempt-1', 10) },
+    );
+    // Damage the row in place. `replaceEventId` is the seam for replacing a
+    // known row, which is what corruption of the stored snapshot looks like —
+    // the ordering rule itself refuses to overwrite a readable row with an
+    // unreadable one, so this cannot be seeded through the normal path.
+    await writer.repairEventProjection(
+      'session-1',
+      'latest_context',
+      {
+        type: 'latest_context',
+        id: 'latest-context-damaged',
+        runId: 'run-1',
+        sessionId: 'session-1',
+        turnId: 'turn-run-1',
+        ts: 10,
+        data: { schemaVersion: 1, damaged: true },
+      },
+      { replaceEventId: 'latest-context-attempt-1' },
+    );
+
+    let scanned = 0;
+    const counted = countingStore(createSqliteAgentRunStore(root), () => {
+      scanned += 1;
+    });
+
+    const first = await readLatestContextDiagnostics(counted, 'session-1');
+    assert.equal(first.status, 'available');
+    if (first.status !== 'available') return;
+    assert.equal(first.modelId, 'model', 'the damaged row does not answer');
+    assert.ok(scanned > 0, 'the first read rebuilds from the ledger');
+
+    scanned = 0;
+    const second = await readLatestContextDiagnostics(counted, 'session-1');
+    assert.equal(second.status, 'available');
+    assert.equal(scanned, 0, 'and the rebuild replaced the damaged row');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 function countingStore(
   reader: ReturnType<typeof createSqliteAgentRunStore>,
   onScan: () => void,
