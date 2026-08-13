@@ -67,6 +67,7 @@ import {
   type QueueRetractInput,
   type QueueRetractResult,
   type SessionCatalogFilter,
+  SESSION_TRANSCRIPT_BOOTSTRAP_MAX_BYTES,
   type SessionCatalogChangedFrame,
   type ScheduledTaskChangedFrame,
   type SessionCatalogItem,
@@ -194,6 +195,10 @@ export class DesktopRuntimeHostClient {
 
   get hostEpoch(): string {
     return this.connection.hostEpoch;
+  }
+
+  get hostId(): string {
+    return this.connection.rootId;
   }
 
   get lifecycleState(): 'ready' | 'unavailable' {
@@ -1258,6 +1263,7 @@ export class DesktopRuntimeHostClient {
     this.#assertOpen();
     const subscription = await this.connection.openSessionSubscription({
       sessionId,
+      transcript: { kind: "tail", maxBytes: SESSION_TRANSCRIPT_BOOTSTRAP_MAX_BYTES },
     });
     if (this.#closeTask) {
       await subscription.close().catch(() => undefined);

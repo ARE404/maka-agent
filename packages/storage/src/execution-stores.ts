@@ -88,6 +88,8 @@ export type {
   RootTurnSourceMessage,
   RootTurnSourceMessageReceipt,
   RootTurnStartRejection,
+  RuntimeEventScanBudget,
+  RuntimeEventScanResult,
 } from './agent-run-store.js';
 export type {
   MessageOperationReceipt,
@@ -100,6 +102,10 @@ export type {
   SessionCatalogPageResult,
   SessionCatalogRecord,
   SessionHeaderSnapshot,
+  SessionTranscriptMessageLookupRequest,
+  SessionTranscriptPageRequest,
+  SessionTranscriptStoragePage,
+  SessionTranscriptStorageFragment,
 } from './session-store.js';
 
 export type ExecutionSessionWriter = SessionAuthorityStore;
@@ -352,6 +358,12 @@ async function createExecutionStoresForWrite<K extends StorageRootKind, E extend
       readCatalogRecord: (sessionId) => run(() => sessionStore.readCatalogRecord(sessionId)),
       probeSessionRemoval: (sessionId) => run(() => sessionStore.probeSessionRemoval(sessionId)),
       readMessagesSnapshot: (sessionId) => run(() => sessionStore.readMessagesSnapshot(sessionId)),
+      readTranscriptPageSnapshot: (sessionId, request) =>
+        run(() => sessionStore.readTranscriptPageSnapshot(sessionId, request)),
+      readTranscriptMessagesSnapshot: (sessionId, request) =>
+        run(() => sessionStore.readTranscriptMessagesSnapshot(sessionId, request)),
+      readTranscriptHighWaterSnapshot: (sessionId) =>
+        run(() => sessionStore.readTranscriptHighWaterSnapshot(sessionId)),
       readMessagesForRecovery: (sessionId) =>
         run(() => sessionStore.readMessagesForRecovery(sessionId)),
       listTurnsSnapshot: (sessionId) => run(() => sessionStore.listTurnsSnapshot(sessionId)),
@@ -362,6 +374,7 @@ async function createExecutionStoresForWrite<K extends StorageRootKind, E extend
         run(() => sessionStore.appendMessage(sessionId, message)),
       appendMessages: (sessionId, messages) =>
         run(() => sessionStore.appendMessages(sessionId, messages)),
+      subscribeTranscriptChanges: (listener) => sessionStore.subscribeTranscriptChanges(listener),
       updateHeader: (sessionId, patch) => run(() => sessionStore.updateHeader(sessionId, patch)),
       updateHeaderVersioned: (sessionId, patch, expectedRevision) =>
         run(() => sessionStore.updateHeaderVersioned(sessionId, patch, expectedRevision)),
@@ -450,6 +463,8 @@ async function createExecutionStoresForWrite<K extends StorageRootKind, E extend
         run(() => runtimeEventStore.ensureTerminalRuntimeEventDurable(sessionId, runId, event)),
       readRuntimeEvents: (sessionId, runId) =>
         run(() => runtimeEventStore.readRuntimeEvents(sessionId, runId)),
+      scanRuntimeEvents: (sessionId, runId, budget, visit) =>
+        run(() => runtimeEventStore.scanRuntimeEvents(sessionId, runId, budget, visit)),
       readRuntimeEventsBounded: (sessionId, runId, budget) =>
         run(() => runtimeEventStore.readRuntimeEventsBounded(sessionId, runId, budget)),
       readImmutableRuntimeEvents: (sessionId, runId) =>
