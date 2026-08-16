@@ -1013,6 +1013,24 @@ function offeredCompletion(canvasElement: HTMLElement): HTMLElement | null {
   return canvasElement.ownerDocument.querySelector<HTMLElement>('[data-astryx-inline-completion]');
 }
 
+/** Collapse the selection `offset` characters into the editable's own text. */
+function collapseCaretTo(editable: HTMLElement, offset: number): void {
+  const doc = editable.ownerDocument;
+  const text = editable.firstChild;
+  if (!(text instanceof Text)) throw new Error('editor is not a single text node');
+  const range = doc.createRange();
+  range.setStart(text, Math.min(offset, text.length));
+  range.collapse(true);
+  const selection = doc.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
+
+/** Collapse the selection to the end of the draft, offer excluded. */
+function collapseCaretToEnd(editable: HTMLElement): void {
+  collapseCaretTo(editable, (editable.firstChild as Text | null)?.length ?? 0);
+}
+
 /**
  * The draft as the composer sees it — the editor's text WITHOUT the offer.
  *
@@ -1106,6 +1124,58 @@ export const ComposerInlineSuggestion: Story = {
     await new Promise((resolve) => globalThis.setTimeout(resolve, 60));
     if (composerDraft(editable) !== RECALLED) {
       throw new Error('a Tab with no completion changed the draft');
+    }
+
+    // A caret that leaves the end must take the offer with it. Nothing here
+    // re-renders — moving a selection is not a state change — so an offer that
+    // survived would still be committed by Tab, and `insertTextAtCursor` puts
+    // it wherever the caret now is: mid-draft.
+    editable.focus();
+    canvasElement.ownerDocument.execCommand('selectAll');
+    canvasElement.ownerDocument.execCommand('delete');
+    canvasElement.ownerDocument.execCommand('insertText', false, '帮我把');
+    await waitForComposer(
+      () => offeredCompletion(canvasElement) !== null,
+      'no completion was offered before the caret-move case',
+    );
+    collapseCaretTo(editable, 1);
+    await waitForComposer(
+      () => offeredCompletion(canvasElement) === null,
+      'the offer survived a caret move away from the end of the draft',
+    );
+    pressTab();
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 60));
+    if (composerDraft(editable) !== '帮我把') {
+      throw new Error(`Tab spliced a stale offer into the draft: ${JSON.stringify(composerDraft(editable))}`);
+    }
+
+    // A key the IME is still using is not the editor's to read. The offer goes
+    // at `compositionstart`, and a composing Tab must reach the IME rather than
+    // commit a history suffix into the half-built character.
+    editable.focus();
+    collapseCaretToEnd(editable);
+    await waitForComposer(
+      () => offeredCompletion(canvasElement) !== null,
+      'no completion was offered before the composition case',
+    );
+    editable.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    await waitForComposer(
+      () => offeredCompletion(canvasElement) === null,
+      'the offer stood through an IME composition',
+    );
+    const composingTab = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+      isComposing: true,
+    });
+    editable.dispatchEvent(composingTab);
+    if (composingTab.defaultPrevented) {
+      throw new Error('a composing Tab was consumed by the completion instead of reaching the IME');
+    }
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 60));
+    if (composerDraft(editable) !== '帮我把') {
+      throw new Error('a composing Tab committed a completion into the draft');
     }
   },
 };
