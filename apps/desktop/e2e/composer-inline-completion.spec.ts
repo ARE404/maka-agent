@@ -192,3 +192,28 @@ test('Escape stops a streaming turn on the first press even with an offer up', a
   await expect(page.locator(OFFER)).toHaveCount(0);
   await expect(page.getByRole('button', { name: '停止' })).toHaveCount(0, { timeout: 30_000 });
 });
+
+test('only a bare Tab commits: ordinary typing and Shift+Tab leave the offer uncommitted', async ({
+  window: page,
+}) => {
+  const recalled = '帮我把 composer 的样式再收紧一点';
+  await sendAndSettle(page, recalled);
+
+  const composer = page.locator(COMPOSER_INPUT);
+  await typeDraft(page, '帮我把');
+  await expect(page.locator(OFFER)).toHaveCount(1);
+
+  // Shift+Tab is back-tab, never an acceptance: the draft is untouched and the
+  // key does its ordinary job of leaving the field.
+  await composer.press('Shift+Tab');
+  expect(await draft(page)).toBe('帮我把');
+  await expect(composer).not.toBeFocused();
+
+  // A printable key keeps typing. The offer may re-derive against the longer
+  // draft, but nothing of it may have entered the value.
+  await composer.click();
+  await expect(composer).toBeFocused();
+  await composer.pressSequentially('这');
+  expect(await draft(page)).toBe('帮我把这');
+  expect(await draft(page)).not.toContain('composer');
+});
