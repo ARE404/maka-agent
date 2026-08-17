@@ -32,18 +32,9 @@ index 90022b3..f9c7b8d 100644
  export declare function ChatComposerInput(props: ChatComposerInputProps): import("react").JSX.Element;
  export declare namespace ChatComposerInput {
 diff --git a/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js b/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
-index edd9080..40aca54 100644
+index edd9080..1f3950a 100644
 --- a/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
 +++ b/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
-@@ -22,7 +22,7 @@
-  * - /apps/storybook/stories/ChatComposer.stories.tsx
-  * - /packages/cli/assets/templates/blocks/components/ChatComposerInput/ (block examples)
-  */
--import { useRef, useState, useCallback, useEffect, useImperativeHandle } from 'react';
-+import { useRef, useState, useCallback, useEffect, useLayoutEffect, useImperativeHandle } from 'react';
- import { createPortal } from 'react-dom';
- import * as stylex from '@stylexjs/stylex';
- import "../theme/tokens.stylex.js";
 @@ -93,12 +93,61 @@ function selectAll(el) {
    selection.removeAllRanges();
    selection.addRange(range);
@@ -139,33 +130,12 @@ index edd9080..40aca54 100644
    // Stable refs for imperative handle callbacks (avoid re-creating handle on every render)
    const insertTokenRef = useRef(() => undefined);
    const insertTextRef = useRef(() => {});
-@@ -302,12 +370,247 @@ export function ChatComposerInput(props) {
+@@ -302,12 +370,226 @@ export function ChatComposerInput(props) {
      emitChange();
      triggerMenu.handleInput();
    }, [emitChange, triggerMenu]);
 +  const triggerMenuOpen = triggerMenu.ariaProps['aria-expanded'] === true;
 +
-+  /**
-+   * Paint (or clear) the offered completion inside the editable.
-+   *
-+   * A layout effect, so the span is in place before the browser paints and the
-+   * user never sees a frame of the editor at the wrong height.
-+   *
-+   * The span is `contenteditable=false` and skipped by `serialize`, so it can
-+   * neither be typed into nor reach the value; it is removed and re-added
-+   * wholesale rather than diffed, because the only state it carries is the
-+   * string it shows.
-+   */
-+  /**
-+   * The one authority over an offer: the DOM node, the active record, the
-+   * dismissal and the announcement move together or not at all.
-+   *
-+   * An offer is not a string. It is a candidate bound to the exact draft it
-+   * was derived from (`base`), because every question worth asking about it —
-+   * is it still valid, may it be accepted, was it dismissed — is really a
-+   * question about whether the editor still holds that draft. Keeping those as
-+   * separate facts is what let the DOM node and the active reference disagree.
-+   */
 +  const withdrawOffer = useCallback(() => {
 +    const editable = editableRef.current;
 +    if (editable) {
@@ -387,7 +357,7 @@ index edd9080..40aca54 100644
      // Consumer passthrough — runs before built-in Enter/history handling.
      // A consumer can preventDefault() to fully own the keystroke.
      onKeyDownProp?.(e);
-@@ -411,7 +714,7 @@ export function ChatComposerInput(props) {
+@@ -411,7 +693,7 @@ export function ChatComposerInput(props) {
          e.preventDefault();
        }
      }
@@ -396,7 +366,7 @@ index edd9080..40aca54 100644
    const handlePaste = useCallback(e => {
      const editable = editableRef.current;
      if (!editable) {
-@@ -479,6 +782,26 @@ export function ChatComposerInput(props) {
+@@ -479,6 +761,26 @@ export function ChatComposerInput(props) {
            maxHeight: `${maxHeight}px`
          }
        })

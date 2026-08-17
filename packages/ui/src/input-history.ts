@@ -61,7 +61,18 @@ export function readGlobalInputHistory(): string[] | null {
 const listeners = new Set<() => void>();
 
 function notifyListeners(): void {
-  for (const listener of listeners) listener();
+  // Every listener is told, and a throwing one is its own problem. Calling
+  // them bare let the first failure skip the rest and surface out of a `save`
+  // that had already succeeded — so a subscriber's bug would read as a storage
+  // error to the caller and leave the other holders stale.
+  for (const listener of listeners) {
+    try {
+      listener();
+    } catch {
+      // A listener that cannot reconcile keeps whatever it had; the write it
+      // is being told about has already happened either way.
+    }
+  }
 }
 
 /**

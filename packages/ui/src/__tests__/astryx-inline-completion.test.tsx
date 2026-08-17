@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 /**
  * Guard for the `inlineCompletion` half of
- * `patches/@astryxdesign+core+0.3.0.patch`.
+ * `patches/@astryxdesign+core+0.4.0.patch`.
  *
  * The behavior itself — Tab commits, Escape dismisses, the offer wraps and
  * scrolls with the field, the announcement — needs a caret and a focused
