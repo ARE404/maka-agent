@@ -1005,7 +1005,10 @@ export const ComposerInlineSuggestion: Story = {
   ],
   render: () => <ComposedShell chat={{ messages: [] }} />,
   play: async ({ canvasElement }) => {
-    const editable = canvasElement.ownerDocument.querySelector<HTMLElement>(
+    // Scoped to this canvas, not the document: Storybook can have other
+    // stories mounted, and a document-wide lookup would drive whichever
+    // composer happened to be first.
+    const editable = canvasElement.querySelector<HTMLElement>(
       '.maka-composer-editor [contenteditable="true"]',
     );
     if (!editable) return;
