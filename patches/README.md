@@ -28,7 +28,7 @@ Delete when that guard passes against an unpatched package.
 
 ## `@astryxdesign/core@0.4.0`
 
-Four published component seams drop host-owned state or semantics:
+Five published component seams drop host-owned state or semantics:
 
 - `ChatLayout` needs a conversation identity that resets scroll/unread state
   without remounting its composer slot and discarding the live draft.
