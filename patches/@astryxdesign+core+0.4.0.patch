@@ -32,7 +32,7 @@ index 90022b3..f9c7b8d 100644
  export declare function ChatComposerInput(props: ChatComposerInputProps): import("react").JSX.Element;
  export declare namespace ChatComposerInput {
 diff --git a/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js b/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
-index edd9080..1f3950a 100644
+index edd9080..227efd7 100644
 --- a/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
 +++ b/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
 @@ -93,12 +93,61 @@ function selectAll(el) {
@@ -130,7 +130,7 @@ index edd9080..1f3950a 100644
    // Stable refs for imperative handle callbacks (avoid re-creating handle on every render)
    const insertTokenRef = useRef(() => undefined);
    const insertTextRef = useRef(() => {});
-@@ -302,12 +370,226 @@ export function ChatComposerInput(props) {
+@@ -302,12 +370,241 @@ export function ChatComposerInput(props) {
      emitChange();
      triggerMenu.handleInput();
    }, [emitChange, triggerMenu]);
@@ -313,7 +313,22 @@ index edd9080..1f3950a 100644
 +    // The decoration goes first so the command inserts into the draft rather
 +    // than around a node the value never contained.
 +    withdrawOffer();
-+    document.execCommand('insertText', false, active.suffix);
++    // One transaction, several commands. A `\n` handed to `insertText` becomes
++    // a wrapping `<div>` in Chromium, which `serialize` walks without
++    // restoring the break — a two-line prompt came back joined into one — and
++    // the command emits no `beforeinput`, so a consumer's own multi-line
++    // replay never sees it either. Issuing the break as the browser's own
++    // line-break command produces the `<br>` the serializer does understand,
++    // and Chromium keeps the whole sequence on a single undo entry.
++    const lines = active.suffix.split('\n');
++    for (const [index, line] of lines.entries()) {
++      if (index > 0) {
++        document.execCommand('insertLineBreak');
++      }
++      if (line) {
++        document.execCommand('insertText', false, line);
++      }
++    }
 +    emitChange();
 +    return true;
 +  }, [emitChange, withdrawOffer]);
@@ -357,7 +372,7 @@ index edd9080..1f3950a 100644
      // Consumer passthrough — runs before built-in Enter/history handling.
      // A consumer can preventDefault() to fully own the keystroke.
      onKeyDownProp?.(e);
-@@ -411,7 +693,7 @@ export function ChatComposerInput(props) {
+@@ -411,7 +708,7 @@ export function ChatComposerInput(props) {
          e.preventDefault();
        }
      }
@@ -366,7 +381,7 @@ index edd9080..1f3950a 100644
    const handlePaste = useCallback(e => {
      const editable = editableRef.current;
      if (!editable) {
-@@ -479,6 +761,26 @@ export function ChatComposerInput(props) {
+@@ -479,6 +776,26 @@ export function ChatComposerInput(props) {
            maxHeight: `${maxHeight}px`
          }
        })

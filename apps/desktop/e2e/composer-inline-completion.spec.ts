@@ -257,3 +257,28 @@ test('a programmatic draft replacement invalidates a live offer', async ({ windo
   await composer.press('Tab');
   expect(await draft(page)).toBe('完全不同的另一段草稿');
 });
+
+test('a multi-line completion keeps its line breaks through Tab, Undo and Redo', async ({
+  window: page,
+}) => {
+  // Two lines, because a `\n` handed to `insertText` becomes a wrapping div in
+  // Chromium that the serializer reads without restoring the break — the
+  // prompt used to come back joined into one line.
+  const recalled = '第一行的要求\n第二行的补充说明';
+  await sendAndSettle(page, recalled);
+
+  const composer = page.locator(COMPOSER_INPUT);
+  await typeDraft(page, '第一行的');
+  await expect(page.locator(OFFER)).toHaveCount(1);
+
+  await composer.press('Tab');
+  // Exact value, newline included: the contract is that Tab commits precisely
+  // what the offer showed.
+  await expect.poll(() => draft(page)).toBe(recalled);
+
+  // And still one undo entry, even though it took several editing commands.
+  await composer.press('ControlOrMeta+z');
+  await expect.poll(() => draft(page)).toBe('第一行的');
+  await composer.press('ControlOrMeta+Shift+z');
+  await expect.poll(() => draft(page)).toBe(recalled);
+});
