@@ -32,7 +32,7 @@ index 90022b3..f9c7b8d 100644
  export declare function ChatComposerInput(props: ChatComposerInputProps): import("react").JSX.Element;
  export declare namespace ChatComposerInput {
 diff --git a/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js b/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
-index edd9080..785b487 100644
+index edd9080..6ca483c 100644
 --- a/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
 +++ b/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
 @@ -22,7 +22,7 @@
@@ -123,7 +123,7 @@ index edd9080..785b487 100644
    // Stable refs for imperative handle callbacks (avoid re-creating handle on every render)
    const insertTokenRef = useRef(() => undefined);
    const insertTextRef = useRef(() => {});
-@@ -302,12 +354,189 @@ export function ChatComposerInput(props) {
+@@ -302,12 +354,202 @@ export function ChatComposerInput(props) {
      emitChange();
      triggerMenu.handleInput();
    }, [emitChange, triggerMenu]);
@@ -185,9 +185,17 @@ index edd9080..785b487 100644
 +    span.style.pointerEvents = 'none';
 +    span.style.userSelect = 'none';
 +    span.textContent = offered;
-+    // Appended after the caret's text node, so a collapsed selection sitting
-+    // at the end of the content stays exactly where it was.
-+    editable.appendChild(span);
++    // Inserted after the caret's text node, so a collapsed selection sitting at
++    // the end of the content stays exactly where it was — but BEFORE a trailing
++    // filler `<br>`. That filler contributes no text, so the caret still counts
++    // as being at the end, and appending past it would draw the offer on the
++    // next line instead of continuing the one being typed.
++    const filler = editable.lastChild;
++    if (filler instanceof HTMLBRElement) {
++      editable.insertBefore(span, filler);
++    } else {
++      editable.appendChild(span);
++    }
 +    inlineCompletionShownRef.current = offered;
 +    setInlineCompletionAnnouncement(
 +      inlineCompletionLabel ? `${offered} ${inlineCompletionLabel}` : offered,
@@ -303,6 +311,11 @@ index edd9080..785b487 100644
 +          return;
 +        }
 +      } else if (e.key === 'Escape') {
++        // Escape dismisses the offer and stops there, so a consumer that also
++        // binds Escape (streaming interrupt, closing a panel) sees it only on
++        // the next press. Deliberate: the offer is the most local thing on
++        // screen and the thing the user just summoned by typing, which is the
++        // order Escape is unwound everywhere else.
 +        e.preventDefault();
 +        inlineCompletionDismissedRef.current = inlineCompletionShownRef.current;
 +        clearInlineCompletion();
@@ -313,7 +326,7 @@ index edd9080..785b487 100644
      // Consumer passthrough — runs before built-in Enter/history handling.
      // A consumer can preventDefault() to fully own the keystroke.
      onKeyDownProp?.(e);
-@@ -411,7 +640,7 @@ export function ChatComposerInput(props) {
+@@ -411,7 +653,7 @@ export function ChatComposerInput(props) {
          e.preventDefault();
        }
      }
@@ -322,11 +335,15 @@ index edd9080..785b487 100644
    const handlePaste = useCallback(e => {
      const editable = editableRef.current;
      if (!editable) {
-@@ -479,6 +708,22 @@ export function ChatComposerInput(props) {
+@@ -479,6 +721,26 @@ export function ChatComposerInput(props) {
            maxHeight: `${maxHeight}px`
          }
        })
-+    }), inlineCompletionAnnouncement.length > 0 && /*#__PURE__*/_jsx("div", {
++    }), /*#__PURE__*/_jsx("div", {
++      // Mounted unconditionally, and empty when there is nothing to say. A
++      // live region that arrives in the same commit as its text is usually
++      // not announced at all — the region has to be in the accessibility
++      // tree first, and only its text may change.
 +      role: "status",
 +      "aria-live": "polite",
 +      style: {

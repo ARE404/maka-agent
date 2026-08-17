@@ -1074,6 +1074,17 @@ export const ComposerInlineSuggestion: Story = {
   play: async ({ canvasElement }) => {
     const RECALLED = RECALLED_PROMPT;
 
+    // The announcement region has to be in the accessibility tree BEFORE it has
+    // anything to say: a live region that arrives together with its text is
+    // usually never spoken, which would leave Tab silently changing meaning for
+    // a screen-reader user — the thing the region exists to prevent.
+    const liveRegion = canvasElement.ownerDocument.querySelector(
+      '.maka-composer-astryx [role="status"][aria-live="polite"]',
+    );
+    if (!liveRegion) {
+      throw new Error('the completion live region is not mounted before an offer exists');
+    }
+
     const editable = composerEditable(canvasElement);
     const pressTab = () => editable.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
