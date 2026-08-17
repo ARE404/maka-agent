@@ -81,11 +81,19 @@ export function useComposerHistory(input: {
   const [, setHistoryRevision] = useState(0);
 
   useEffect(() => subscribeGlobalInputHistory(() => {
-    const synced = readGlobalInputHistory();
-    // A failed read keeps what we have, for the same reason
-    // `readGlobalInputHistory` returns null rather than an empty list.
-    if (synced === null) return;
-    promptHistoryRef.current = { ...promptHistoryRef.current, entries: synced };
+    // Through `reconcileHistorySync`, not a bare `entries` swap: the whole
+    // state has to agree with storage, and a clear is exactly when it would
+    // not. Mid-navigation the index still pointed into a list that no longer
+    // has those entries, so the composer went on showing a prompt the user had
+    // just deleted, with their own draft stranded in `savedDraft` until an
+    // arrow key happened to reconcile it. The pure state machine already knows
+    // all of this — including when the draft is owed back.
+    const { state, restoreDraft } = reconcileHistorySync(
+      promptHistoryRef.current,
+      readGlobalInputHistory(),
+    );
+    promptHistoryRef.current = state;
+    if (restoreDraft) applyValue(state.savedDraft);
     setHistoryRevision((revision) => revision + 1);
   }), []);
 
