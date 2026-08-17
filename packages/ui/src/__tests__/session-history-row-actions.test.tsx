@@ -49,6 +49,15 @@ const projectActions: ProjectRowActions = {
   onRestore: () => undefined,
 };
 
+function assertNoNestedButtons(markup: string): void {
+  const { document } = parseHTML(markup);
+  assert.equal(
+    document.querySelector('button button') === null,
+    true,
+    'navigation and action controls must stay siblings',
+  );
+}
+
 test('renders session navigation and row actions as sibling controls', () => {
   const markup = renderToStaticMarkup(
     <LocaleProvider locale="en">
@@ -62,7 +71,7 @@ test('renders session navigation and row actions as sibling controls', () => {
 
   assert.equal((markup.match(/<button\b/g) ?? []).length, 2);
   assert.match(markup, /class="maka-session-row-action"/);
-  assert.doesNotMatch(markup, /<button\b(?:(?!<\/button>)[\s\S])*<button\b/);
+  assertNoNestedButtons(markup);
 });
 
 test('renders Runtime Host live runs without requiring renderer-local streaming', () => {
@@ -167,7 +176,11 @@ test('renders collapsible project navigation and row actions as sibling controls
   assert.equal(metadata.textContent, '1');
   assert.equal(controlledGroup.getAttribute('aria-hidden'), 'false');
   const projectButtons = [...projectRow.querySelectorAll('button')];
-  assert.equal(projectButtons[0], action);
-  assert.equal(projectButtons[1], navigation);
-  assert.doesNotMatch(markup, /<button\b(?:(?!<\/button>)[\s\S])*<button\b/);
+  assert.equal(
+    projectButtons.indexOf(navigation),
+    0,
+    'project navigation precedes its auxiliary action',
+  );
+  assert.equal(projectButtons.indexOf(action), 1, 'project action precedes nested tasks');
+  assertNoNestedButtons(markup);
 });
