@@ -981,82 +981,21 @@ export const ModeOnWithPendingAttachments: Story = {
   ),
 };
 
-/**
- * Poll until `settled` holds. The completion is painted by the editor in a
- * layout effect after the controlled value round-trips, so every assertion
- * waits for the condition it is about to make rather than for a fixed frame.
- */
-async function waitForComposer(settled: () => boolean, whatFailed: string): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    if (settled()) return;
-    await new Promise((resolve) => globalThis.setTimeout(resolve, 20));
-  }
-  throw new Error(whatFailed);
-}
-
-function composerEditable(canvasElement: HTMLElement): HTMLElement {
-  const editable = canvasElement.ownerDocument.querySelector<HTMLElement>(
-    '.maka-composer-editor [contenteditable="true"]',
-  );
-  if (!editable) throw new Error('composer editor did not render');
-  return editable;
-}
-
-/** The offered completion as it currently stands in the editor, or null. */
-function offeredCompletion(canvasElement: HTMLElement): HTMLElement | null {
-  return canvasElement.ownerDocument.querySelector<HTMLElement>('[data-astryx-inline-completion]');
-}
-
-/** Collapse the selection `offset` characters into the editable's own text. */
-function collapseCaretTo(editable: HTMLElement, offset: number): void {
-  const doc = editable.ownerDocument;
-  const text = editable.firstChild;
-  if (!(text instanceof Text)) throw new Error('editor is not a single text node');
-  const range = doc.createRange();
-  range.setStart(text, Math.min(offset, text.length));
-  range.collapse(true);
-  const selection = doc.getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
-}
-
-/** Collapse the selection to the end of the draft, offer excluded. */
-function collapseCaretToEnd(editable: HTMLElement): void {
-  collapseCaretTo(editable, (editable.firstChild as Text | null)?.length ?? 0);
-}
-
-/**
- * The draft as the composer sees it — the editor's text WITHOUT the offer.
- *
- * `textContent` cannot be used for this: the offer is a child of the editable,
- * so a painted completion reads exactly like an accepted one, and every
- * assertion below would pass on a component that never committed anything.
- * That the offer is absent from the value is the property under test.
- */
-function composerDraft(editable: HTMLElement): string {
-  const clone = editable.cloneNode(true) as HTMLElement;
-  for (const offer of Array.from(clone.querySelectorAll('[data-astryx-inline-completion]'))) {
-    offer.remove();
-  }
-  return clone.textContent ?? '';
-}
-
 const RECALLED_PROMPT = '帮我把 composer 的样式再收紧一点';
 
-// Real path: the user has sent this prompt before, starts retyping it, and the
-// editor offers the rest inside the field. The play is the CI coverage for
-// everything that is not the pure matcher — that the offer is really in the
-// editor's flow, that Tab commits exactly what was shown, and that a Tab with
-// nothing offered still leaves the draft alone — since a throwing play fails
-// the Storybook smoke run (FIDELITY.md).
+// Real path: the user has sent this prompt before and starts retyping it, so
+// the editor offers the rest inside the field.
+//
+// A review driver, not coverage: the render smoke opens stories in embedded
+// mode, which disables autoplay (FIDELITY.md), so nothing below is executed by
+// CI. The active-offer lifecycle — Tab, caret, focus, composition, trigger-menu
+// priority, streaming Escape — is pinned in
+// `apps/desktop/e2e/composer-inline-completion.spec.ts`, which does run.
 export const ComposerInlineSuggestion: Story = {
-  // Seeded before the story mounts, not inside `play`. `useComposerHistory`
-  // reads the persisted history once at mount and thereafter follows this
-  // module's own writes — and in a built Storybook the story and the composer
-  // do not necessarily share that module instance, so a write from `play`
-  // reached storage but not the hook holding the entries. Measured: the draft
-  // and the caret were right and the offer never came, because the history the
-  // composer held was empty. A loader runs first, so the mount does the read.
+  // Seeded through the module's own write path, before the story mounts:
+  // `useComposerHistory` reads storage once at mount and thereafter follows
+  // that module's writes, so poking the key from `play` would seed a list
+  // nobody holds.
   loaders: [
     async () => {
       clearGlobalInputHistory();
@@ -1066,121 +1005,11 @@ export const ComposerInlineSuggestion: Story = {
   ],
   render: () => <ComposedShell chat={{ messages: [] }} />,
   play: async ({ canvasElement }) => {
-    const RECALLED = RECALLED_PROMPT;
-
-    // The announcement region has to be in the accessibility tree BEFORE it has
-    // anything to say: a live region that arrives together with its text is
-    // usually never spoken, which would leave Tab silently changing meaning for
-    // a screen-reader user — the thing the region exists to prevent.
-    const liveRegion = canvasElement.ownerDocument.querySelector(
-      '.maka-composer-astryx [role="status"][aria-live="polite"]',
+    const editable = canvasElement.ownerDocument.querySelector<HTMLElement>(
+      '.maka-composer-editor [contenteditable="true"]',
     );
-    if (!liveRegion) {
-      throw new Error('the completion live region is not mounted before an offer exists');
-    }
-
-    const editable = composerEditable(canvasElement);
-    const pressTab = () => editable.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
-    );
-
-    // Typed through `userEvent` rather than `execCommand`: it dispatches the
-    // events a real keyboard does, which is what the composer's controlled
-    // round trip and the editor's own caret handling are written against.
+    if (!editable) return;
     await userEvent.click(editable);
-    await userEvent.keyboard('帮我把');
-
-    await waitForComposer(
-      () => offeredCompletion(canvasElement) !== null,
-      `no completion was offered for a draft that prefixes history `
-        + `(draft ${JSON.stringify(composerDraft(editable))}, `
-        + `focused ${canvasElement.ownerDocument.activeElement === editable})`,
-    );
-
-    const offered = offeredCompletion(canvasElement);
-    if (!offered) throw new Error('unreachable');
-    // Inside the editable, not beside it: this is what makes the preview and
-    // the insertion the same layout, so nothing can be committed unseen.
-    if (!editable.contains(offered)) {
-      throw new Error('the completion was rendered outside the editor');
-    }
-    // The draft plus what is offered has to be exactly the recalled prompt.
-    if (`帮我把${offered.textContent ?? ''}` !== RECALLED) {
-      throw new Error(`offer completes to ${JSON.stringify(`帮我把${offered.textContent ?? ''}`)}`);
-    }
-    // Offered, not committed: the value must not carry it yet.
-    if (composerDraft(editable) !== '帮我把') {
-      throw new Error(`the completion reached the draft before it was accepted: ${JSON.stringify(composerDraft(editable))}`);
-    }
-
-    pressTab();
-    await waitForComposer(
-      () => composerDraft(editable) === RECALLED,
-      `Tab left the draft at ${JSON.stringify(composerDraft(editable))}`,
-    );
-    await waitForComposer(
-      () => offeredCompletion(canvasElement) === null,
-      'the offer survived the completion it was offering',
-    );
-
-    // A second Tab has nothing to commit, so it must not touch the draft — it
-    // falls through to moving focus, as a bare Tab always has.
-    pressTab();
-    await new Promise((resolve) => globalThis.setTimeout(resolve, 60));
-    if (composerDraft(editable) !== RECALLED) {
-      throw new Error('a Tab with no completion changed the draft');
-    }
-
-    // A caret that leaves the end must take the offer with it. Nothing here
-    // re-renders — moving a selection is not a state change — so an offer that
-    // survived would still be committed by Tab, and `insertTextAtCursor` puts
-    // it wherever the caret now is: mid-draft.
-    editable.focus();
-    canvasElement.ownerDocument.execCommand('selectAll');
-    canvasElement.ownerDocument.execCommand('delete');
-    canvasElement.ownerDocument.execCommand('insertText', false, '帮我把');
-    await waitForComposer(
-      () => offeredCompletion(canvasElement) !== null,
-      'no completion was offered before the caret-move case',
-    );
-    collapseCaretTo(editable, 1);
-    await waitForComposer(
-      () => offeredCompletion(canvasElement) === null,
-      'the offer survived a caret move away from the end of the draft',
-    );
-    pressTab();
-    await new Promise((resolve) => globalThis.setTimeout(resolve, 60));
-    if (composerDraft(editable) !== '帮我把') {
-      throw new Error(`Tab spliced a stale offer into the draft: ${JSON.stringify(composerDraft(editable))}`);
-    }
-
-    // A key the IME is still using is not the editor's to read. The offer goes
-    // at `compositionstart`, and a composing Tab must reach the IME rather than
-    // commit a history suffix into the half-built character.
-    editable.focus();
-    collapseCaretToEnd(editable);
-    await waitForComposer(
-      () => offeredCompletion(canvasElement) !== null,
-      'no completion was offered before the composition case',
-    );
-    editable.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
-    await waitForComposer(
-      () => offeredCompletion(canvasElement) === null,
-      'the offer stood through an IME composition',
-    );
-    const composingTab = new KeyboardEvent('keydown', {
-      key: 'Tab',
-      bubbles: true,
-      cancelable: true,
-      isComposing: true,
-    });
-    editable.dispatchEvent(composingTab);
-    if (composingTab.defaultPrevented) {
-      throw new Error('a composing Tab was consumed by the completion instead of reaching the IME');
-    }
-    await new Promise((resolve) => globalThis.setTimeout(resolve, 60));
-    if (composerDraft(editable) !== '帮我把') {
-      throw new Error('a composing Tab committed a completion into the draft');
-    }
+    await userEvent.keyboard(RECALLED_PROMPT.slice(0, 3));
   },
 };
