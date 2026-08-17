@@ -79,6 +79,19 @@ export function useComposerHistory(input: {
   // cleared from Settings · 数据 leaves the screen with it rather than waiting
   // for the next keystroke to recompute.
   const [, setHistoryRevision] = useState(0);
+  // The subscription is registered once, so anything it calls must be reached
+  // through the latest render rather than captured from the first. Today the
+  // pieces that matter happen to be ref-backed — the text port is created once
+  // and the draft key is read from a ref at call time — but that is a property
+  // of the current draft hook, not of this subscription, and it is not a
+  // property this file can see changing.
+  const applyValueRef = useRef((value: string) => {
+    input.text.setValue(value);
+    input.saveCurrentDraft(value);
+  });
+  useEffect(() => {
+    applyValueRef.current = applyValue;
+  });
 
   useEffect(() => subscribeGlobalInputHistory(() => {
     // Through `reconcileHistorySync`, not a bare `entries` swap: the whole
@@ -93,7 +106,7 @@ export function useComposerHistory(input: {
       readGlobalInputHistory(),
     );
     promptHistoryRef.current = state;
-    if (restoreDraft) applyValue(state.savedDraft);
+    if (restoreDraft) applyValueRef.current(state.savedDraft);
     setHistoryRevision((revision) => revision + 1);
   }), []);
 
