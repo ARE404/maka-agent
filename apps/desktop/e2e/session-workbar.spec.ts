@@ -78,6 +78,55 @@ test('titlebar workbar action restores an existing tool instead of the picker', 
   expect(Math.abs(restoredToggleBox!.x - safeAreaToggleBox!.x)).toBeLessThanOrEqual(1);
 });
 
+test('narrow workbar uses panel toolbar geometry below the conversation', async ({
+  gitReviewWindow,
+}) => {
+  const page = gitReviewWindow.page;
+  await page.setViewportSize({ width: 900, height: 820 });
+  await openGitChanges(page);
+
+  const frame = page.locator('.maka-session-workbar[data-placement="right"]');
+  const toolbar = frame.locator(':scope > .maka-session-workbar-toolbar');
+  const collapseButton = toolbar.getByRole('button', { name: '收起任务工作栏' });
+  await expect(frame).toBeVisible();
+  await expect(toolbar).toBeVisible();
+  await expect(collapseButton).toBeVisible();
+
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty('--maka-titlebar-overlay-right-width', '138px');
+  });
+  const metrics = await toolbar.evaluate((element) => {
+    const workbar = element.parentElement;
+    if (!workbar) {
+      throw new Error('Expected the toolbar to have a workbar parent');
+    }
+    const toolbarStyle = getComputedStyle(element);
+    const workbarStyle = getComputedStyle(workbar);
+    const box = element.getBoundingClientRect();
+    return {
+      top: box.top,
+      height: box.height,
+      gridTemplateRows: workbarStyle.gridTemplateRows,
+      appRegion: toolbarStyle.getPropertyValue('-webkit-app-region'),
+      paddingRight: toolbarStyle.paddingRight,
+    };
+  });
+
+  const firstRowHeight = Number.parseFloat(metrics.gridTemplateRows.split(' ')[0] ?? '');
+  expect(metrics.top).toBeGreaterThan(36);
+  expect(metrics.height).toBeGreaterThan(32);
+  expect(Math.abs(firstRowHeight - metrics.height)).toBeLessThanOrEqual(1);
+  expect(metrics.appRegion).toBe('no-drag');
+  expect(metrics.paddingRight).toBe('16px');
+
+  await collapseButton.click();
+  await expect(
+    page
+      .getByRole('toolbar', { name: '工作区辅助操作' })
+      .getByRole('button', { name: '展开任务工作栏' }),
+  ).toBeVisible();
+});
+
 test('Git changes re-read the workspace after the app regains focus', async ({
   gitReviewWindow,
 }) => {

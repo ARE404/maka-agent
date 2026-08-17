@@ -1337,6 +1337,17 @@
     padding-top: 0;
   }
 
+  .maka-session-workbar[data-placement] {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .maka-session-workbar[data-placement] > .maka-session-workbar-toolbar {
+    z-index: 2;
+    height: auto;
+    padding: var(--space-2) var(--space-4);
+    -webkit-app-region: no-drag;
+  }
+
   .maka-session-workbar-panel[data-overlay][data-placement] {
     padding-top: var(--size-element-sm);
   }
