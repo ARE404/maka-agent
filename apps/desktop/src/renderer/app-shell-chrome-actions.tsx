@@ -54,7 +54,11 @@ function ChromeColumnToggle(props: {
         icon={<ChromeIcon icon={props.collapsed ? props.expandIcon : props.collapseIcon} />}
         variant="ghost"
         size="md"
-        className={props.className ?? 'maka-titlebar-action'}
+        className={
+          props.className
+            ? `maka-titlebar-action ${props.className}`
+            : 'maka-titlebar-action'
+        }
         onClick={props.onToggle}
         aria-expanded={!props.collapsed}
       />

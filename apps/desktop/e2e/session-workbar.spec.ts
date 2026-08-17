@@ -27,6 +27,7 @@ test('titlebar workbar action restores an existing tool instead of the picker', 
   await expect(workspaceActions.getByRole('button', { name: '打开工作栏工具' })).toHaveCount(0);
 
   const activeTab = panelToolbar.getByRole('tab', { selected: true });
+  await expect(activeTab).toBeVisible();
   const [toolbarBox, tabBox, toggleBox] = await Promise.all([
     panelToolbar.boundingBox(),
     activeTab.boundingBox(),
@@ -38,26 +39,43 @@ test('titlebar workbar action restores an existing tool instead of the picker', 
   expect(
     Math.abs(tabBox!.y + tabBox!.height / 2 - (toggleBox!.y + toggleBox!.height / 2)),
   ).toBeLessThanOrEqual(1);
+
+  const simulatedCaptionWidth = 80;
+  await page.evaluate((width) => {
+    document.documentElement.style.setProperty(
+      '--maka-titlebar-overlay-right-width',
+      `${width}px`,
+    );
+  }, simulatedCaptionWidth);
+  await expect
+    .poll(async () => (await collapseButton.boundingBox())?.x)
+    .toBe(toggleBox!.x - simulatedCaptionWidth);
+  const safeAreaToggleBox = await collapseButton.boundingBox();
+  expect(safeAreaToggleBox).not.toBeNull();
+
   await page.getByRole('button', { name: '打开工作栏标签' }).click();
   const picker = page.getByRole('list', { name: '打开工具' });
   await expect(picker).toBeVisible();
 
   await collapseButton.click();
   const expandButton = workspaceActions.getByRole('button', { name: '展开任务工作栏' });
+  await expect(expandButton).toBeVisible();
   const expandButtonBox = await expandButton.boundingBox();
   expect(expandButtonBox).not.toBeNull();
-  expect(Math.abs(expandButtonBox!.y - toggleBox!.y)).toBeLessThanOrEqual(1);
-  expect(Math.abs(expandButtonBox!.x - toggleBox!.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(expandButtonBox!.y - safeAreaToggleBox!.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(expandButtonBox!.x - safeAreaToggleBox!.x)).toBeLessThanOrEqual(1);
   await expandButton.click();
 
   await expect(panel).toBeVisible();
   await expect(picker).not.toBeVisible();
-  const restoredToggleBox = await panelToolbar
-    .getByRole('button', { name: '收起任务工作栏' })
-    .boundingBox();
+  const restoredCollapseButton = panelToolbar.getByRole('button', {
+    name: '收起任务工作栏',
+  });
+  await expect(restoredCollapseButton).toBeVisible();
+  const restoredToggleBox = await restoredCollapseButton.boundingBox();
   expect(restoredToggleBox).not.toBeNull();
-  expect(Math.abs(restoredToggleBox!.y - toggleBox!.y)).toBeLessThanOrEqual(1);
-  expect(Math.abs(restoredToggleBox!.x - toggleBox!.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(restoredToggleBox!.y - safeAreaToggleBox!.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(restoredToggleBox!.x - safeAreaToggleBox!.x)).toBeLessThanOrEqual(1);
 });
 
 test('Git changes re-read the workspace after the app regains focus', async ({

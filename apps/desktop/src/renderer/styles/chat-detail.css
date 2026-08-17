@@ -117,7 +117,8 @@
      above that hit-test surface while its empty space remains draggable. */
   z-index: calc(var(--z-titlebar) + 1);
   height: var(--maka-plate-titlebar-clearance);
-  padding-inline: var(--space-2) var(--space-6);
+  padding-inline: var(--space-2)
+    calc(var(--space-6) + var(--maka-titlebar-overlay-right-width));
   -webkit-app-region: drag;
 }
 
