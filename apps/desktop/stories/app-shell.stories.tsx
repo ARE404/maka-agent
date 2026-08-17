@@ -982,12 +982,6 @@ export const ModeOnWithPendingAttachments: Story = {
 };
 
 /**
- * Poll until `settled` holds, then return. The composer commits its ghost
- * through React state and runs its own caret effects on mount, so a fixed
- * frame wait would race both; every assertion below waits for the condition
- * it is about to make instead, and the message is what the failure reads as.
- */
-/**
  * Poll until `settled` holds. The completion is painted by the editor in a
  * layout effect after the controlled value round-trips, so every assertion
  * waits for the condition it is about to make rather than for a fixed frame.
