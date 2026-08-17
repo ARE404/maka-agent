@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  canonicalizePromptText,
   matchPromptHistory,
   PROMPT_HISTORY_MATCH_MIN_DRAFT,
 } from '../prompt-history-match.js';
@@ -57,5 +58,23 @@ describe('matchPromptHistory', () => {
 
   it('completes a multi-line draft from the end of its last line', () => {
     assert.equal(matchPromptHistory('第一行\n第二行', ['第一行\n第二行的内容']), '的内容');
+  });
+});
+
+describe('canonicalizePromptText', () => {
+  it('lets a draft carrying token anchors match the history it was stored as', () => {
+    // The editor anchors an inline token with U+00A0; `composerWireText` stores
+    // an ordinary space. Without one shared spelling the same prompt never
+    // matches itself.
+    const stored = '看 src/app.tsx 这段实现';
+    const draftWithAnchor = '看 src/app.tsx';
+    assert.equal(canonicalizePromptText(draftWithAnchor), '看 src/app.tsx');
+    assert.equal(matchPromptHistory(draftWithAnchor, [stored]), ' 这段实现');
+  });
+
+  it('slices the suffix from the stored entry, not the canonical form', () => {
+    const stored = '写 一个测试用例';
+    // The offer is what the entry actually holds, so accepting reproduces it.
+    assert.equal(matchPromptHistory('写 一个', [stored]), '测试用例');
   });
 });

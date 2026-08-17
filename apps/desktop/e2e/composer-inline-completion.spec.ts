@@ -217,3 +217,43 @@ test('only a bare Tab commits: ordinary typing and Shift+Tab leave the offer unc
   expect(await draft(page)).toBe('帮我把这');
   expect(await draft(page)).not.toContain('composer');
 });
+
+test('accepting is one undoable transaction: Tab, Undo, Redo', async ({ window: page }) => {
+  const recalled = '帮我把 composer 的样式再收紧一点';
+  await sendAndSettle(page, recalled);
+
+  const composer = page.locator(COMPOSER_INPUT);
+  await typeDraft(page, '帮我把');
+  await expect(page.locator(OFFER)).toHaveCount(1);
+  await composer.press('Tab');
+  expect(await draft(page)).toBe(recalled);
+
+  // Undo must take back the completion and nothing else. A scripted range
+  // mutation is not on the contentEditable undo stack, so it used to leave the
+  // suffix in place and eat the character typed before it instead.
+  await composer.press('ControlOrMeta+z');
+  await expect.poll(() => draft(page)).toBe('帮我把');
+
+  await composer.press('ControlOrMeta+Shift+z');
+  await expect.poll(() => draft(page)).toBe(recalled);
+});
+
+test('a programmatic draft replacement invalidates a live offer', async ({ window: page }) => {
+  const recalled = '帮我把 composer 的样式再收紧一点';
+  await sendAndSettle(page, recalled);
+
+  const composer = page.locator(COMPOSER_INPUT);
+  await typeDraft(page, '帮我把');
+  await expect(page.locator(OFFER)).toHaveCount(1);
+
+  // The host replaces the draft out from under the offer — a session switch or
+  // a prompt insertion. The offer was derived from text the editor no longer
+  // holds, so it must not survive, and Tab must not splice it into what
+  // replaced it.
+  await composer.fill('完全不同的另一段草稿');
+  await expect.poll(() => draft(page)).toBe('完全不同的另一段草稿');
+  await expect(page.locator(OFFER)).toHaveCount(0);
+
+  await composer.press('Tab');
+  expect(await draft(page)).toBe('完全不同的另一段草稿');
+});

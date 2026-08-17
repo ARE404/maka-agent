@@ -32,7 +32,7 @@ index 90022b3..f9c7b8d 100644
  export declare function ChatComposerInput(props: ChatComposerInputProps): import("react").JSX.Element;
  export declare namespace ChatComposerInput {
 diff --git a/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js b/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
-index edd9080..a05d3f0 100644
+index edd9080..40aca54 100644
 --- a/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
 +++ b/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
 @@ -22,7 +22,7 @@
@@ -115,7 +115,7 @@ index edd9080..a05d3f0 100644
      xstyle,
      className,
      style,
-@@ -171,6 +222,21 @@ export function ChatComposerInput(props) {
+@@ -171,6 +222,23 @@ export function ChatComposerInput(props) {
    // incorrectly skipped.
    const pendingEchoValueRef = useRef(undefined);
  
@@ -125,8 +125,10 @@ index edd9080..a05d3f0 100644
 +  // composition state, whether a trigger menu already owns Tab, and how the
 +  // text will wrap and scroll. Showing it inside the editable is what makes
 +  // the preview and the committed value the same thing by construction.
-+  const inlineCompletionShownRef = useRef('');
-+  const inlineCompletionDismissedRef = useRef(undefined);
++  // `{ base, suffix }` — the candidate and the exact draft it was derived
++  // from. Null when nothing is offered.
++  const activeOfferRef = useRef(null);
++  const inlineCompletionDismissedRef = useRef(null);
 +  // An IME composition is the editor's own state, so the guard belongs here
 +  // rather than in whatever a consumer happens to track: a composing Tab must
 +  // never commit an offer into the half-built character, and an offer must not
@@ -137,7 +139,7 @@ index edd9080..a05d3f0 100644
    // Stable refs for imperative handle callbacks (avoid re-creating handle on every render)
    const insertTokenRef = useRef(() => undefined);
    const insertTextRef = useRef(() => {});
-@@ -302,12 +368,235 @@ export function ChatComposerInput(props) {
+@@ -302,12 +370,247 @@ export function ChatComposerInput(props) {
      emitChange();
      triggerMenu.handleInput();
    }, [emitChange, triggerMenu]);
@@ -154,59 +156,68 @@ index edd9080..a05d3f0 100644
 +   * wholesale rather than diffed, because the only state it carries is the
 +   * string it shows.
 +   */
-+  const clearInlineCompletion = useCallback(() => {
++  /**
++   * The one authority over an offer: the DOM node, the active record, the
++   * dismissal and the announcement move together or not at all.
++   *
++   * An offer is not a string. It is a candidate bound to the exact draft it
++   * was derived from (`base`), because every question worth asking about it —
++   * is it still valid, may it be accepted, was it dismissed — is really a
++   * question about whether the editor still holds that draft. Keeping those as
++   * separate facts is what let the DOM node and the active reference disagree.
++   */
++  const withdrawOffer = useCallback(() => {
 +    const editable = editableRef.current;
 +    if (editable) {
 +      for (const stale of Array.from(editable.querySelectorAll('[data-astryx-inline-completion]'))) {
 +        stale.remove();
 +      }
 +    }
-+    inlineCompletionShownRef.current = '';
++    activeOfferRef.current = null;
 +    setInlineCompletionAnnouncement('');
 +  }, []);
 +
-+  const syncInlineCompletion = useCallback(() => {
++  const reconcileOffer = useCallback(() => {
 +    const editable = editableRef.current;
 +    if (!editable) {
 +      return;
 +    }
++    const suffix = inlineCompletion ?? '';
++    // The draft as the value sees it — `serialize` skips the offer, so this is
++    // the base a candidate is bound to whether or not one is standing.
++    const base = serialize(editable);
++    const active = activeOfferRef.current;
 +    const standing = editable.querySelector('[data-astryx-inline-completion]');
-+    // Nothing to do when the offer on screen is already the one this pass
-+    // would draw. Worth the check: this runs after every render with no
-+    // dependency array — the decision reads the live selection, which a render
-+    // does not announce — and a controlled input renders on every keystroke,
-+    // so the naive teardown was rebuilding the same node per character typed.
-+    if (standing !== null
-+      && inlineCompletionShownRef.current === (inlineCompletion ?? '')
-+      && offerFullyVisible(editable, standing)
++    const eligible = suffix.length > 0
 +      && !isDisabled
 +      && !triggerMenuOpen
 +      && !inlineCompletionComposingRef.current
 +      && document.activeElement === editable
-+      && caretAtContentEnd(editable)) {
++      && caretAtContentEnd(editable)
++      && !(inlineCompletionDismissedRef.current?.base === base
++        && inlineCompletionDismissedRef.current?.suffix === suffix);
++
++    // Already correct: same candidate, same base, still on screen and still
++    // fully visible. Returning here is what keeps a controlled input from
++    // rebuilding the node once per character typed.
++    if (eligible
++      && active !== null
++      && active.base === base
++      && active.suffix === suffix
++      && standing !== null
++      && offerFullyVisible(editable, standing)) {
 +      return;
 +    }
-+    for (const stale of Array.from(editable.querySelectorAll('[data-astryx-inline-completion]'))) {
-+      stale.remove();
++
++    withdrawOffer();
++    if (base.length === 0) {
++      // A cleared field cannot have dismissed anything.
++      inlineCompletionDismissedRef.current = null;
 +    }
-+    inlineCompletionShownRef.current = '';
-+    const offered = inlineCompletion ?? '';
-+    if (offered.length === 0) {
-+      inlineCompletionDismissedRef.current = undefined;
-+      setInlineCompletionAnnouncement('');
++    if (!eligible) {
 +      return;
 +    }
-+    if (
-+      isDisabled
-+      || triggerMenuOpen
-+      || inlineCompletionComposingRef.current
-+      || inlineCompletionDismissedRef.current === offered
-+      || document.activeElement !== editable
-+      || !caretAtContentEnd(editable)
-+    ) {
-+      setInlineCompletionAnnouncement('');
-+      return;
-+    }
++
 +    const span = document.createElement('span');
 +    span.setAttribute('data-astryx-inline-completion', '');
 +    span.setAttribute('aria-hidden', 'true');
@@ -214,38 +225,38 @@ index edd9080..a05d3f0 100644
 +    span.style.opacity = '0.45';
 +    span.style.pointerEvents = 'none';
 +    span.style.userSelect = 'none';
-+    span.textContent = offered;
-+    // Inserted after the caret's text node, so a collapsed selection sitting at
-+    // the end of the content stays exactly where it was — but BEFORE a trailing
-+    // filler `<br>`. That filler contributes no text, so the caret still counts
-+    // as being at the end, and appending past it would draw the offer on the
-+    // next line instead of continuing the one being typed.
++    span.textContent = suffix;
++    // Before a trailing filler `<br>`: that filler contributes no text, so the
++    // caret still counts as at the end, and appending past it would draw the
++    // offer on the next line instead of continuing the one being typed.
 +    const filler = editable.lastChild;
 +    if (filler instanceof HTMLBRElement) {
 +      editable.insertBefore(span, filler);
 +    } else {
 +      editable.appendChild(span);
 +    }
-+    // Laid out, now judged: a candidate whose tail is past the bottom of the
-+    // field is withdrawn rather than offered, so Tab keeps its ordinary
-+    // meaning instead of committing text the user could not read. Measured
-+    // after insertion because only the real layout knows where it ends.
++    // Laid out, now judged: a candidate whose tail falls past the bottom of the
++    // field is withdrawn rather than offered, so Tab keeps its ordinary meaning
++    // instead of committing text the user could not read.
 +    if (!offerFullyVisible(editable, span)) {
 +      span.remove();
-+      setInlineCompletionAnnouncement('');
 +      return;
 +    }
-+    inlineCompletionShownRef.current = offered;
++    activeOfferRef.current = { base, suffix };
 +    setInlineCompletionAnnouncement(
-+      inlineCompletionLabel ? `${offered} ${inlineCompletionLabel}` : offered,
++      inlineCompletionLabel ? `${suffix} ${inlineCompletionLabel}` : suffix,
 +    );
-+  }, [inlineCompletion, inlineCompletionLabel, isDisabled, triggerMenuOpen]);
++  }, [inlineCompletion, inlineCompletionLabel, isDisabled, triggerMenuOpen, withdrawOffer]);
 +
-+  // A layout effect, so the span is in place before the browser paints and the
-+  // user never sees a frame of the editor at the wrong height. No dependency
-+  // array: the decision reads the live selection, which a render does not
-+  // announce.
-+  useLayoutEffect(syncInlineCompletion);
++  // A passive effect, and deliberately not a layout one: the controlled-value
++  // sync above rewrites `editable.textContent` from its own passive effect, and
++  // reconciling before that ran promoted an offer against a draft the editor
++  // was about to replace — leaving the span removed by the rewrite while the
++  // active record and the announcement still claimed it. Effects run in
++  // declaration order, so reconciling here is reconciling against the DOM the
++  // value actually produced. No dependency array: the decision reads the live
++  // selection, which a render does not announce.
++  useEffect(reconcileOffer);
 +
 +  /**
 +   * The caret can leave the end of the content without React hearing about it:
@@ -266,22 +277,19 @@ index edd9080..a05d3f0 100644
 +    // take the offer with it, and the caret coming back has to bring it back —
 +    // neither is a render, so the layout effect sees neither.
 +    const onSelectionChange = () => {
-+      if (inlineCompletionShownRef.current.length > 0
-+        && (document.activeElement !== editable || !caretAtContentEnd(editable))) {
-+        clearInlineCompletion();
-+        return;
-+      }
-+      if (inlineCompletionShownRef.current.length === 0 && document.activeElement === editable) {
-+        syncInlineCompletion();
++      if (document.activeElement === editable) {
++        reconcileOffer();
++      } else if (activeOfferRef.current !== null) {
++        withdrawOffer();
 +      }
 +    };
 +    const onCompositionStart = () => {
 +      inlineCompletionComposingRef.current = true;
-+      clearInlineCompletion();
++      withdrawOffer();
 +    };
 +    const onCompositionEnd = () => {
 +      inlineCompletionComposingRef.current = false;
-+      syncInlineCompletion();
++      reconcileOffer();
 +    };
 +    document.addEventListener('selectionchange', onSelectionChange);
 +    // Focus leaving withdraws; focus returning re-asks. Both go through the
@@ -289,50 +297,56 @@ index edd9080..a05d3f0 100644
 +    // inputs to the same decision rather than three states to keep in step.
 +    // Refocusing fires neither `selectionchange` nor a render, so without this
 +    // a valid candidate stayed withdrawn for as long as the caret sat still.
-+    editable.addEventListener('focusout', clearInlineCompletion);
-+    editable.addEventListener('focusin', syncInlineCompletion);
++    editable.addEventListener('focusout', withdrawOffer);
++    editable.addEventListener('focusin', reconcileOffer);
 +    editable.addEventListener('compositionstart', onCompositionStart);
 +    editable.addEventListener('compositionend', onCompositionEnd);
 +    return () => {
 +      document.removeEventListener('selectionchange', onSelectionChange);
-+      editable.removeEventListener('focusout', clearInlineCompletion);
-+      editable.removeEventListener('focusin', syncInlineCompletion);
++      editable.removeEventListener('focusout', withdrawOffer);
++      editable.removeEventListener('focusin', reconcileOffer);
 +      editable.removeEventListener('compositionstart', onCompositionStart);
 +      editable.removeEventListener('compositionend', onCompositionEnd);
 +    };
-+  }, [clearInlineCompletion, syncInlineCompletion]);
++  }, [reconcileOffer, withdrawOffer]);
 +
 +  /**
-+   * Commit the shown completion. Goes through `insertTextAtCursor` +
-+   * `emitChange` — the same path a paste takes — so the value, the controlled
-+   * echo and the undo stack all see one ordinary insertion.
++   * Commit the offer as one undoable editing transaction.
++   *
++   * Through `execCommand('insertText')`, not `Range.insertNode`: Chromium does
++   * not put a scripted range mutation on the contentEditable undo stack, so the
++   * accepted suffix survived a Ctrl/Cmd+Z that instead ate the character the
++   * user had typed before it. `insertText` is the browser's own editing
++   * command, which undo and redo already understand.
 +   */
-+  const acceptInlineCompletion = useCallback(() => {
++  const acceptOffer = useCallback(() => {
 +    const editable = editableRef.current;
-+    const offered = inlineCompletionShownRef.current;
-+    if (!editable || offered.length === 0) {
++    const active = activeOfferRef.current;
++    if (!editable || active === null) {
 +      return false;
 +    }
-+    // Revalidated here, synchronously, against the selection as it stands at
-+    // this keystroke — not as it stood at the last commit. `insertTextAtCursor`
-+    // inserts wherever the caret actually is, so a caret that has since moved
-+    // into the middle of the draft would splice the offer there. Refusing
-+    // returns the keystroke to its ordinary meaning rather than committing
-+    // something the offer never described.
 +    const standing = editable.querySelector('[data-astryx-inline-completion]');
++    // Revalidated here, synchronously, against the editor as it stands at this
++    // keystroke rather than as it stood at the last commit — and against the
++    // candidate's own base draft, so an offer derived from text the editor no
++    // longer holds cannot be spliced into whatever replaced it. Refusing
++    // returns the keystroke to its ordinary meaning.
 +    if (inlineCompletionComposingRef.current
 +      || document.activeElement !== editable
++      || serialize(editable) !== active.base
 +      || !caretAtContentEnd(editable)
 +      || standing === null
 +      || !offerFullyVisible(editable, standing)) {
-+      clearInlineCompletion();
++      withdrawOffer();
 +      return false;
 +    }
-+    clearInlineCompletion();
-+    insertTextAtCursor(editable, offered);
++    // The decoration goes first so the command inserts into the draft rather
++    // than around a node the value never contained.
++    withdrawOffer();
++    document.execCommand('insertText', false, active.suffix);
 +    emitChange();
 +    return true;
-+  }, [clearInlineCompletion, emitChange]);
++  }, [emitChange, withdrawOffer]);
    const handleKeyDown = useCallback(e => {
      // Let trigger menu consume the event first
      if (triggerMenu.handleKeyDown(e)) {
@@ -351,11 +365,11 @@ index edd9080..a05d3f0 100644
 +      || e.nativeEvent?.isComposing === true
 +      || e.nativeEvent?.keyCode === 229
 +      || e.key === 'Process';
-+    if (!composing && inlineCompletionShownRef.current.length > 0) {
++    if (!composing && activeOfferRef.current !== null) {
 +      if (e.key === 'Tab' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
 +        // preventDefault only if it really committed — a revalidation that
 +        // fails hands Tab back to its ordinary focus move.
-+        if (acceptInlineCompletion()) {
++        if (acceptOffer()) {
 +          e.preventDefault();
 +          return;
 +        }
@@ -365,24 +379,24 @@ index edd9080..a05d3f0 100644
 +        // primitive can own what it drew without owning what Escape means to
 +        // its host — a consumer that stops a streaming turn on Escape must
 +        // still do it on the first press, not the second.
-+        inlineCompletionDismissedRef.current = inlineCompletionShownRef.current;
-+        clearInlineCompletion();
++        inlineCompletionDismissedRef.current = activeOfferRef.current;
++        withdrawOffer();
 +      }
 +    }
 +
      // Consumer passthrough — runs before built-in Enter/history handling.
      // A consumer can preventDefault() to fully own the keystroke.
      onKeyDownProp?.(e);
-@@ -411,7 +700,7 @@ export function ChatComposerInput(props) {
+@@ -411,7 +714,7 @@ export function ChatComposerInput(props) {
          e.preventDefault();
        }
      }
 -  }, [hasHistory, onSubmit, onChange, emitChange, triggerMenu, onKeyDownProp]);
-+  }, [hasHistory, onSubmit, onChange, emitChange, triggerMenu, onKeyDownProp, acceptInlineCompletion, clearInlineCompletion]);
++  }, [hasHistory, onSubmit, onChange, emitChange, triggerMenu, onKeyDownProp, acceptOffer, withdrawOffer]);
    const handlePaste = useCallback(e => {
      const editable = editableRef.current;
      if (!editable) {
-@@ -479,6 +768,26 @@ export function ChatComposerInput(props) {
+@@ -479,6 +782,26 @@ export function ChatComposerInput(props) {
            maxHeight: `${maxHeight}px`
          }
        })

@@ -29,6 +29,21 @@
 export const PROMPT_HISTORY_MATCH_MIN_DRAFT = 2;
 
 /**
+ * The one spelling both sides of a comparison are held to.
+ *
+ * A draft carries U+00A0 where an inline token anchors itself, while history
+ * is stored after `composerWireText` has normalized those to ordinary spaces —
+ * so the same prompt could be spelled two ways and simply never match itself.
+ * Canonicalizing here, on both the draft and the entries, means neither side
+ * has to know what the other stores. It is a one-for-one character swap, so
+ * offsets are preserved and a suffix can still be sliced from the original
+ * entry rather than from the canonical form.
+ */
+export function canonicalizePromptText(text: string): string {
+  return text.replace(/\u00a0/g, ' ');
+}
+
+/**
  * The remainder of the newest history entry that `draft` is a prefix of, or
  * null when nothing matches.
  *
@@ -39,24 +54,25 @@ export const PROMPT_HISTORY_MATCH_MIN_DRAFT = 2;
  */
 export function matchPromptHistory(draft: string, entries: readonly string[]): string | null {
   if (draft.trim().length < PROMPT_HISTORY_MATCH_MIN_DRAFT) return null;
+  const canonicalDraft = canonicalizePromptText(draft);
 
   // Newest first: the most recent matching prompt is the one the user is most
   // likely retyping.
-  const exact = newestMatch((entry) => entry.startsWith(draft));
-  if (exact !== null) return exact.slice(draft.length);
+  const exact = newestMatch((entry) => entry.startsWith(canonicalDraft));
+  if (exact !== null) return exact.slice(canonicalDraft.length);
   // Second pass ignores case, so a draft that starts lowercase still finds the
   // capitalized prompt it is a prefix of.
-  const lowered = draft.toLowerCase();
+  const lowered = canonicalDraft.toLowerCase();
   const insensitive = newestMatch((entry) => entry.toLowerCase().startsWith(lowered));
-  return insensitive === null ? null : insensitive.slice(draft.length);
+  return insensitive === null ? null : insensitive.slice(canonicalDraft.length);
 
-  function newestMatch(matches: (entry: string) => boolean): string | null {
+  function newestMatch(matches: (canonicalEntry: string) => boolean): string | null {
     for (let index = entries.length - 1; index >= 0; index--) {
       const entry = entries[index];
       // Equal length means the draft already *is* that entry — nothing is left
       // to complete.
-      if (entry === undefined || entry.length <= draft.length) continue;
-      if (matches(entry)) return entry;
+      if (entry === undefined || entry.length <= canonicalDraft.length) continue;
+      if (matches(canonicalizePromptText(entry))) return entry;
     }
     return null;
   }
