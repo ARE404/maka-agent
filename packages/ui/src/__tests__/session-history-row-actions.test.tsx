@@ -50,12 +50,25 @@ const projectActions: ProjectRowActions = {
 };
 
 function assertNoNestedButtons(markup: string): void {
+  // Structural check. A real regression here moves the action menu inside the
+  // navigation control, and the menu always ships wrapped in
+  // `.maka-session-row-action`, so the nesting survives parsing and is caught.
   const { document } = parseHTML(markup);
   assert.equal(
     document.querySelector('button button') === null,
     true,
     'navigation and action controls must stay siblings',
   );
+
+  // `parseHTML` auto-closes a `<button>` that opens directly inside another,
+  // which the structural check above then cannot see. Count start and end tags
+  // on the raw markup to cover that shape too. Single-token match, so this
+  // stays linear and cannot backtrack the way an enclosing-pair regex would.
+  let depth = 0;
+  for (const [, slash] of markup.matchAll(/<(\/?)button\b/g)) {
+    depth += slash === '/' ? -1 : 1;
+    assert.ok(depth <= 1, 'markup must not open a <button> inside another');
+  }
 }
 
 test('renders session navigation and row actions as sibling controls', () => {
