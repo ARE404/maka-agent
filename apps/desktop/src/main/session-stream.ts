@@ -457,6 +457,7 @@ export interface SessionStreamerDeps {
   computerUseTools: AssembledTools['computerUseTools'];
   safeSendToRenderer: (channel: string, ...args: unknown[]) => void;
   emitSessionsChanged: (reason: SessionChangedReason, sessionId?: string) => void;
+  observeSessionEvent?: (sessionId: string, event: SessionEvent) => void;
   interruptActivePlanExecution?: (sessionId: string, reason: string) => Promise<unknown>;
 }
 
@@ -511,6 +512,7 @@ export function createSessionStreamer(deps: SessionStreamerDeps): StreamEvents {
           userAppendBroadcasted = true;
         }
         safeSendToRenderer(`sessions:event:${sessionId}`, event);
+        deps.observeSessionEvent?.(sessionId, event);
         if (isStatusChangingSessionEvent(event)) {
           emitSessionsChanged('status-change', sessionId);
         }

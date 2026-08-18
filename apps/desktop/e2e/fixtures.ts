@@ -243,6 +243,7 @@ export const test = base.extend<{
   invocableSkillsWindow: Page;
   planRemindersWindow: Page;
   oauthReloginWindow: Page;
+  unifiedSessionWindow: Page;
 }>({
   // Seeded: a pre-staged connection clears onboarding so the composer is ready.
   // Used by chat / session / settings / attachment specs.
@@ -431,6 +432,17 @@ export const test = base.extend<{
         // `dialog[open]` waited for markup this redesign deleted.
         readinessSelector: '[data-maka-contract="connection-detail"]',
         e2eFixtureScenario: 'oauth-relogin',
+        locale: 'zh',
+      },
+      use,
+    );
+  },
+  unifiedSessionWindow: async ({}, use) => {
+    await withE2eWindow(
+      {
+        seed: false,
+        readinessSelector: '.maka-unified-surface',
+        e2eFixtureScenario: 'unified-session',
         locale: 'zh',
       },
       use,

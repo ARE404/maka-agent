@@ -1,6 +1,8 @@
 import { mkdir, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { UiLocale, E2eFixtureScenario, E2eFixtureState } from '@maka/core';
 import { resolveStorageRoot } from '@maka/storage/root-authority';
+import { createProjectCatalog } from '@maka/storage';
 import type { CredentialStore } from './credential-store.js';
 import {
   ARTIFACT_SESSION_ID,
@@ -77,6 +79,7 @@ import {
 
 const E2E_FIXTURE_SCENARIOS = new Set<E2eFixtureScenario>([
   'all',
+  'unified-session',
   'first-run',
   'provider-workspace',
   'fallback-source',
@@ -421,6 +424,8 @@ function buildE2eFixtureState(fixture: E2eFixture | null): E2eFixtureState | nul
     ...(fixture.timezone ? { timezone: fixture.timezone } : {}),
   };
   switch (fixture.scenario) {
+    case 'unified-session':
+      return { ...state, sidebarCollapsed: true };
     case 'first-run':
       return state;
     case 'provider-workspace':
@@ -677,7 +682,25 @@ export async function seedE2eFixture(input: {
   for (const slug of ['zai-live', 'relay-fallback', 'empty-fetched', 'needs-reauth', 'broken-provider']) {
     await input.credentialStore.setSecret(slug, 'api_key', `fixture-key-${slug}`);
   }
-  await writeSession(input.workspaceRoot, turnSession(now), turnMessages(now));
+  let primaryTurnSession = turnSession(now);
+  if (input.fixture.scenario === 'unified-session') {
+    const projectPath = join(input.workspaceRoot, 'fixture-project-alpha');
+    const secondProjectPath = join(input.workspaceRoot, 'fixture-project-beta');
+    await Promise.all([
+      mkdir(projectPath, { recursive: true }),
+      mkdir(secondProjectPath, { recursive: true }),
+    ]);
+    const catalog = createProjectCatalog(input.workspaceRoot);
+    const project = await catalog.register(projectPath);
+    await catalog.register(secondProjectPath);
+    primaryTurnSession = {
+      ...primaryTurnSession,
+      workspaceRoot: input.workspaceRoot,
+      cwd: projectPath,
+      projectId: project.id,
+    };
+  }
+  await writeSession(input.workspaceRoot, primaryTurnSession, turnMessages(now));
   if (input.fixture.scenario === 'deep-research-progress') {
     await writeSession(input.workspaceRoot, deepResearchSession(now), deepResearchMessages(now));
     await writeDeepResearchLedger(input.workspaceRoot, now);

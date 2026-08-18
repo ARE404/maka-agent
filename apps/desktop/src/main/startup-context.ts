@@ -14,3 +14,11 @@ export const isComputerUseRealModelE2e =
   hasIsolatedE2eProfile &&
   process.env.MAKA_CU_REAL_MODEL_E2E === '1';
 export const isIsolatedE2e = isE2e || isComputerUseRealModelE2e;
+
+// Local development escape hatch for running the real application stack
+// against a disposable profile. Unlike the E2E profile this does not enable
+// fixtures or fake model backends; it only redirects Electron's userData.
+// Packaged builds deliberately ignore the variable.
+export const developmentUserDataDir = !app.isPackaged
+  ? process.env.MAKA_DEV_USER_DATA_DIR?.trim() || undefined
+  : undefined;

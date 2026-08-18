@@ -89,6 +89,12 @@ import type {
   TaskLedgerChangedEvent,
   DeepResearchChangedEvent,
   DeepResearchRun,
+  UnifiedSendInput,
+  UnifiedSendResult,
+  UnifiedSnapshot,
+  UnifiedWorkContentProjection,
+  UnifiedWorkspaceSummary,
+  WorkRef,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -178,6 +184,79 @@ const makaBridge = {
       };
       ipcRenderer.on('graphs:changed', listener);
       return () => ipcRenderer.off('graphs:changed', listener);
+    },
+  },
+  unified: {
+    getSnapshot(): Promise<UnifiedSnapshot> {
+      return ipcRenderer.invoke('unified:getSnapshot');
+    },
+    listWorkspaces(): Promise<UnifiedWorkspaceSummary[]> {
+      return ipcRenderer.invoke('unified:listWorkspaces');
+    },
+    send(input: UnifiedSendInput): Promise<UnifiedSendResult> {
+      return ipcRenderer.invoke('unified:send', input);
+    },
+    confirmCoordination(planId: string): Promise<import('@maka/core').UnifiedCoordinationPlan> {
+      return ipcRenderer.invoke('unified:confirmCoordination', planId);
+    },
+    cancelCoordination(planId: string): Promise<import('@maka/core').UnifiedCoordinationPlan> {
+      return ipcRenderer.invoke('unified:cancelCoordination', planId);
+    },
+    readWorkProjection(work: WorkRef, turnId: string): Promise<UnifiedWorkContentProjection> {
+      return ipcRenderer.invoke('unified:readWorkProjection', work, turnId);
+    },
+    respondToSandboxBoundary(work: WorkRef, response: SandboxBoundaryResponse): Promise<void> {
+      return ipcRenderer.invoke('unified:respondToSandboxBoundary', work, response);
+    },
+    respondToUserQuestion(work: WorkRef, response: UserQuestionResponse): Promise<void> {
+      return ipcRenderer.invoke('unified:respondToUserQuestion', work, response);
+    },
+    setPermissionMode(work: WorkRef, mode: PermissionMode): Promise<void> {
+      return ipcRenderer.invoke('unified:setPermissionMode', work, mode);
+    },
+    stopWork(work: WorkRef): Promise<void> {
+      return ipcRenderer.invoke('unified:stopWork', work);
+    },
+    requestRetarget(blockId: string): Promise<import('@maka/core').UnifiedDiscussionMessage> {
+      return ipcRenderer.invoke('unified:requestRetarget', blockId);
+    },
+    registerWorkspace(): Promise<unknown> {
+      return ipcRenderer.invoke('unified:registerWorkspace');
+    },
+    relinkWorkspace(workspaceId: string): Promise<void> {
+      return ipcRenderer.invoke('unified:relinkWorkspace', workspaceId);
+    },
+    openWork(work: WorkRef): Promise<void> {
+      return ipcRenderer.invoke('unified:openWork', work);
+    },
+    subscribeSnapshot(handler: (snapshot: UnifiedSnapshot) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, snapshot: UnifiedSnapshot) =>
+        handler(snapshot);
+      ipcRenderer.on('unified:snapshot', listener);
+      return () => ipcRenderer.off('unified:snapshot', listener);
+    },
+    subscribeEvents(
+      handler: (payload: { blockId: string; work: WorkRef; event: SessionEvent }) => void,
+    ): () => void {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { blockId: string; work: WorkRef; event: SessionEvent },
+      ) => handler(payload);
+      ipcRenderer.on('unified:event', listener);
+      return () => ipcRenderer.off('unified:event', listener);
+    },
+    subscribeOpenWork(handler: (work: WorkRef) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, work: WorkRef) => handler(work);
+      ipcRenderer.on('unified:open-work', listener);
+      return () => ipcRenderer.off('unified:open-work', listener);
+    },
+    subscribeWorkEnded(handler: (event: import('@maka/core').UnifiedWorkEndedEvent) => void): () => void {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: import('@maka/core').UnifiedWorkEndedEvent,
+      ) => handler(payload);
+      ipcRenderer.on('unified:work-ended', listener);
+      return () => ipcRenderer.off('unified:work-ended', listener);
     },
   },
   sessions: {

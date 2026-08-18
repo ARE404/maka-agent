@@ -10,6 +10,7 @@ import {
   isThinkingLevel,
   sanitizeTaskLedgerTask,
   thinkingVariantsForModel,
+  UNIFIED_INTERNAL_SESSION_LABEL,
 } from '@maka/core';
 import type {
   CreateSessionRequestInput,
@@ -98,6 +99,7 @@ export interface SessionsIpcDeps {
   ) => Promise<PreparedSkillInvocationMessage>;
   invalidateSessionBindings?: (sessionId: string) => void;
   clearSkillHost?: (sessionId: string) => void;
+  onSessionRemoved?: (sessionId: string) => Promise<void>;
   stopAgentGraph?: (sessionId: string) => Promise<void>;
   notifyAgentGraphPermissionResponse?: (sessionId: string) => void;
   ensureSessionWorkspaceAvailable: (sessionId: string) => Promise<void>;
@@ -207,6 +209,7 @@ export function registerSessionsIpc(
     prepareSkillInvocation,
     invalidateSessionBindings,
     clearSkillHost,
+    onSessionRemoved,
     stopAgentGraph,
     notifyAgentGraphPermissionResponse,
     ensureSessionWorkspaceAvailable,
@@ -233,6 +236,7 @@ export function registerSessionsIpc(
     clearSkillHost?.(sessionId);
     await releaseBrowserSession(sessionId);
     automationManager.removeAllForSession(sessionId);
+    await onSessionRemoved?.(sessionId);
     emitSessionsChanged('deleted', sessionId);
   };
   const quoteCompanionCleanup = createQuoteCompanionCleanupAuthority({
@@ -256,7 +260,8 @@ export function registerSessionsIpc(
     const recovery = await quoteCompanionCleanup.recover();
     const pendingCleanup = new Set(recovery.failed.map(({ sessionId }) => sessionId));
     return (await runtime.listSessions(filter)).filter(
-      ({ id }) => !pendingCleanup.has(id),
+      ({ id, labels }) =>
+        !pendingCleanup.has(id) && !labels.includes(UNIFIED_INTERNAL_SESSION_LABEL),
     );
   });
   ipcMain.handle('sessions:create', async (_event, input?: CreateSessionRequestInput) => {

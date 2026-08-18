@@ -1512,6 +1512,7 @@ export type {
   PersonalizationSettingsWarning,
   ThemePalette,
   ThemePreference,
+  UnifiedSessionSettings,
   UpdateAppSettingsInput,
   UpdateAppSettingsResult,
   UpdateAppSettingsWarnings,
@@ -1796,3 +1797,36 @@ export type {
   AutomationStatus,
 } from './automation.js';
 export { SKILL_INVOCATION_TOKEN_SOURCE } from './skill-invocation-token.js';
+
+// unified-session.ts — global Work Orchestrator contract.
+export type {
+  UnifiedCommand,
+  UnifiedConversationItem,
+  UnifiedCoordinationDraftStep,
+  UnifiedCoordinationPlan,
+  UnifiedCoordinationPlanItem,
+  UnifiedCoordinationStatus,
+  UnifiedCoordinationStep,
+  UnifiedDiscussionMessage,
+  UnifiedIntentDisposition,
+  UnifiedLifecycleEventItem,
+  UnifiedLifecycleStatus,
+  UnifiedRouteOption,
+  UnifiedRouteTrace,
+  UnifiedSendInput,
+  UnifiedSendResult,
+  UnifiedSnapshot,
+  UnifiedWorkBlock,
+  UnifiedWorkBlockItem,
+  UnifiedWorkContentProjection,
+  UnifiedWorkEndedEvent,
+  UnifiedWorkToolProjection,
+  UnifiedWorkspaceSummary,
+  UnifiedWorkStatus,
+  WorkRef,
+} from './unified-session.js';
+export {
+  UNIFIED_INTERNAL_SESSION_LABEL,
+  sameWorkRef,
+  workRefKey,
+} from './unified-session.js';

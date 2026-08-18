@@ -78,6 +78,12 @@ import type {
   DeepResearchChangedEvent,
   DeepResearchRun,
   LocalMemoryEntryPreview,
+  UnifiedSendInput,
+  UnifiedSendResult,
+  UnifiedSnapshot,
+  UnifiedWorkContentProjection,
+  UnifiedWorkspaceSummary,
+  WorkRef,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -227,6 +233,28 @@ export interface MakaBridge {
       rootSessionId: string,
       handler: (event: AgentGraphClientChangedEvent) => void,
     ): () => void;
+  };
+  unified: {
+    getSnapshot(): Promise<UnifiedSnapshot>;
+    listWorkspaces(): Promise<UnifiedWorkspaceSummary[]>;
+    send(input: UnifiedSendInput): Promise<UnifiedSendResult>;
+    confirmCoordination(planId: string): Promise<import('@maka/core').UnifiedCoordinationPlan>;
+    cancelCoordination(planId: string): Promise<import('@maka/core').UnifiedCoordinationPlan>;
+    readWorkProjection(work: WorkRef, turnId: string): Promise<UnifiedWorkContentProjection>;
+    respondToSandboxBoundary(work: WorkRef, response: SandboxBoundaryResponse): Promise<void>;
+    respondToUserQuestion(work: WorkRef, response: UserQuestionResponse): Promise<void>;
+    setPermissionMode(work: WorkRef, mode: PermissionMode): Promise<void>;
+    stopWork(work: WorkRef): Promise<void>;
+    requestRetarget(blockId: string): Promise<import('@maka/core').UnifiedDiscussionMessage>;
+    registerWorkspace(): Promise<unknown>;
+    relinkWorkspace(workspaceId: string): Promise<void>;
+    openWork(work: WorkRef): Promise<void>;
+    subscribeSnapshot(handler: (snapshot: UnifiedSnapshot) => void): () => void;
+    subscribeEvents(
+      handler: (payload: { blockId: string; work: WorkRef; event: SessionEvent }) => void,
+    ): () => void;
+    subscribeOpenWork(handler: (work: WorkRef) => void): () => void;
+    subscribeWorkEnded(handler: (event: import('@maka/core').UnifiedWorkEndedEvent) => void): () => void;
   };
   sessions: {
     list(filter?: SessionListFilter): Promise<SessionSummary[]>;

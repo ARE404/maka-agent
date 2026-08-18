@@ -19,6 +19,7 @@ export { SandboxBoundaryPrompt } from './sandbox-boundary-prompt.js';
 export { ChatSurfaceLayout } from './chat-surface-layout.js';
 export type { ChatSurfaceLayoutProps } from './chat-surface-layout.js';
 export { ChatView } from './chat-view.js';
+export { Markdown } from './markdown.js';
 export type { TurnFooterActionMeta, TurnLineageBadge } from './chat-turn.js';
 export { AutomationsPage, DailyReviewPage, SkillsPage } from './module-pages.js';
 export { Composer } from './composer.js';

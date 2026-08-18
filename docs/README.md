@@ -11,6 +11,7 @@ This page is the authority map for Maka documentation. Code and contract tests r
 
 ## Start here
 
+- [Domain language](../CONTEXT.md)
 - [Backend architecture](../ARCHITECTURE.md) ([中文](../ARCHITECTURE.zh-CN.md))
 - [Desktop architecture](../apps/desktop/README.md)
 - [Renderer architecture](../apps/desktop/src/renderer/README.md)
@@ -20,6 +21,11 @@ This page is the authority map for Maka documentation. Code and contract tests r
 - [Security policy](../SECURITY.md)
 
 ## Current contracts
+
+### Product and orchestration
+
+- [Unified Session global work orchestrator](./architecture/unified-session-work-orchestrator.zh-CN.md)
+- [Unified Session architecture decision](./adr/0001-unified-session-global-work-orchestrator.md)
 
 ### Runtime and Headless
 

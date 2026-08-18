@@ -5,6 +5,7 @@ import type { UiLocale } from './ui-locale.js';
 
 export type E2eFixtureScenario =
   | 'all'
+  | 'unified-session'
   | 'first-run'
   | 'provider-workspace'
   | 'fallback-source'

@@ -53,6 +53,20 @@ export function GeneralSettingsPage(props: {
       <PersonalizationSettingsPage settings={props.settings} onUpdate={props.onUpdate} />
       <Card padding={0} className="settingsRows">
         <Item
+          label={copy.unifiedSession}
+          description={copy.unifiedSessionHelp}
+          endContent={<Switch
+            label={copy.enableUnifiedSession}
+            isLabelHidden
+            value={props.settings.unifiedSession.enabled}
+            onChange={(enabled) => {
+              props.onUpdate({ unifiedSession: { enabled } }).catch((error: unknown) => {
+                toast.error(copy.unifiedSessionFailed, settingsActionErrorMessage(error, locale));
+              });
+            }}
+          />}
+        />
+        <Item
           label={copy.incognito}
           description={copy.incognitoHelp}
           endContent={<Switch

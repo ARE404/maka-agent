@@ -1,0 +1,602 @@
+.maka-unified-surface {
+  min-height: 0;
+}
+
+.maka-unified-sidebar-entry {
+  display: flex;
+  align-items: center;
+  width: calc(100% - 16px);
+  min-height: 36px;
+  margin: 8px 8px 2px;
+  padding: 0 10px;
+  gap: 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  text-align: left;
+}
+
+.maka-unified-sidebar-entry:hover,
+.maka-unified-sidebar-entry[data-active="true"] {
+  background: var(--color-background-hover);
+  color: var(--color-text-primary);
+}
+
+.maka-unified-sidebar-entry:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: -2px;
+}
+
+.maka-unified-return {
+  position: absolute;
+  z-index: 3;
+  /* The frame titlebar owns the top hit-test strip. Keep this navigation
+     control below it so macOS drag regions never steal its click. */
+  top: calc(var(--h-titlebar) + 8px);
+  left: 16px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+}
+
+.maka-unified-return:hover {
+  background: var(--color-background-hover);
+  color: var(--color-text-primary);
+}
+
+.maka-unified-timeline {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.maka-unified-heading,
+.maka-unified-empty {
+  width: min(var(--maka-chat-measure), 100%);
+  max-width: var(--maka-chat-measure);
+  margin-inline: auto;
+}
+
+.maka-unified-heading {
+  box-sizing: border-box;
+  margin-top: var(--space-6);
+  padding-inline: var(--space-3);
+}
+
+.maka-unified-message-list {
+  flex: 1 1 auto;
+}
+
+.maka-unified-items {
+  width: 100%;
+  max-width: var(--maka-chat-measure);
+  margin-inline: auto;
+}
+
+.maka-unified-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.maka-unified-heading h1,
+.maka-unified-empty h2 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-heading-md);
+  line-height: 1.25;
+}
+
+.maka-unified-heading p,
+.maka-unified-empty p {
+  margin: 6px 0 0;
+  color: var(--color-text-secondary);
+  line-height: 1.55;
+}
+
+.maka-unified-heading > span {
+  flex: none;
+  padding-top: 3px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+
+.maka-unified-empty {
+  padding: 72px 0;
+  text-align: center;
+}
+
+.maka-unified-empty [data-slot="button"] {
+  margin-top: 18px;
+}
+
+.maka-unified-items {
+  display: flex;
+  flex-direction: column;
+}
+
+.maka-unified-coordination {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.maka-unified-work {
+  padding-top: 28px;
+}
+
+.maka-unified-discussion {
+  width: 100%;
+  padding: 8px 0;
+}
+
+.maka-unified-discussion:first-child {
+  padding-top: 24px;
+}
+
+.maka-unified-lifecycle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 13px 0;
+  gap: 16px;
+  border: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--font-size-body-sm);
+  text-align: left;
+}
+
+.maka-unified-lifecycle:hover span,
+.maka-unified-lifecycle:focus-visible span {
+  color: var(--color-text-primary);
+}
+
+.maka-unified-lifecycle:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 3px;
+}
+
+.maka-unified-lifecycle strong {
+  flex: none;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-xs);
+  font-weight: 500;
+}
+
+.maka-unified-coordination-event {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  gap: 16px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-xs);
+}
+
+.maka-unified-coordination-event strong {
+  font-weight: 500;
+}
+
+.maka-unified-coordination-event[data-status="failed"] strong,
+.maka-unified-coordination-event[data-status="cancelled"] strong {
+  color: var(--color-text-danger);
+}
+
+.maka-unified-coordination > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.maka-unified-coordination h2,
+.maka-unified-coordination p {
+  margin: 0;
+}
+
+.maka-unified-coordination h2 {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-body-md);
+}
+
+.maka-unified-coordination p,
+.maka-unified-coordination > header > span,
+.maka-unified-coordination li > span,
+.maka-unified-coordination small {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-xs);
+}
+
+.maka-unified-coordination p {
+  margin-top: 5px;
+  line-height: 1.5;
+}
+
+.maka-unified-coordination ol {
+  display: grid;
+  gap: 0;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: unified-step;
+}
+
+.maka-unified-coordination li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0 10px 28px;
+  border-top: 1px solid var(--color-border-subtle);
+  counter-increment: unified-step;
+}
+
+.maka-unified-coordination li::before {
+  position: absolute;
+  margin-left: -28px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-xs);
+  content: counter(unified-step);
+}
+
+.maka-unified-coordination li strong,
+.maka-unified-coordination li div > span,
+.maka-unified-coordination li small {
+  display: block;
+}
+
+.maka-unified-coordination li strong {
+  color: var(--color-text-primary);
+  font-size: var(--font-size-body-sm);
+}
+
+.maka-unified-coordination li div > span {
+  margin-top: 2px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+
+.maka-unified-coordination li small {
+  margin-top: 5px;
+}
+
+.maka-unified-coordination li[data-status="failed"] > span,
+.maka-unified-coordination li[data-status="blocked"] > span,
+.maka-unified-coordination[data-status="failed"] > header > span {
+  color: var(--color-text-danger);
+}
+
+.maka-unified-coordination > footer {
+  display: flex;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.maka-unified-discussion-bubble > p,
+.maka-unified-prompt,
+.maka-unified-answer,
+.maka-unified-detail {
+  margin: 0;
+  color: var(--color-text-primary);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.maka-unified-discussion-bubble {
+  font: var(--maka-text-body);
+}
+
+.maka-unified-discussion-bubble.maka-chat-message-bubble-assistant {
+  width: 100%;
+  max-width: none;
+}
+
+.maka-unified-discussion-bubble > [data-slot="button"] {
+  margin-top: 12px;
+}
+
+.maka-unified-work,
+.maka-unified-pending-route[data-phase="bound"] {
+  display: flex;
+  flex-direction: column;
+  --maka-unified-work-tone: oklch(0.58 0.1 var(--maka-unified-work-hue));
+  --maka-unified-work-label: oklch(0.42 0.075 var(--maka-unified-work-hue));
+}
+
+.dark .maka-unified-work,
+.dark .maka-unified-pending-route[data-phase="bound"] {
+  --maka-unified-work-tone: oklch(0.76 0.105 var(--maka-unified-work-hue));
+  --maka-unified-work-label: oklch(0.8 0.09 var(--maka-unified-work-hue));
+}
+
+.maka-unified-pending-route {
+  display: flex;
+  flex-direction: column;
+  padding-top: 24px;
+}
+
+.maka-unified-pending-bubble {
+  background-color: var(--chat-user-bg);
+}
+
+.maka-unified-routing-label {
+  align-self: flex-end;
+  margin: 3px 16px 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-xs);
+}
+
+.maka-unified-work-meta {
+  align-self: flex-start;
+  max-width: 80%;
+  margin: 0 0 3px 16px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--maka-unified-work-label);
+  font-size: var(--font-size-body-xs);
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-unified-work-meta[data-sender="user"] {
+  align-self: flex-end;
+  margin: 0 16px 3px 0;
+  text-align: right;
+}
+
+.maka-unified-work-meta:hover {
+  color: var(--maka-unified-work-tone);
+}
+
+.maka-unified-work-meta:focus-visible {
+  border-radius: 3px;
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.maka-unified-status {
+  flex: none;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-xs);
+}
+
+.maka-unified-status[data-active="true"]::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--maka-unified-work-tone);
+  content: "";
+  animation: maka-unified-status-pulse 1.4s ease-in-out infinite;
+}
+
+.maka-unified-work-message {
+  width: 100%;
+}
+
+.maka-unified-work-bubble {
+  position: relative;
+  color: var(--color-text-primary);
+}
+
+.maka-unified-work-prompt-bubble {
+  background: var(--chat-user-bg);
+  color: var(--chat-user-foreground, var(--foreground));
+}
+
+.maka-unified-work-bubble::before {
+  position: absolute;
+  width: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--maka-unified-work-tone);
+  content: "";
+  pointer-events: none;
+  transition: opacity 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.maka-unified-work-prompt-bubble::before {
+  top: 4px;
+  right: -7px;
+  bottom: 4px;
+}
+
+.maka-unified-work-answer-bubble::before {
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+}
+
+.maka-chat-message-bubble.maka-unified-work-answer-bubble {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+  padding-left: 14px;
+}
+
+.maka-unified-work-message + .maka-unified-work-meta {
+  margin-top: 8px;
+}
+
+.maka-unified-prompt {
+  color: inherit;
+}
+
+.maka-unified-tools,
+.maka-unified-detail,
+.maka-unified-work-answer-bubble > .maka-composer-interaction {
+  margin-top: 12px;
+}
+
+.maka-unified-background-note {
+  align-self: flex-end;
+  margin: 3px 16px 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-xs);
+  text-align: right;
+}
+
+.maka-unified-tools {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 0;
+  color: var(--color-text-secondary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-body-xs);
+  list-style: none;
+}
+
+.maka-unified-tools li[data-failed="true"],
+.maka-unified-work[data-status="failed"] .maka-unified-status,
+.maka-unified-work[data-status="blocked"] .maka-unified-status {
+  color: var(--color-text-danger);
+}
+
+.maka-unified-detail {
+  margin-top: 12px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-sm);
+}
+
+.maka-unified-work-footer {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  margin: 3px 0 0 12px;
+  gap: 5px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-xs);
+}
+
+.maka-unified-work-footer .permissionModeIcon {
+  display: inline-flex;
+  margin-right: -4px;
+}
+
+.maka-unified-work-footer .permissionModeIcon [data-slot="button"] {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+}
+
+.maka-unified-work-footer > button {
+  padding: 1px 2px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.maka-unified-work-footer > button:hover {
+  color: var(--color-text-primary);
+}
+
+.maka-unified-work-footer > button:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.maka-unified-work-footer > button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.maka-unified-discussion-progress {
+  color: var(--color-text-secondary) !important;
+}
+
+.maka-unified-clarification {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.maka-unified-clarification > button {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 0;
+  gap: 16px;
+  border: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+  text-align: left;
+}
+
+.maka-unified-clarification > button:hover {
+  color: var(--color-accent);
+}
+
+.maka-unified-clarification > button:focus-visible {
+  border-radius: var(--radius-control);
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.maka-unified-clarification > button:disabled {
+  opacity: 0.55;
+}
+
+.maka-unified-clarification > button small {
+  max-width: 45%;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-xs);
+  line-height: 1.4;
+  text-align: right;
+}
+
+.maka-unified-clarification-resolved {
+  padding-top: 9px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-body-xs);
+}
+
+@keyframes maka-unified-status-pulse {
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-unified-status[data-active="true"]::before,
+  .maka-unified-pending-bubble,
+  .maka-unified-work-bubble::before {
+    animation: none;
+    transition: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .maka-unified-heading {
+    align-items: flex-start;
+  }
+
+}

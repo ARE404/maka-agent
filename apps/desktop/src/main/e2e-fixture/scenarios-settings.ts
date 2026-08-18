@@ -29,6 +29,7 @@ export async function writeSettings(
   const settings = createDefaultSettings();
   settings.personalization.displayName = '';
   settings.appearance.theme = 'auto';
+  if (scenario === 'unified-session') settings.unifiedSession.enabled = true;
   // Settings → 使用统计: the seeded traffic uses the fixed e2e-fixture clock,
   // which sits outside the real-time 24h/7天/30天 windows the store derives
   // from Date.now(). Default the usage view to 全部 + details-on so the

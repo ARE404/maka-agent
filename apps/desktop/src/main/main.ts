@@ -1,5 +1,8 @@
 import { app, dialog } from 'electron';
-import { isIsolatedE2e } from './startup-context.js';
+import {
+  developmentUserDataDir,
+  isIsolatedE2e,
+} from './startup-context.js';
 
 // The macOS app menu title and app.getName() consumers read this name. Set it
 // before ready, unchanged from its historical pre-ready position.
@@ -12,6 +15,8 @@ app.setName('Maka');
 // it. Also before ready: userData must be pinned before any store opens.
 if (isIsolatedE2e && process.env.MAKA_E2E_USER_DATA_DIR) {
   app.setPath('userData', process.env.MAKA_E2E_USER_DATA_DIR);
+} else if (developmentUserDataDir) {
+  app.setPath('userData', developmentUserDataDir);
 }
 
 // Electron does not enforce single-instance by default. Must run before any

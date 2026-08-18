@@ -263,6 +263,11 @@ export interface SystemSettings {
   keepSystemAwake: boolean;
 }
 
+/** Experimental permanent global Work Orchestrator entry point. */
+export interface UnifiedSessionSettings {
+  enabled: boolean;
+}
+
 export interface AppSettings {
   schemaVersion: 1;
   network: AppNetworkSettings;
@@ -278,6 +283,7 @@ export interface AppSettings {
   chatDefaults: ChatDefaultsSettings;
   notifications: NotificationSettings;
   system: SystemSettings;
+  unifiedSession: UnifiedSessionSettings;
   voice: VoiceSettings;
 }
 
@@ -355,6 +361,7 @@ export type UpdateAppSettingsInput = Partial<{
   chatDefaults: Partial<ChatDefaultsSettings>;
   notifications: Partial<NotificationSettings>;
   system: Partial<SystemSettings>;
+  unifiedSession: Partial<UnifiedSessionSettings>;
   voice: Partial<{
     recognition: Partial<VoiceSettings['recognition']>;
     realtime: Partial<VoiceSettings['realtime']>;
@@ -436,6 +443,9 @@ export function createDefaultSettings(): AppSettings {
       // battery-affecting opt-in, not a silent default.
       keepSystemAwake: false,
     },
+    unifiedSession: {
+      enabled: false,
+    },
     voice: defaultVoiceSettings(),
   };
 }
@@ -493,6 +503,12 @@ export function mergeSettings(current: AppSettings, patch: UpdateAppSettingsInpu
       ...current.system,
       ...(patch.system ?? {}),
     },
+    unifiedSession: patch.unifiedSession
+      ? normalizeUnifiedSessionSettings({
+          ...current.unifiedSession,
+          ...patch.unifiedSession,
+        })
+      : current.unifiedSession,
     voice: normalizeVoiceSettings({
       recognition: {
         ...current.voice.recognition,
@@ -524,6 +540,7 @@ export function normalizeSettings(input: unknown): AppSettings {
     chatDefaults: value.chatDefaults,
     notifications: value.notifications,
     system: value.system,
+    unifiedSession: value.unifiedSession,
     voice: value.voice,
   });
   // PR110b: milestones bypass the generic patch surface so we can
@@ -600,6 +617,7 @@ export function normalizeSettings(input: unknown): AppSettings {
       keepSystemAwake:
         typeof base.system.keepSystemAwake === 'boolean' ? base.system.keepSystemAwake : false,
     },
+    unifiedSession: normalizeUnifiedSessionSettings(base.unifiedSession),
     voice: normalizeVoiceSettings(base.voice),
   };
 }
@@ -640,4 +658,10 @@ function normalizePrivacySettings(settings: PrivacySettings): PrivacySettings {
   return {
     incognitoActive: settings.incognitoActive === true,
   };
+}
+
+function normalizeUnifiedSessionSettings(
+  settings: UnifiedSessionSettings,
+): UnifiedSessionSettings {
+  return { enabled: settings.enabled === true };
 }

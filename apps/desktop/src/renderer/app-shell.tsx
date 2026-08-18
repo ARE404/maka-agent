@@ -53,6 +53,7 @@ import {
 import { useKeyboardHelp } from './keyboard-help';
 import { useCommandPalette } from './command-palette';
 import { ChatMessageSurface } from './chat-message-surface';
+import { UnifiedSessionSurface } from './unified-session-surface';
 import { AgentGraphPanel } from './agent-graph-panel';
 import { ChatComposerRegion } from './chat-composer-region';
 import { ChatWorkbar } from './chat-workbar';
@@ -286,6 +287,11 @@ function AppShellContent({
   // BrowserPanel mounts only for these, so ordinary chats reserve no space.
   const [liveBrowserSessionIds, setLiveBrowserSessionIds] = useState<string[]>([]);
   const [navigationState, setNavigationState] = useState(() => readNavigationState());
+  const [unifiedEnabled, setUnifiedEnabled] = useState(false);
+  const [unifiedActive, setUnifiedActive] = useState(false);
+  const unifiedEnabledRef = useRef(false);
+  const unifiedActiveRef = useRef(false);
+  unifiedActiveRef.current = unifiedActive;
   const navSelection = navigationState.selection;
   const setNavSelection = useCallback<Dispatch<SetStateAction<NavSelection>>>((nextSelection) => {
     setNavigationState((current) => selectNavigation(
@@ -967,6 +973,7 @@ function AppShellContent({
   }
 
   function openSessionInChat(sessionId: string, turnId?: string): void {
+    setUnifiedActive(false);
     setNavSelection({ section: 'sessions', filter: 'chats' });
     setActiveId(sessionId);
     if (turnId) {
@@ -1217,6 +1224,53 @@ function AppShellContent({
     setWorkbarTab,
   } = useShellLayout();
   const sessionSideNavHandleRef = useRef<SideNavImperativeCollapseHandle>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const applyUnifiedSetting = (enabled: boolean, initial = false) => {
+      if (cancelled) return;
+      const wasEnabled = unifiedEnabledRef.current;
+      unifiedEnabledRef.current = enabled;
+      setUnifiedEnabled(enabled);
+      if (enabled && (initial || !wasEnabled)) {
+        setUnifiedActive(true);
+        setSessionListCollapsed(true);
+        setNavSelection({ section: 'sessions', filter: 'chats' });
+      } else if (!enabled) {
+        setUnifiedActive(false);
+      }
+    };
+    void window.maka.settings
+      .get()
+      .then((settings) => applyUnifiedSetting(settings.unifiedSession.enabled, true))
+      .catch(() => {});
+    const unsubscribe = window.maka.settings.subscribeExternalChanged(() => {
+      void window.maka.settings
+        .get()
+        .then((settings) => applyUnifiedSetting(settings.unifiedSession.enabled))
+        .catch(() => {});
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [setNavSelection, setSessionListCollapsed]);
+
+  useEffect(() => window.maka.unified.subscribeWorkEnded((event) => {
+    // The ordinary Chat surface owns notifications for the currently open
+    // target Session. Unified reports every other target so the existing
+    // main-process focus/settings/privacy gate remains the single authority.
+    if (!unifiedActiveRef.current && activeIdRef.current === event.work.sessionId) return;
+    void window.maka.notifications.runEnded({
+      kind: event.status === 'completed' ? 'completed' : 'errored',
+      title: `${event.workspaceName} / ${event.workName}`,
+      body: event.detail ?? (
+        uiLocale === 'zh'
+          ? event.status === 'completed' ? '工作已完成' : '工作需要检查'
+          : event.status === 'completed' ? 'Work completed' : 'Work needs attention'
+      ),
+    });
+  }), [activeIdRef, uiLocale]);
 
   // The companion panel unmounts (and its fork is removed) when the workbar
   // collapses or the active session moves off the panel's source; clear the
@@ -2146,7 +2200,9 @@ function AppShellContent({
         />
         {!VIEWS_WITHOUT_WORKSPACE_ACTIONS.has(agentsView) && (
           <AppShellWorkspaceTopActions
-            workbarAvailable={navSelection.section === 'sessions' && Boolean(activeId)}
+            workbarAvailable={
+              navSelection.section === 'sessions' && !unifiedActive && Boolean(activeId)
+            }
             workbarCollapsed={workbarCollapsed}
             onToggleWorkbar={() => setWorkbarCollapsed((current) => !current)}
             onOpenFeedback={() => openSettingsSection('about')}
@@ -2181,7 +2237,15 @@ function AppShellContent({
             maxWidth={SESSION_LIST_EXPANDED_MAX_WIDTH}
             selection={navSelection}
             sessions={visibleSessions}
-            activeId={activeId}
+            activeId={unifiedActive ? undefined : activeId}
+            unifiedEntry={unifiedEnabled ? {
+              active: unifiedActive,
+              label: 'Unified Session',
+              onSelect: () => {
+                setUnifiedActive(true);
+                setNavSelection({ section: 'sessions', filter: 'chats' });
+              },
+            } : undefined}
             planReminders={planReminders}
             streamingSessionIds={streamingSessionIds}
             staleSessionIds={staleSessionIds}
@@ -2278,7 +2342,24 @@ function AppShellContent({
                   onSaveMarkdown={(input) => saveDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}
                 />
               ) : null}
-              <ChatSurfaceLayout
+              {navSelection.section === 'sessions' && unifiedEnabled && unifiedActive ? (
+                <UnifiedSessionSurface
+                  defaultPermissionMode={defaultPermissionMode}
+                  onOpenWork={(sessionId) => openSessionInChat(sessionId)}
+                  onOpenSettings={() => openSettingsSection('general')}
+                />
+              ) : null}
+              {navSelection.section === 'sessions' && unifiedEnabled && !unifiedActive ? (
+                <button
+                  type="button"
+                  className="maka-unified-return"
+                  onClick={() => setUnifiedActive(true)}
+                >
+                  {uiLocale === 'zh' ? '← 返回所有工作' : '← Back to all work'}
+                </button>
+              ) : null}
+              {!(unifiedEnabled && unifiedActive) ? (
+                <ChatSurfaceLayout
                 hidden={navSelection.section !== 'sessions'}
                 composer={
                   <>
@@ -2628,7 +2709,8 @@ function AppShellContent({
                 conversationItems={planConversationItems}
                   />
                 ) : null}
-              </ChatSurfaceLayout>
+                </ChatSurfaceLayout>
+              ) : null}
             </div>
             {navSelection.section === 'sessions' && activeId && !workbarCollapsed && (
               <ChatWorkbar

@@ -39,6 +39,7 @@ import {
   normalizeSearchLimit,
   normalizeSearchQuery,
   redactSecrets,
+  UNIFIED_INTERNAL_SESSION_LABEL,
   validateWorkspacePrivacyContext,
 } from '@maka/core';
 import type {
@@ -161,6 +162,7 @@ export async function runThreadSearch(
   const maxResults = limitResult.value;
 
   const sessions = collapseSessionRevisions(await deps.listSessions())
+    .filter((session) => !session.labels.includes(UNIFIED_INTERNAL_SESSION_LABEL))
     // Exclude fake-backend sessions — e2e-fixture fixtures and
     // similar dev-only state should not surface as real chat hits.
     .filter((session) => session.backend !== 'fake')

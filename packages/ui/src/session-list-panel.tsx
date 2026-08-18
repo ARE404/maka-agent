@@ -15,7 +15,7 @@ import {
   type SessionRowActions,
 } from './session-history-list.js';
 import { SessionSidebarFooter, SessionSidebarNav, type SidebarUpdateReminder } from './session-sidebar-nav.js';
-import { Clock, FolderOpen } from './icons.js';
+import { Clock, FolderOpen, Sparkles } from './icons.js';
 import { useUiLocale } from './locale-context.js';
 import { getConversationCopy } from './conversation-copy.js';
 import type { CSSProperties, Ref } from 'react';
@@ -33,6 +33,7 @@ export function SessionListPanel(props: {
   selection: NavSelection;
   sessions: SessionSummary[];
   activeId?: string;
+  unifiedEntry?: { active: boolean; label: string; onSelect(): void };
   planReminders?: PlanReminder[];
   streamingSessionIds?: Set<string>;
   staleSessionIds?: Set<string>;
@@ -143,21 +144,35 @@ export function SessionListPanel(props: {
         }
       >
         {!collapsed ? (
-          <SessionHistoryList
-            sessions={props.sessions}
-            activeId={props.activeId}
-            streamingSessionIds={props.streamingSessionIds}
-            staleSessionIds={props.staleSessionIds}
-            groupVariant={viewMode}
-            groups={groups}
-            worktreeSessionIds={props.worktreeSessionIds}
-            projectActions={props.projectActions}
-            childSessionsByParentId={props.childSessionsByParentId}
-            onSelectSession={props.onSelectSession}
-            rowActions={props.rowActions}
-            heading={onViewModeChange ? copy.title : undefined}
-            headingEnd={groupingSwitch}
-          />
+          <>
+            {props.unifiedEntry ? (
+              <button
+                type="button"
+                className="maka-unified-sidebar-entry"
+                data-active={props.unifiedEntry.active || undefined}
+                aria-current={props.unifiedEntry.active ? 'page' : undefined}
+                onClick={props.unifiedEntry.onSelect}
+              >
+                <Sparkles size={15} aria-hidden="true" />
+                <span>{props.unifiedEntry.label}</span>
+              </button>
+            ) : null}
+            <SessionHistoryList
+              sessions={props.sessions}
+              activeId={props.activeId}
+              streamingSessionIds={props.streamingSessionIds}
+              staleSessionIds={props.staleSessionIds}
+              groupVariant={viewMode}
+              groups={groups}
+              worktreeSessionIds={props.worktreeSessionIds}
+              projectActions={props.projectActions}
+              childSessionsByParentId={props.childSessionsByParentId}
+              onSelectSession={props.onSelectSession}
+              rowActions={props.rowActions}
+              heading={onViewModeChange ? copy.title : undefined}
+              headingEnd={groupingSwitch}
+            />
+          </>
         ) : null}
       </SideNav>
     </div>
