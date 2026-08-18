@@ -89,9 +89,13 @@ export function useComposerHistory(input: {
     input.text.setValue(value);
     input.saveCurrentDraft(value);
   });
-  useEffect(() => {
-    applyValueRef.current = applyValue;
-  });
+  // Assigned during render, not from an effect. `notifyListeners` runs
+  // synchronously inside a write, so a write landing between a render and its
+  // effect flush would have read the previous render's closure — the very
+  // window the ref exists to close. Safe to write here because the ref is only
+  // ever read from a subscription callback, never during render, so a
+  // discarded render cannot be observed through it.
+  applyValueRef.current = applyValue;
 
   useEffect(() => subscribeGlobalInputHistory(() => {
     // Through `reconcileHistorySync`, not a bare `entries` swap: the whole
