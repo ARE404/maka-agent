@@ -16,11 +16,10 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Grid, HStack, SelectableCard, Text, VStack } from '@astryxdesign/core';
 import { SettingsPage, SettingsSection } from './settings-section';
-import type { ThemePalette, ThemePreference, UpdateAppSettingsResult } from '@maka/core/settings';
+import type { AppIcon, ThemePalette, ThemePreference, UpdateAppSettingsResult } from '@maka/core/settings';
 import { useMountedRef, useToast, useUiLocale } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { getSettingsPreferencesCopy } from '../locales/settings-preferences-copy.js';
@@ -89,12 +88,14 @@ const PALETTE_GROUPS: ReadonlyArray<{ id: 'editor' | 'product'; palettes: Readon
 // screen reader 14 loose option tiles with no statement of which set — 主题,
 // 编辑器主题, or 产品色调 — any one of them belongs to.
 const THEME_SECTION_HEADING_ID = 'settings-appearance-theme-heading';
+const APP_ICON_SECTION_HEADING_ID = 'settings-appearance-app-icon-heading';
 const PALETTE_SECTION_HEADING_ID = 'settings-appearance-palette-heading';
 const paletteGroupLabelId = (group: 'editor' | 'product') => `settings-appearance-palette-${group}-label`;
 
 export function AppearanceSettingsPage(props: {
   themePref: ThemePreference;
   themePalette: ThemePalette;
+  appIcon: AppIcon;
   /* No `settings` prop: the page reads theme and palette from the two
      dedicated props above and writes through `onUpdate`. It used to accept
      the whole AppSettings object and pass it down one level, where nothing
@@ -109,6 +110,29 @@ export function AppearanceSettingsPage(props: {
   const toast = useToast();
   const themePageMountedRef = useMountedRef();
   const themePersistTicketRef = useRef(0);
+  // The picker draws real artwork, so the option set arrives from the main
+  // process (ids plus thumbnails) rather than from a list held here: the icons
+  // are 1024px masters that only main can read, and the renderer is never
+  // handed a path. `undefined` is "still asking", not "none shipped".
+  const [appIconOptions, setAppIconOptions] = useState<
+    ReadonlyArray<{ id: AppIcon; dataUrl: string }> | undefined
+  >(undefined);
+  const [appIconLoadFailed, setAppIconLoadFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.maka.app
+      .iconPreviews()
+      .then((options) => {
+        if (!cancelled) setAppIconOptions(options);
+      })
+      .catch(() => {
+        if (!cancelled) setAppIconLoadFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -142,6 +166,14 @@ export function AppearanceSettingsPage(props: {
   // the IPC round-trip would re-apply on its own, but main.tsx had no
   // listener for palette changes — only ran applyThemePalette once at
   // mount — so switches were invisible until the next app start.
+  // No optimistic local copy, unlike theme and palette above: those two paint
+  // the renderer, so a click has to show immediately. The app icon is an OS
+  // surface applied by the main process, and the tile follows the settings
+  // snapshot the write returns.
+  async function setAppIcon(next: AppIcon) {
+    await persistAppearance({ appIcon: next });
+  }
+
   const currentPalette: ThemePalette = props.themePalette;
   async function setPalette(next: ThemePalette) {
     props.onThemePaletteChange(next);
@@ -245,6 +277,37 @@ export function AppearanceSettingsPage(props: {
             </Grid>
           </VStack>
         ))}
+      </SettingsSection>
+      <SettingsSection
+        variant="bare"
+        titleId={APP_ICON_SECTION_HEADING_ID}
+        title={sections.appIcon}
+        description={sections.appIconHelp}
+      >
+        {appIconLoadFailed ? (
+          <Text type="supporting" size="sm" color="secondary">{copy.appIconUnavailable}</Text>
+        ) : (
+          <Grid columns={{ minWidth: 180 }} gap={2} role="group" aria-labelledby={APP_ICON_SECTION_HEADING_ID}>
+            {(appIconOptions ?? []).map((option) => (
+              <SelectableCard
+                key={option.id}
+                label={copy.appIconLabels[option.id]}
+                isSelected={props.appIcon === option.id}
+                onChange={() => void setAppIcon(option.id)}
+                padding={2}
+              >
+                <HStack gap={2} align="center">
+                  {/* Decorative: the tile's own label already names the icon. */}
+                  <img className="settingsAppIconPreview" src={option.dataUrl} alt="" width={48} height={48} />
+                  <VStack gap={0.5}>
+                    <Text type="label" size="sm">{copy.appIconLabels[option.id]}</Text>
+                    <Text type="supporting" size="sm" color="secondary">{copy.appIconHelp[option.id]}</Text>
+                  </VStack>
+                </HStack>
+              </SelectableCard>
+            ))}
+          </Grid>
+        )}
       </SettingsSection>
       <CustomPetSettingsSection />
     </SettingsPage>

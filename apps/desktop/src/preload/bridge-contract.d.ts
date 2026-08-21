@@ -27,6 +27,7 @@ import type {
   UpdateConnectionInput,
 } from '@maka/core/llm-connections';
 import type {
+  AppIcon,
   AppSettings,
   ChatDefaultsSettings,
   SettingsTestResult,
@@ -1155,6 +1156,8 @@ export interface MakaBridge {
   };
   app: {
     info(host?: DesktopRuntimeHostRef): Promise<DesktopAppInfo>;
+    /** The shipped app icons, each with a thumbnail for the Settings picker. */
+    iconPreviews(): Promise<ReadonlyArray<{ id: AppIcon; dataUrl: string }>>;
     subscribeUpdateStatus(handler: (status: AppUpdateStatus) => void): () => void;
     updateStatus(): Promise<AppUpdateStatus>;
     checkForUpdates(): Promise<AppUpdateStatus>;

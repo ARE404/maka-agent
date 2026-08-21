@@ -79,6 +79,7 @@ import { assembleDesktopNativeCapabilities } from "./desktop-native-capability-a
 import { clientSettingsConfirmation } from "./client-settings-confirmation-copy.js";
 import { createDesktopLocaleAuthority } from "./desktop-locale-authority.js";
 import { buildRiveWorkflowTool } from "./rive-workflow-tool.js";
+import { applyAppIcon } from "./app-icon-surface.js";
 import { installDesktopShellPresentation } from "./desktop-shell-presentation.js";
 import {
   resolveE2eFixture,
@@ -542,6 +543,11 @@ const clientSettingsEffects = createClientSettingsEffects({
   applyBotSettings: useBotOnboardingFixture
     ? async () => undefined
     : (settings) => botRegistry.applySettings(settings),
+  applyAppIcon: async (icon) => {
+    applyAppIcon(icon, (error) =>
+      console.error("[icon] failed to apply the app icon:", error),
+    );
+  },
   observeLocale: (settings) => desktopLocale.observe(settings),
   emitExternalChanged: () => {
     mainWindowController.send("settings:clientChanged");

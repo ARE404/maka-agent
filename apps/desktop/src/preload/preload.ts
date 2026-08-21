@@ -85,6 +85,7 @@ import type {
   UpdateConnectionInput,
 } from '@maka/core/llm-connections';
 import type {
+  AppIcon,
   AppSettings,
   SettingsTestResult,
   UpdateAppSettingsInput,
@@ -2733,6 +2734,9 @@ const makaBridge = {
   app: {
     info(host?: DesktopRuntimeHostRef): Promise<DesktopAppInfo> {
       return invokeSelectedRuntimeHost(host, 'app:info');
+    },
+    iconPreviews(): Promise<ReadonlyArray<{ id: AppIcon; dataUrl: string }>> {
+      return ipcRenderer.invoke('app:iconPreviews');
     },
     subscribeUpdateStatus(handler: (status: AppUpdateStatus) => void): () => void {
       const listener = (_event: Electron.IpcRendererEvent, status: AppUpdateStatus) => handler(status);

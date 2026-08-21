@@ -115,3 +115,22 @@ test('a chat-default thinking level the app does not recognize drops to no prefe
   });
   expect(normalized.chatDefaults.thinkingLevel).toBe(undefined);
 });
+
+test('an app icon the build does not ship falls back without disturbing the theme', () => {
+  expect(createDefaultSettings().appearance.appIcon).toBe('default');
+
+  for (const appIcon of [undefined, 'holiday-2019', 42, null]) {
+    const normalized = normalizeSettings({
+      appearance: { theme: 'dark', palette: 'nord', appIcon } as never,
+    });
+    expect(normalized.appearance.appIcon).toBe('default');
+    // The fallback is scoped to the field that failed the guard: a stray icon
+    // id must not silently reset the theme the user is actually looking at.
+    expect(normalized.appearance.theme).toBe('dark');
+    expect(normalized.appearance.palette).toBe('nord');
+  }
+
+  expect(
+    normalizeSettings({ appearance: { theme: 'auto', appIcon: 'mono' } }).appearance.appIcon,
+  ).toBe('mono');
+});

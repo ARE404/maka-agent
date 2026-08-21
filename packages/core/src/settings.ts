@@ -149,10 +149,30 @@ export function isThemePalette(value: unknown): value is ThemePalette {
   return typeof value === 'string' && (THEME_PALETTES as readonly string[]).includes(value);
 }
 
+/**
+ * Which artwork the OS shows for Maka: the dock tile on macOS, the window
+ * and taskbar icon on Windows/Linux. Every id maps to one PNG shipped with
+ * the desktop app (see `resolveAppIconPath` in apps/desktop); `default` is
+ * the brand mark in `apps/desktop/assets/icon.png`.
+ *
+ * A closed enum rather than a path: the renderer never names a file, so a
+ * settings file edited by hand can only ever select artwork that ships with
+ * the build.
+ */
+export const APP_ICONS = ['default', 'mono'] as const;
+
+export type AppIcon = (typeof APP_ICONS)[number];
+
+export function isAppIcon(value: unknown): value is AppIcon {
+  return typeof value === 'string' && (APP_ICONS as readonly string[]).includes(value);
+}
+
 export interface AppearanceSettings {
   theme: ThemePreference;
   /** Optional palette override; missing values normalize to `default`. */
   palette?: ThemePalette;
+  /** Optional app-icon override; missing values normalize to `default`. */
+  appIcon?: AppIcon;
 }
 
 export interface PersonalizationSettings {
@@ -436,6 +456,7 @@ export function createDefaultSettings(): AppSettings {
     appearance: {
       theme: 'auto',
       palette: 'default',
+      appIcon: 'default',
     },
     personalization: {
       displayName: '',
@@ -604,6 +625,10 @@ export function normalizeSettings(input: unknown): AppSettings {
     appearance: {
       ...appearanceWithoutLegacyFields,
       palette: isThemePalette(base.appearance.palette) ? base.appearance.palette : 'default',
+      // Same fail-closed rule as `palette` above, for the same reason: an
+      // unknown id would otherwise reach the main process and resolve to a
+      // PNG path that does not exist, leaving the dock with a blank tile.
+      appIcon: isAppIcon(base.appearance.appIcon) ? base.appearance.appIcon : 'default',
     },
     // PR-LANG-PREF-0: closed-enum fail-closed for the new
     // `personalization.uiLocale` preference. mergeSettings spreads

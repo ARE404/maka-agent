@@ -16,8 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-
-import type { ThemePalette, ThemePreference } from '@maka/core/settings';
+import type { AppIcon, ThemePalette, ThemePreference } from '@maka/core/settings';
 
 import type { UiCatalog, UiLocale, UiLocalePreference } from '@maka/core/ui-locale';
 
@@ -60,6 +59,8 @@ export type SettingsPreferencesCopy = {
     themeHelp: string;
     palette: string;
     paletteHelp: string;
+    appIcon: string;
+    appIconHelp: string;
     pets: string;
     petsHelp: string;
   };
@@ -71,6 +72,9 @@ export type SettingsPreferencesCopy = {
     paletteLabels: Record<ThemePalette, string>;
     paletteHelp: Record<ThemePalette, string>;
     paletteGroups: { editor: string; product: string };
+    appIconLabels: Record<AppIcon, string>;
+    appIconHelp: Record<AppIcon, string>;
+    appIconUnavailable: string;
   };
   pets: {
     import: string;
@@ -231,6 +235,7 @@ const SETTINGS_PREFERENCES_COPY_BY_LOCALE = {
       network: '网络', networkHelp: 'AI 模型请求走的网络通道。',
       theme: '主题', themeHelp: '界面跟随系统，还是固定浅色或深色。',
       palette: '调色板', paletteHelp: '强调色与画布色调；切换会立即生效并保存在本地。',
+      appIcon: '应用图标', appIconHelp: 'Dock、任务栏和切换器里显示的 Maka 图标；切换会立即生效。',
       pets: '自定义宠物', petsHelp: '管理你自己导入的 PetPack。Maka 不预装、也不默认启用任何宠物。',
     },
     appearance: {
@@ -239,6 +244,9 @@ const SETTINGS_PREFERENCES_COPY_BY_LOCALE = {
       paletteLabels: { default: '默认', onedark: 'One Dark', 'catppuccin-mocha': 'Catppuccin Mocha', 'tokyo-night': 'Tokyo Night', nord: 'Nord', coral: '珊瑚', azure: '湖蓝', forest: '森林', dusk: '暮光', sand: '沙金', mono: '极简灰' },
       paletteHelp: { default: 'Maka 品牌蓝强调色', onedark: '编辑器经典深色', 'catppuccin-mocha': '紫调柔和深色', 'tokyo-night': '深蓝主题', nord: '北欧冷色', coral: '暖粉 / 珊瑚强调色', azure: '湖蓝强调色，干净冷静', forest: '深苔绿与暖蜂蜜强调色', dusk: '深紫罗兰与冷调画布', sand: '琥珀沙金与暖奶白', mono: '纯灰阶，无彩色干扰' },
       paletteGroups: { editor: '编辑器主题', product: '产品色调' },
+      appIconLabels: { default: '经典', mono: '单色' },
+      appIconHelp: { default: 'Maka 默认品牌图标', mono: '灰阶版本，Dock 里更安静' },
+      appIconUnavailable: '无法载入应用图标',
     },
     pets: {
       import: '导入 PetPack', importing: '正在导入…', loading: '正在载入自定义宠物…',
@@ -287,10 +295,11 @@ const SETTINGS_PREFERENCES_COPY_BY_LOCALE = {
       network: 'Network', networkHelp: 'The network path AI model requests take.',
       theme: 'Theme', themeHelp: 'Follow the system appearance, or stay on light or dark.',
       palette: 'Color palette', paletteHelp: 'Accent and canvas colors. Changes apply immediately and are saved locally.',
+      appIcon: 'App icon', appIconHelp: 'The Maka icon shown in the dock, taskbar, and app switcher. Changes apply immediately.',
       pets: 'Custom pets', petsHelp: 'Manage PetPacks you import yourself. Maka does not bundle or enable any pet by default.',
     },
     appearance: {
-      saveFailed: 'Could not save appearance settings', theme: 'Theme', palette: 'Color palette', themeOptions: { light: { label: 'Light', help: 'Always use the light interface.' }, dark: { label: 'Dark', help: 'Always use the dark interface.' }, auto: { label: 'Follow system', help: 'Match the current system appearance.' } }, paletteLabels: { default: 'Default', onedark: 'One Dark', 'catppuccin-mocha': 'Catppuccin Mocha', 'tokyo-night': 'Tokyo Night', nord: 'Nord', coral: 'Coral', azure: 'Azure', forest: 'Forest', dusk: 'Dusk', sand: 'Sand', mono: 'Monochrome' }, paletteHelp: { default: 'Maka brand-blue accent', onedark: 'Classic dark editor theme', 'catppuccin-mocha': 'Soft purple dark theme', 'tokyo-night': 'Deep-blue editor theme', nord: 'Cool Nordic colors', coral: 'Warm pink and coral accent', azure: 'Clean, calm blue accent', forest: 'Deep moss and warm honey', dusk: 'Deep violet on a cool canvas', sand: 'Amber sand and warm ivory', mono: 'Pure grayscale without color distraction' }, paletteGroups: { editor: 'Editor themes', product: 'Product colors' },
+      saveFailed: 'Could not save appearance settings', theme: 'Theme', palette: 'Color palette', themeOptions: { light: { label: 'Light', help: 'Always use the light interface.' }, dark: { label: 'Dark', help: 'Always use the dark interface.' }, auto: { label: 'Follow system', help: 'Match the current system appearance.' } }, paletteLabels: { default: 'Default', onedark: 'One Dark', 'catppuccin-mocha': 'Catppuccin Mocha', 'tokyo-night': 'Tokyo Night', nord: 'Nord', coral: 'Coral', azure: 'Azure', forest: 'Forest', dusk: 'Dusk', sand: 'Sand', mono: 'Monochrome' }, paletteHelp: { default: 'Maka brand-blue accent', onedark: 'Classic dark editor theme', 'catppuccin-mocha': 'Soft purple dark theme', 'tokyo-night': 'Deep-blue editor theme', nord: 'Cool Nordic colors', coral: 'Warm pink and coral accent', azure: 'Clean, calm blue accent', forest: 'Deep moss and warm honey', dusk: 'Deep violet on a cool canvas', sand: 'Amber sand and warm ivory', mono: 'Pure grayscale without color distraction' }, paletteGroups: { editor: 'Editor themes', product: 'Product colors' }, appIconLabels: { default: 'Classic', mono: 'Monochrome' }, appIconHelp: { default: 'The default Maka mark', mono: 'Grayscale, for a quieter dock' }, appIconUnavailable: 'Could not load the app icons',
     },
     pets: {
       import: 'Import PetPack', importing: 'Importing…', loading: 'Loading custom pets…',
