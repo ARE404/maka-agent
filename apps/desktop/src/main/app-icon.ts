@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import type { AppIcon } from '@maka/core/settings';
+import type { AppIcon, AppIconChoice } from '@maka/core/settings';
 
 /**
  * Where one icon choice's artwork lives, relative to `apps/desktop`.
@@ -23,6 +23,6 @@ export function resolveAppIconPath(desktopRoot: string, icon: AppIcon): string {
  * a partially applied update — falls back to the brand mark rather than to
  * the OS placeholder, which on macOS is the generic Electron rocket.
  */
-export function appIconLoadOrder(icon: AppIcon): readonly AppIcon[] {
+export function appIconLoadOrder(icon: AppIconChoice): readonly AppIconChoice[] {
   return icon === 'default' ? ['default'] : [icon, 'default'];
 }

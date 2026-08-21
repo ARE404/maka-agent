@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import type { AppIcon, AppSettings } from '@maka/core/settings';
+import type { AppIconChoice, AppSettings } from '@maka/core/settings';
 import type { SettingsStore } from '@maka/storage';
 
 export interface ClientSettingsEffects {
@@ -28,7 +28,7 @@ interface ClientSettingsEffectDependencies {
   readonly settingsStore: Pick<SettingsStore, 'get'>;
   readonly applyKeepSystemAwake: (enabled: boolean) => Promise<void>;
   readonly applyBotSettings: (settings: AppSettings['botChat']) => Promise<void>;
-  readonly applyAppIcon: (icon: AppIcon) => Promise<void>;
+  readonly applyAppIcon: (icon: AppIconChoice) => Promise<void>;
   readonly observeLocale: (settings: AppSettings) => void;
   readonly emitExternalChanged: () => void;
 }
@@ -43,7 +43,7 @@ export function createClientSettingsEffects(
   // screen before the first snapshot arrives — the dock gets it synchronously
   // at startup and a new window gets it from its `icon` option — so treating
   // "default" as unapplied would cost a 1024px PNG decode on every launch.
-  let appIcon: AppIcon = 'default';
+  let appIcon: AppIconChoice = 'default';
   let tail = Promise.resolve();
 
   const schedule = (

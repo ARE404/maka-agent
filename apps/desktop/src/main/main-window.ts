@@ -22,8 +22,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { AppSettings } from '@maka/core/settings';
-import { resolveAppIconPath } from './app-icon.js';
-import { desktopAssetRoot } from './desktop-assets.js';
+import { appIconPath } from './app-icon-surface.js';
 import { isExternalUrl } from './external-link-guard.js';
 import { readSavedBounds, writeSavedBounds, SAFE_MIN_HEIGHT, SAFE_MIN_WIDTH, type SavedBounds } from './window-state.js';
 import { BrowserViewController } from './browser/controller.js';
@@ -289,15 +288,14 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // PR-GRAY-CARD-LIFT-0 (WAWQAQ msg `0eb99429` 2026-06-20): the
       // app icon ships as a 1024px PNG under apps/desktop/assets/. BrowserWindow
       // accepts a PNG path directly on macOS for the dock / window title bar;
-      // .icns / .ico packaging will come with the installer build pass.
+      // .icns / .ico packaging will come with the installer build pass. The
+      // asset path resolves from the built dist/main/main.js (two levels up to
+      // apps/desktop, then assets).
       //
       // Windows and Linux draw this icon per window, so a window opened after
       // the user switched icons must be born with the chosen one — waiting for
       // the client-settings effect to catch up would show the default first.
-      icon: resolveAppIconPath(
-        desktopAssetRoot({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath }),
-        persistedAppearance?.appIcon ?? 'default',
-      ),
+      icon: appIconPath(persistedAppearance?.appIcon ?? 'default'),
       // PR-WINDOW-TITLEBAR-0: hide the native title bar so the renderer
       // chrome can extend to the top edge on every platform. macOS keeps
       // `hiddenInset` + traffic-light buttons (top-left); Windows uses

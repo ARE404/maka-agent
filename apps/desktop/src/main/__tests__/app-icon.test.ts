@@ -42,6 +42,20 @@ test('every shipped icon id resolves to a square 1024px PNG master', async () =>
   }
 });
 
+test('a packaged build reads artwork from the copy beside the app', () => {
+  // `files` in the builder config does not carry `assets/`, so a packaged app
+  // has no repo tree to resolve against; the artwork rides along as an extra
+  // resource instead. Resolving the dev path there would hand `setIcon` an
+  // empty image and blank the dock tile without raising anything.
+  assert.equal(
+    resolveAppIconPath(
+      desktopAssetRoot({ isPackaged: true, resourcesPath: join('/Apps', 'Maka.app', 'Contents', 'Resources') }),
+      'sky',
+    ),
+    join('/Apps', 'Maka.app', 'Contents', 'Resources', 'assets', 'app-icons', 'sky.png'),
+  );
+});
+
 test('the default keeps its long-standing path while variants live in their own directory', () => {
   assert.deepEqual(appIconAssetSegments('default'), ['assets', 'icon.png']);
   assert.deepEqual(appIconAssetSegments('mono'), ['assets', 'app-icons', 'mono.png']);

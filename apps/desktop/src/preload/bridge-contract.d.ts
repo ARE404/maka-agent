@@ -28,6 +28,7 @@ import type {
 } from '@maka/core/llm-connections';
 import type {
   AppIcon,
+  AppIconChoice,
   AppSettings,
   ChatDefaultsSettings,
   SettingsTestResult,
@@ -120,6 +121,18 @@ import type { ContextDiagnosticsResult } from '@maka/runtime-host/protocol';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { ExternalSessionImportIpcResult } from './external-session-import-result.js';
 import type { DesktopSessionSummary } from '../shared/desktop-session-projection.js';
+/**
+ * Outcome of importing artwork. `cancelled` is the user closing the dialog and
+ * is not an error; the rest name why the file could not become an icon, so the
+ * picker can say which rather than showing one generic failure.
+ */
+export type AppIconImportResult =
+  | { readonly ok: true; readonly icon: AppIconChoice }
+  | {
+      readonly ok: false;
+      readonly reason: 'cancelled' | 'too_large' | 'unreadable' | 'too_small' | 'write_failed';
+    };
+
 export type { DesktopSessionSummary } from '../shared/desktop-session-projection.js';
 import type { DesktopConnectionSnapshot } from '../shared/desktop-connection-snapshot.js';
 import type { DesktopExternalSessionCatalogItem } from './external-session-catalog.js';
@@ -1156,8 +1169,18 @@ export interface MakaBridge {
   };
   app: {
     info(host?: DesktopRuntimeHostRef): Promise<DesktopAppInfo>;
-    /** The shipped app icons, each with a thumbnail for the Settings picker. */
-    iconPreviews(): Promise<ReadonlyArray<{ id: AppIcon; dataUrl: string }>>;
+    /**
+     * Every selectable icon — the shipped set plus whatever the user imported
+     * — each with a thumbnail for the Settings picker. `removable` marks the
+     * imported ones; the shipped set is not the user's to delete.
+     */
+    iconPreviews(): Promise<
+      ReadonlyArray<{ id: AppIconChoice; dataUrl: string; removable?: boolean }>
+    >;
+    /** Opens a file picker in the main process and stores a normalized copy. */
+    importIcon(): Promise<AppIconImportResult>;
+    /** Deletes imported artwork. Shipped ids are refused. */
+    removeIcon(icon: AppIconChoice): Promise<boolean>;
     subscribeUpdateStatus(handler: (status: AppUpdateStatus) => void): () => void;
     updateStatus(): Promise<AppUpdateStatus>;
     checkForUpdates(): Promise<AppUpdateStatus>;

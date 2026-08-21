@@ -1,9 +1,41 @@
 import { app, BrowserWindow, nativeImage } from 'electron';
-import { APP_ICONS, type AppIcon } from '@maka/core/settings';
+import { join } from 'node:path';
+import {
+  APP_ICONS,
+  CUSTOM_APP_ICON_PREFIX,
+  customAppIconId,
+  type AppIcon,
+  type AppIconChoice,
+} from '@maka/core/settings';
+import {
+  customAppIconDirectory,
+  listCustomAppIconIds,
+  resolveCustomAppIconPath,
+} from './custom-app-icon-store.js';
 import { appIconLoadOrder, resolveAppIconPath } from './app-icon.js';
 import { desktopAssetRoot } from './desktop-assets.js';
 
-/** Where this process reads icon artwork from — dev tree or packaged copy. */
+/**
+ * One choice's artwork path — shipped art under the asset root, imported art
+ * under the directory the app owns. Never throws: a malformed id can only come
+ * from a settings file that dodged normalization, and a window being created
+ * is no place to raise. The brand mark is the answer to every such question.
+ */
+export function appIconPath(choice: AppIconChoice): string {
+  const custom = customAppIconId(choice);
+  if (custom === undefined) return resolveAppIconPath(currentAssetRoot(), choice as AppIcon);
+  try {
+    return resolveCustomAppIconPath(app.getPath('userData'), custom);
+  } catch {
+    return resolveAppIconPath(currentAssetRoot(), 'default');
+  }
+}
+
+/**
+ * Where this process reads icon artwork from. Exported so the window `icon`
+ * option resolves the same root the dock does — one of them guessing wrong
+ * would ship a build whose windows and dock disagree.
+ */
 export function currentAssetRoot(): string {
   return desktopAssetRoot({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath });
 }
@@ -12,12 +44,14 @@ export function currentAssetRoot(): string {
 const PREVIEW_SIZE = 128;
 
 export interface AppIconPreview {
-  readonly id: AppIcon;
+  readonly id: AppIconChoice;
+  /** Imported art can be deleted; the shipped set cannot. */
+  readonly removable?: boolean;
   /** PNG data URL, sized for the Settings picker tile. */
   readonly dataUrl: string;
 }
 
-let previews: readonly AppIconPreview[] | undefined;
+let shippedPreviews: readonly AppIconPreview[] | undefined;
 
 /**
  * Point the OS at one of the shipped icons.
@@ -27,7 +61,7 @@ let previews: readonly AppIconPreview[] | undefined;
  * which is why every open window is updated: the `icon` option in
  * `createWindow` only covers windows opened *after* the choice was persisted.
  */
-export function applyAppIcon(icon: AppIcon, onIconError: (error: unknown) => void): void {
+export function applyAppIcon(icon: AppIconChoice, onIconError: (error: unknown) => void): void {
   try {
     const image = loadAppIcon(icon);
     if (!image) {
@@ -52,21 +86,39 @@ export function applyAppIcon(icon: AppIcon, onIconError: (error: unknown) => voi
  * Computed once: the artwork ships with the build and cannot change while the
  * app runs, and decoding a 1024px PNG per picker visit is pure waste.
  */
-export function listAppIconPreviews(): readonly AppIconPreview[] {
-  if (previews) return previews;
-  const built: AppIconPreview[] = [];
-  for (const id of APP_ICONS) {
-    const image = loadAppIcon(id);
-    if (!image) continue;
-    built.push({
-      id,
-      dataUrl: image
-        .resize({ width: PREVIEW_SIZE, height: PREVIEW_SIZE, quality: 'better' })
-        .toDataURL(),
+export async function listAppIconPreviews(): Promise<readonly AppIconPreview[]> {
+  if (!shippedPreviews) {
+    const built: AppIconPreview[] = [];
+    for (const id of APP_ICONS) {
+      const image = loadAppIcon(id);
+      if (image) built.push({ id, dataUrl: thumbnail(image) });
+    }
+    shippedPreviews = built;
+  }
+
+  // Imported art is read fresh: unlike the shipped set it changes while the
+  // app runs, and it is NOT loaded through the fallback chain — art that has
+  // gone missing must drop out of the picker rather than list a second copy
+  // of the brand mark under someone's imported id.
+  const imported: AppIconPreview[] = [];
+  for (const id of await listCustomAppIconIds(app.getPath('userData'))) {
+    const image = nativeImage.createFromPath(
+      join(customAppIconDirectory(app.getPath('userData')), `${id}.png`),
+    );
+    if (image.isEmpty()) continue;
+    imported.push({
+      id: `${CUSTOM_APP_ICON_PREFIX}${id}` as AppIconChoice,
+      dataUrl: thumbnail(image),
+      removable: true,
     });
   }
-  previews = built;
-  return previews;
+  return [...shippedPreviews, ...imported];
+}
+
+function thumbnail(image: Electron.NativeImage): string {
+  return image
+    .resize({ width: PREVIEW_SIZE, height: PREVIEW_SIZE, quality: 'better' })
+    .toDataURL();
 }
 
 /**
@@ -75,9 +127,9 @@ export function listAppIconPreviews(): readonly AppIconPreview[] {
  * blanks the dock tile instead of leaving the previous one alone. So emptiness
  * is the read failure, and it is what advances the fallback chain.
  */
-function loadAppIcon(icon: AppIcon): Electron.NativeImage | undefined {
+function loadAppIcon(icon: AppIconChoice): Electron.NativeImage | undefined {
   for (const candidate of appIconLoadOrder(icon)) {
-    const image = nativeImage.createFromPath(resolveAppIconPath(currentAssetRoot(), candidate));
+    const image = nativeImage.createFromPath(appIconPath(candidate));
     if (!image.isEmpty()) return image;
   }
   return undefined;

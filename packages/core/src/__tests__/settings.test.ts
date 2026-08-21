@@ -134,3 +134,18 @@ test('an app icon the build does not ship falls back without disturbing the them
     normalizeSettings({ appearance: { theme: 'auto', appIcon: 'mono' } }).appearance.appIcon,
   ).toBe('mono');
 });
+
+test('imported app icons normalize by id shape, never by path', () => {
+  const custom = `custom:${'a'.repeat(32)}`;
+  expect(
+    normalizeSettings({ appearance: { theme: 'auto', appIcon: custom } }).appearance.appIcon,
+  ).toBe(custom);
+  // Anything that is not a shipped id or a well-formed reference falls back to
+  // the brand mark: the main process turns this value into a file path, so a
+  // hand-edited settings file must not be able to name one.
+  for (const bad of ['custom:../../etc/passwd', 'custom:', 'custom:zzzz', '/tmp/evil.png']) {
+    expect(
+      normalizeSettings({ appearance: { theme: 'auto', appIcon: bad } }).appearance.appIcon,
+    ).toBe('default');
+  }
+});

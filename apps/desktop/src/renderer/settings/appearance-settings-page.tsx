@@ -17,9 +17,16 @@
  * under the License.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Grid, HStack, SelectableCard, Text, VStack } from '@astryxdesign/core';
+import { Button, Grid, HStack, SelectableCard, Text, VStack } from '@astryxdesign/core';
 import { SettingsPage, SettingsSection } from './settings-section';
-import type { AppIcon, ThemePalette, ThemePreference, UpdateAppSettingsResult } from '@maka/core/settings';
+import {
+  isAppIcon,
+  type AppIcon,
+  type AppIconChoice,
+  type ThemePalette,
+  type ThemePreference,
+  type UpdateAppSettingsResult,
+} from '@maka/core/settings';
 import { useMountedRef, useToast, useUiLocale } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { getSettingsPreferencesCopy } from '../locales/settings-preferences-copy.js';
@@ -76,6 +83,24 @@ function ThemePreviewPane(props: { mode: 'light' | 'dark' }) {
  * 产品色调. Order within each group is preserved for stable
  * keyboard navigation.
  */
+/**
+ * 19 shipped icons need grouping for the same reason 11 palettes did: an
+ * ungrouped wall gives the eye nowhere to start. The brand pair leads;
+ * everything after it is one drawing recoloured, split by what the colour is
+ * doing. Imported art is appended as its own group by the renderer, since the
+ * set is not known until the main process reads the directory.
+ */
+const APP_ICON_GROUPS: ReadonlyArray<{
+  id: 'mascot' | 'blue' | 'contrast' | 'pencil' | 'mountain';
+  icons: ReadonlyArray<AppIcon>;
+}> = [
+  { id: 'mascot', icons: ['default', 'mono'] },
+  { id: 'blue', icons: ['sky', 'cyan', 'ice', 'pale-inverted'] },
+  { id: 'contrast', icons: ['ink', 'paper', 'graphite'] },
+  { id: 'pencil', icons: ['pencil-kraft', 'pencil-sky', 'pencil-navy'] },
+  { id: 'mountain', icons: ['alpine', 'dusk', 'night', 'forest'] },
+];
+
 const PALETTE_GROUPS: ReadonlyArray<{ id: 'editor' | 'product'; palettes: ReadonlyArray<ThemePalette> }> = [
   { id: 'editor', palettes: ['default', 'onedark', 'catppuccin-mocha', 'tokyo-night', 'nord'] },
   { id: 'product', palettes: ['coral', 'azure', 'forest', 'dusk', 'sand', 'mono'] },
@@ -91,11 +116,12 @@ const THEME_SECTION_HEADING_ID = 'settings-appearance-theme-heading';
 const APP_ICON_SECTION_HEADING_ID = 'settings-appearance-app-icon-heading';
 const PALETTE_SECTION_HEADING_ID = 'settings-appearance-palette-heading';
 const paletteGroupLabelId = (group: 'editor' | 'product') => `settings-appearance-palette-${group}-label`;
+const appIconGroupLabelId = (group: string) => `settings-appearance-app-icon-${group}-label`;
 
 export function AppearanceSettingsPage(props: {
   themePref: ThemePreference;
   themePalette: ThemePalette;
-  appIcon: AppIcon;
+  appIcon: AppIconChoice;
   /* No `settings` prop: the page reads theme and palette from the two
      dedicated props above and writes through `onUpdate`. It used to accept
      the whole AppSettings object and pass it down one level, where nothing
@@ -115,9 +141,50 @@ export function AppearanceSettingsPage(props: {
   // are 1024px masters that only main can read, and the renderer is never
   // handed a path. `undefined` is "still asking", not "none shipped".
   const [appIconOptions, setAppIconOptions] = useState<
-    ReadonlyArray<{ id: AppIcon; dataUrl: string }> | undefined
+    ReadonlyArray<{ id: AppIconChoice; dataUrl: string; removable?: boolean }> | undefined
   >(undefined);
   const [appIconLoadFailed, setAppIconLoadFailed] = useState(false);
+  const [appIconBusy, setAppIconBusy] = useState(false);
+
+  async function refreshAppIcons() {
+    const options = await window.maka.app.iconPreviews().catch(() => undefined);
+    if (options) setAppIconOptions(options);
+  }
+
+  async function importAppIcon() {
+    setAppIconBusy(true);
+    try {
+      const result = await window.maka.app.importIcon();
+      if (!result.ok) {
+        // Closing the dialog is an answer, not a failure worth a toast.
+        if (result.reason !== 'cancelled') toast.error(copy.appIconImportFailed[result.reason]);
+        return;
+      }
+      await refreshAppIcons();
+      await setAppIcon(result.icon);
+    } catch (error) {
+      // Reasons above describe the *file*; landing here instead means the call
+      // itself failed — a stale preload bundle with no `importIcon` on the
+      // bridge looks exactly like this — and calling that "unreadable image"
+      // would send the user off inspecting a file that was never the problem.
+      toast.error(copy.appIconImportError, settingsActionErrorMessage(error, locale));
+    } finally {
+      setAppIconBusy(false);
+    }
+  }
+
+  async function removeAppIcon(icon: AppIconChoice) {
+    setAppIconBusy(true);
+    try {
+      await window.maka.app.removeIcon(icon);
+      // Deleting the art under the current choice would leave the dock holding
+      // a file that no longer exists, so hand it back to the brand mark first.
+      if (props.appIcon === icon) await setAppIcon('default');
+      await refreshAppIcons();
+    } finally {
+      setAppIconBusy(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -170,8 +237,38 @@ export function AppearanceSettingsPage(props: {
   // the renderer, so a click has to show immediately. The app icon is an OS
   // surface applied by the main process, and the tile follows the settings
   // snapshot the write returns.
-  async function setAppIcon(next: AppIcon) {
+  async function setAppIcon(next: AppIconChoice) {
     await persistAppearance({ appIcon: next });
+  }
+
+  // Group membership is a renderer concern: the main process reports what
+  // artwork loaded, and the grouping is how the picker chooses to read it.
+  // Anything the main process reports that no group claims — imported art —
+  // falls into the trailing group rather than disappearing.
+  const appIconGroupsToRender = (() => {
+    const byId = new Map((appIconOptions ?? []).map((option) => [option.id, option]));
+    const claimed = new Set<string>();
+    const groups = APP_ICON_GROUPS.map((group) => {
+      const options = group.icons.flatMap((id) => {
+        const option = byId.get(id);
+        if (!option) return [];
+        claimed.add(id);
+        return [option];
+      });
+      return { id: group.id, options };
+    }).filter((group) => group.options.length > 0);
+    const imported = (appIconOptions ?? []).filter((option) => !claimed.has(option.id));
+    return imported.length > 0
+      ? [...groups, { id: 'custom' as const, options: imported }]
+      : groups;
+  })();
+
+  function appIconLabel(id: AppIconChoice): string {
+    return isAppIcon(id) ? copy.appIconLabels[id] : copy.appIconCustom;
+  }
+
+  function appIconHelpText(id: AppIconChoice): string {
+    return isAppIcon(id) ? copy.appIconHelp[id] : copy.appIconCustomHelp;
   }
 
   const currentPalette: ThemePalette = props.themePalette;
@@ -287,26 +384,70 @@ export function AppearanceSettingsPage(props: {
         {appIconLoadFailed ? (
           <Text type="supporting" size="sm" color="secondary">{copy.appIconUnavailable}</Text>
         ) : (
-          <Grid columns={{ minWidth: 180 }} gap={2} role="group" aria-labelledby={APP_ICON_SECTION_HEADING_ID}>
-            {(appIconOptions ?? []).map((option) => (
-              <SelectableCard
-                key={option.id}
-                label={copy.appIconLabels[option.id]}
-                isSelected={props.appIcon === option.id}
-                onChange={() => void setAppIcon(option.id)}
-                padding={2}
-              >
-                <HStack gap={2} align="center">
-                  {/* Decorative: the tile's own label already names the icon. */}
-                  <img className="settingsAppIconPreview" src={option.dataUrl} alt="" width={48} height={48} />
-                  <VStack gap={0.5}>
-                    <Text type="label" size="sm">{copy.appIconLabels[option.id]}</Text>
-                    <Text type="supporting" size="sm" color="secondary">{copy.appIconHelp[option.id]}</Text>
-                  </VStack>
-                </HStack>
-              </SelectableCard>
+          <VStack gap={3}>
+            {appIconGroupsToRender.map((group) => (
+              <VStack key={group.id} gap={1.5}>
+                <Text
+                  id={appIconGroupLabelId(group.id)}
+                  type="label"
+                  size="sm"
+                  color="secondary"
+                  weight="medium"
+                >
+                  {copy.appIconGroups[group.id]}
+                </Text>
+                <Grid
+                  columns={{ minWidth: 180 }}
+                  gap={2}
+                  role="group"
+                  aria-labelledby={appIconGroupLabelId(group.id)}
+                >
+                  {group.options.map((option) => (
+                    <SelectableCard
+                      key={option.id}
+                      label={appIconLabel(option.id)}
+                      isSelected={props.appIcon === option.id}
+                      onChange={() => void setAppIcon(option.id)}
+                      padding={2}
+                    >
+                      <HStack gap={2} align="center">
+                        {/* Decorative: the tile's own label already names the icon. */}
+                        <img className="settingsAppIconPreview" src={option.dataUrl} alt="" width={48} height={48} />
+                        <VStack gap={0.5}>
+                          <Text type="label" size="sm">{appIconLabel(option.id)}</Text>
+                          <Text type="supporting" size="sm" color="secondary">
+                            {appIconHelpText(option.id)}
+                          </Text>
+                        </VStack>
+                        {option.removable ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            isDisabled={appIconBusy}
+                            label={copy.appIconRemove}
+                            onClick={(event) => {
+                              // The tile is a radio; deleting is not choosing it.
+                              event.stopPropagation();
+                              void removeAppIcon(option.id);
+                            }}
+                          />
+                        ) : null}
+                      </HStack>
+                    </SelectableCard>
+                  ))}
+                </Grid>
+              </VStack>
             ))}
-          </Grid>
+            <HStack gap={2} align="center">
+              <Button
+                variant="secondary"
+                isDisabled={appIconBusy}
+                label={appIconBusy ? copy.appIconImporting : copy.appIconImport}
+                onClick={() => void importAppIcon()}
+              />
+              <Text type="supporting" size="sm" color="secondary">{copy.appIconImportHelp}</Text>
+            </HStack>
+          </VStack>
         )}
       </SettingsSection>
       <CustomPetSettingsSection />
