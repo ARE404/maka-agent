@@ -179,7 +179,15 @@ export function AppearanceSettingsPage(props: {
       // The main process owns the pair: it resets the selection before the
       // file goes away, so there is no ordering for this side to get wrong.
       const result = await window.maka.app.removeIcon(icon);
-      if (!result.ok) toast.error(copy.appIconRemoveFailed);
+      if (!result.ok) {
+        toast.error(copy.appIconRemoveFailed);
+      } else if (result.selection !== props.appIcon) {
+        // The main process already moved the setting; nothing notifies this
+        // surface of a client-settings write it did not make, so persist the
+        // selection it reports to pull the snapshot back into agreement.
+        // Without this the picker keeps highlighting artwork that is gone.
+        await setAppIcon(result.selection);
+      }
       await refreshAppIcons();
     } catch (error) {
       toast.error(copy.appIconRemoveFailed, settingsActionErrorMessage(error, locale));

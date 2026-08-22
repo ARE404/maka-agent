@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import type { IpcMainInvokeEvent } from 'electron';
 import type { AppSettings, UpdateAppSettingsInput } from '@maka/core/settings';
 import { registerAppIconIpc } from '../app-icon-ipc.js';
 import { customAppIconDirectory, resolveCustomAppIconPath } from '../custom-app-icon-store.js';
@@ -10,7 +11,7 @@ import { customAppIconDirectory, resolveCustomAppIconPath } from '../custom-app-
 const ID = 'c'.repeat(32);
 const ICON = `custom:${ID}`;
 
-type Handler = (event: unknown, ...args: unknown[]) => unknown;
+type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
 async function harness(selected: string) {
   const root = await mkdtemp(join(tmpdir(), 'maka-icon-ipc-'));
@@ -22,6 +23,8 @@ async function harness(selected: string) {
   const applied: AppSettings[] = [];
 
   registerAppIconIpc({
+    // Typed, not cast: a stub that stops matching the real dependencies should
+    // fail the build rather than keep passing against a shape that is gone.
     ipcMain: { handle: (channel: string, handler: Handler) => void handlers.set(channel, handler) },
     showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
     listPreviews: async () => [],
@@ -38,12 +41,13 @@ async function harness(selected: string) {
     },
     applySettings: async (next: AppSettings) => void applied.push(next),
     userDataPath: () => root,
-  } as never);
+  });
 
   return {
     root,
     applied,
-    remove: (icon: unknown) => handlers.get('app:removeIcon')!(undefined, icon),
+    remove: (icon: unknown) =>
+      handlers.get('app:removeIcon')!(undefined as unknown as IpcMainInvokeEvent, icon),
     current: () => settings.appearance.appIcon,
   };
 }

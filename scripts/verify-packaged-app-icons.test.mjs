@@ -1,15 +1,22 @@
 import assert from 'node:assert/strict';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { APP_ICONS } from '../packages/core/dist/settings.js';
 import { assertPackagedResources } from './verify-packaged-app.mjs';
 
 /**
- * The icon artwork is read at runtime, and Electron reports a missing file as
- * an EMPTY image rather than an error — a packaging change that dropped it
- * would ship a blank dock tile with nothing failing. So the packaged-resource
- * check has to name it, and this proves the check would notice.
+ * Artwork is read at runtime, and Electron reports a missing file as an EMPTY
+ * image rather than an error — a packaging change that dropped it would ship a
+ * blank dock tile with nothing failing. So the packaged-resource check has to
+ * name every icon, and these prove it would notice.
+ *
+ * Nothing here imports build output: this file and the verifier it covers must
+ * load in a clean checkout, which is exactly what `check:release` gives them.
+ * That the shipped catalog matches the ids the app offers is the desktop
+ * suite's job, where `APP_ICONS` is walked against the same directory.
  */
+const ART_DIRECTORY = new URL('../apps/desktop/assets/app-icons/', import.meta.url);
+
 function recorder(missing = new Set()) {
   const asked = [];
   return {
@@ -24,21 +31,25 @@ function recorder(missing = new Set()) {
   };
 }
 
-test('every shipped icon is required in a packaged build', async () => {
+test('every shipped icon file is required in a packaged build', async () => {
+  const artwork = (await readdir(ART_DIRECTORY)).filter((name) => name.endsWith('.png'));
+  assert.ok(artwork.length > 0, 'the picker ships artwork; this fixture is not optional');
+
   const probe = recorder();
   await assertPackagedResources('/Resources', probe);
 
   assert.ok(probe.asked.includes(join('/Resources', 'assets', 'icon.png')));
-  for (const icon of APP_ICONS.filter((id) => id !== 'default')) {
+  for (const name of artwork) {
     assert.ok(
-      probe.asked.includes(join('/Resources', 'assets', 'app-icons', `${icon}.png`)),
-      `${icon} is selectable but not required in the package`,
+      probe.asked.includes(join('/Resources', 'assets', 'app-icons', name)),
+      `${name} ships in the repo but is not required in the package`,
     );
   }
 });
 
 test('a package that dropped the artwork fails the check', async () => {
-  for (const dropped of ['assets/icon.png', join('assets', 'app-icons', 'sky.png')]) {
+  const [first] = (await readdir(ART_DIRECTORY)).filter((name) => name.endsWith('.png'));
+  for (const dropped of [join('assets', 'icon.png'), join('assets', 'app-icons', first)]) {
     await assert.rejects(
       assertPackagedResources('/Resources', recorder(new Set([dropped]))),
       /missing/,

@@ -43,13 +43,18 @@ export async function importCustomAppIcon(input: {
   const source = nativeImage.createFromBuffer(bytes);
   if (source.isEmpty()) throw new CustomAppIconError('unreadable', 'no decodable image');
 
-  const edge = Math.min(width, height);
+  // Geometry comes from the DECODED image, not from the header. The header
+  // says what the file declares; a JPEG carrying an EXIF orientation comes out
+  // of the decoder rotated, and cropping it to the pre-rotation rectangle
+  // would frame the wrong part of the picture or fall outside it entirely.
+  const decoded = source.getSize();
+  const edge = Math.min(decoded.width, decoded.height);
   const squared =
-    width === height
+    decoded.width === decoded.height
       ? source
       : source.crop({
-          x: Math.round((width - edge) / 2),
-          y: Math.round((height - edge) / 2),
+          x: Math.round((decoded.width - edge) / 2),
+          y: Math.round((decoded.height - edge) / 2),
           width: edge,
           height: edge,
         });
@@ -68,21 +73,36 @@ export async function importCustomAppIcon(input: {
   return `${CUSTOM_APP_ICON_PREFIX}${id}` as CustomAppIcon;
 }
 
+/** Chunk size for the snapshot read — big enough to be few syscalls, small
+ *  enough that a 20 KB icon does not cost the whole cap up front. */
+const READ_CHUNK_BYTES = 64 * 1024;
+
 /**
- * One read, one byte cap. Reading a byte past the cap is how oversize is
- * detected — asking the filesystem for the size first and trusting it is the
- * check that a swapped path defeats.
+ * One open handle, read to the end, capped as it goes.
+ *
+ * Reading through a single handle is what removes the swap window: the bytes
+ * are a snapshot of one file, not of whatever the path pointed at each time.
+ * The loop is not optional — `read()` is one syscall and may return fewer
+ * bytes than asked for, and a truncated buffer would sail past the header
+ * check and then fail to decode, reported as an unreadable image.
  */
 async function readCapped(path: string): Promise<Buffer> {
   const file = await open(path, 'r').catch(() => undefined);
   if (!file) throw new CustomAppIconError('unreadable', 'not a readable file');
   try {
-    const buffer = Buffer.alloc(CUSTOM_ICON_MAX_INPUT_BYTES + 1);
-    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
-    if (bytesRead > CUSTOM_ICON_MAX_INPUT_BYTES) {
-      throw new CustomAppIconError('too_large', `over ${CUSTOM_ICON_MAX_INPUT_BYTES} bytes`);
+    const chunks: Buffer[] = [];
+    const chunk = Buffer.allocUnsafe(READ_CHUNK_BYTES);
+    let total = 0;
+    for (;;) {
+      const { bytesRead } = await file.read(chunk, 0, chunk.length, total);
+      if (bytesRead === 0) break;
+      total += bytesRead;
+      if (total > CUSTOM_ICON_MAX_INPUT_BYTES) {
+        throw new CustomAppIconError('too_large', `over ${CUSTOM_ICON_MAX_INPUT_BYTES} bytes`);
+      }
+      chunks.push(Buffer.from(chunk.subarray(0, bytesRead)));
     }
-    return buffer.subarray(0, bytesRead);
+    return Buffer.concat(chunks, total);
   } finally {
     await file.close();
   }

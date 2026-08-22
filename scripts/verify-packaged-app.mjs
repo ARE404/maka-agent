@@ -24,7 +24,6 @@ import { access, mkdir, readFile, readdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { join, resolve, sep } from 'node:path';
-import { APP_ICONS } from '../packages/core/dist/settings.js';
 import {
   ASSET_LICENSED_RENDERER_PACKAGES,
   collectProductionClosure,
@@ -719,6 +718,16 @@ export async function assertPackagedDependencyClosure(
   }
 }
 
+/** Icon files the app ships, named by the artwork that exists in the repo. */
+async function packagedIconCatalog() {
+  const directory = new URL('../apps/desktop/assets/app-icons/', import.meta.url);
+  const entries = await readdir(directory).catch(() => []);
+  return entries
+    .filter((name) => name.endsWith('.png'))
+    .sort()
+    .map((name) => join('assets', 'app-icons', name));
+}
+
 export async function assertPackagedResources(
   resourcesPath,
   {
@@ -762,10 +771,15 @@ export async function assertPackagedResources(
     // The app icon and the picker's catalog are read at runtime, and Electron
     // reports a missing file as an empty image rather than an error — a
     // packaging change that drops them would ship a blank dock tile silently.
+    //
+    // The list comes from the artwork directory rather than from `APP_ICONS`,
+    // because that enum only exists as build output: importing it would make
+    // this verifier — and its test — unable to even load before a compile.
+    // The other half of the chain is already covered where it belongs, by the
+    // desktop test that walks `APP_ICONS` and requires a 1024px master for
+    // every id.
     join('assets', 'icon.png'),
-    ...APP_ICONS.filter((icon) => icon !== 'default').map((icon) =>
-      join('assets', 'app-icons', `${icon}.png`),
-    ),
+    ...(await packagedIconCatalog()),
     join('licenses', 'maka', 'LICENSE'),
     join('licenses', 'maka', 'NOTICE'),
     ...(requireDisclaimer ? [join('licenses', 'maka', 'DISCLAIMER-WIP')] : []),
