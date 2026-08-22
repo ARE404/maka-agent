@@ -8,6 +8,12 @@ export const CUSTOM_ICON_EDGE = 1024;
 /** Below this the art has nothing to say at 1024 and reads as a mistake. */
 export const CUSTOM_ICON_MIN_EDGE = 128;
 
+/**
+ * Above this the source is not an icon, and decoding it would allocate a
+ * bitmap far past anything the 1024 target needs — 4096² is already 67 MB.
+ */
+export const CUSTOM_ICON_MAX_EDGE = 4096;
+
 /** A decode cap, not a quality bar: 16 MB is far past any real icon. */
 export const CUSTOM_ICON_MAX_INPUT_BYTES = 16 * 1024 * 1024;
 
@@ -16,6 +22,8 @@ const ID_PATTERN = /^[0-9a-f]{32}$/;
 export type CustomAppIconImportReason =
   | 'cancelled'
   | 'too_large'
+  | 'too_many_pixels'
+  | 'unsupported_format'
   | 'unreadable'
   | 'too_small'
   | 'write_failed';

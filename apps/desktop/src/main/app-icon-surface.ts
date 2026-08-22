@@ -13,7 +13,7 @@ import {
   listCustomAppIconIds,
   resolveCustomAppIconPath,
 } from './custom-app-icon-store.js';
-import { appIconLoadOrder, resolveAppIconPath } from './app-icon.js';
+import { appIconLoadOrder, pickReadableAppIconPath, resolveAppIconPath } from './app-icon.js';
 import { desktopAssetRoot } from './desktop-assets.js';
 
 /**
@@ -34,6 +34,19 @@ export function appIconPath(value: unknown): string {
   } catch {
     return resolveAppIconPath(currentAssetRoot(), 'default');
   }
+}
+
+/**
+ * The path a window should be born with: the same fallback `applyAppIcon`
+ * walks, so a window created after the artwork went missing gets the brand
+ * mark rather than a path that decodes to nothing.
+ */
+export function readableAppIconPath(value: unknown): string {
+  return pickReadableAppIconPath(
+    toAppIconChoice(value),
+    appIconPath,
+    (path) => !nativeImage.createFromPath(path).isEmpty(),
+  );
 }
 
 /**

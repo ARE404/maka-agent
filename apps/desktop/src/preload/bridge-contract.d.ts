@@ -134,7 +134,14 @@ export type AppIconImportResult =
   | { readonly ok: true; readonly icon: AppIconChoice }
   | {
       readonly ok: false;
-      readonly reason: 'cancelled' | 'too_large' | 'unreadable' | 'too_small' | 'write_failed';
+      readonly reason:
+        | 'cancelled'
+        | 'too_large'
+        | 'too_many_pixels'
+        | 'unsupported_format'
+        | 'unreadable'
+        | 'too_small'
+        | 'write_failed';
     };
 
 export type { DesktopSessionSummary } from '../shared/desktop-session-projection.js';

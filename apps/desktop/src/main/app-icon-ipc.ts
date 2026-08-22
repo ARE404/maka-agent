@@ -63,7 +63,10 @@ export function registerAppIconIpc(input: {
   input.ipcMain.handle('app:importIcon', async (): Promise<AppIconImportResult> => {
     const picked = await input.showOpenDialog({
       properties: ['openFile'],
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'tiff', 'webp'] }],
+      // Only what `nativeImage` guarantees on every platform. Offering TIFF
+      // or WebP would let a Windows or Linux user pick a file that then fails
+      // to decode, with the dialog having implied otherwise.
+      filters: [{ name: 'PNG and JPEG', extensions: ['png', 'jpg', 'jpeg'] }],
     });
     const sourcePath = picked.canceled ? undefined : picked.filePaths[0];
     if (!sourcePath) return { ok: false, reason: 'cancelled' };

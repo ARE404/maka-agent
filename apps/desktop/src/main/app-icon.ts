@@ -26,3 +26,24 @@ export function resolveAppIconPath(desktopRoot: string, icon: AppIcon): string {
 export function appIconLoadOrder(icon: AppIconChoice): readonly AppIconChoice[] {
   return icon === 'default' ? ['default'] : [icon, 'default'];
 }
+
+/**
+ * First path in the fallback order whose artwork actually reads.
+ *
+ * A path being well-formed says nothing about the file existing: a persisted
+ * custom id whose file was deleted resolves to a perfectly valid path that
+ * decodes to nothing. Windows and Linux hand that path straight to a new
+ * window, so window creation has to walk the same fallback the dock does
+ * instead of trusting the first candidate.
+ */
+export function pickReadableAppIconPath(
+  icon: AppIconChoice,
+  toPath: (choice: AppIconChoice) => string,
+  isReadable: (path: string) => boolean,
+): string {
+  for (const candidate of appIconLoadOrder(icon)) {
+    const path = toPath(candidate);
+    if (isReadable(path)) return path;
+  }
+  return toPath('default');
+}

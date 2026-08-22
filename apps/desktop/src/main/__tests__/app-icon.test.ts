@@ -6,9 +6,10 @@ import { APP_ICONS } from '@maka/core/settings';
 import {
   appIconAssetSegments,
   appIconLoadOrder,
+  pickReadableAppIconPath,
   resolveAppIconPath,
 } from '../app-icon.js';
-import { isAppIcon, toAppIconChoice } from '@maka/core/settings';
+import { isAppIcon, toAppIconChoice, type AppIconChoice } from '@maka/core/settings';
 import { desktopAssetRoot } from '../desktop-assets.js';
 
 const DEV_ROOT = desktopAssetRoot({ isPackaged: false, resourcesPath: '/not-used-in-dev' });
@@ -90,4 +91,25 @@ test('a malformed choice cannot become a path outside the asset root', () => {
     // And it lands on the brand mark rather than on some other shipped file.
     assert.equal(resolved, join(root, 'assets', 'icon.png'));
   }
+});
+
+test('a persisted custom id whose file disappeared falls back to the brand mark', () => {
+  const root = join('/app', 'Resources');
+  const gone = `custom:${'d'.repeat(32)}` as const;
+  const toPath = (choice: AppIconChoice) =>
+    choice.startsWith('custom:')
+      ? join('/user-data', 'app-icons', `${choice.slice(7)}.png`)
+      : resolveAppIconPath(root, choice as never);
+
+  // Only the brand mark reads; the imported file was deleted behind the app.
+  const resolved = pickReadableAppIconPath(gone, toPath, (path) =>
+    path === join(root, 'assets', 'icon.png'),
+  );
+  assert.equal(resolved, join(root, 'assets', 'icon.png'));
+
+  // And when it does read, the choice is honoured rather than always falling back.
+  assert.equal(
+    pickReadableAppIconPath(gone, toPath, () => true),
+    join('/user-data', 'app-icons', `${'d'.repeat(32)}.png`),
+  );
 });
