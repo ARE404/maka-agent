@@ -80,6 +80,9 @@ import { clientSettingsConfirmation } from "./client-settings-confirmation-copy.
 import { createDesktopLocaleAuthority } from "./desktop-locale-authority.js";
 import { buildRiveWorkflowTool } from "./rive-workflow-tool.js";
 import { applyAppIcon } from "./app-icon-surface.js";
+import { registerAppIconIpc } from "./app-icon-ipc.js";
+import { listAppIconPreviews } from "./app-icon-surface.js";
+import { importCustomAppIcon } from "./custom-app-icons.js";
 import { installDesktopShellPresentation } from "./desktop-shell-presentation.js";
 import {
   resolveE2eFixture,
@@ -1273,6 +1276,17 @@ function registerPersistentClientIpc(): void {
     mainWindowController,
     e2eFixture,
     updateService,
+  });
+  registerAppIconIpc({
+    ipcMain,
+    showOpenDialog: (options) => mainWindowController.showOpenDialog(options),
+    listPreviews: () => listAppIconPreviews(),
+    importArtwork: (source) => importCustomAppIcon(source),
+    userDataPath: () => app.getPath('userData'),
+    settingsStore,
+    applySettings: async (settings) => {
+      await clientSettingsEffects.apply(settings, true);
+    },
   });
   registerMarkdownSaveIpc({ ipcMain, mainWindowController });
   registerDesktopRuntimeHostProfileIpc(ipcMain, runtimeHostProfileService);

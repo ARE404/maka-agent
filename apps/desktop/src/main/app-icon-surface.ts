@@ -4,6 +4,7 @@ import {
   APP_ICONS,
   CUSTOM_APP_ICON_PREFIX,
   customAppIconId,
+  toAppIconChoice,
   type AppIcon,
   type AppIconChoice,
 } from '@maka/core/settings';
@@ -21,7 +22,11 @@ import { desktopAssetRoot } from './desktop-assets.js';
  * from a settings file that dodged normalization, and a window being created
  * is no place to raise. The brand mark is the answer to every such question.
  */
-export function appIconPath(choice: AppIconChoice): string {
+export function appIconPath(value: unknown): string {
+  // Never a bare cast: an unchecked id is a path fragment, and `../../` in one
+  // would resolve outside the directories this app owns and be handed to
+  // Electron's native decoder.
+  const choice = toAppIconChoice(value);
   const custom = customAppIconId(choice);
   if (custom === undefined) return resolveAppIconPath(currentAssetRoot(), choice as AppIcon);
   try {
@@ -61,7 +66,8 @@ let shippedPreviews: readonly AppIconPreview[] | undefined;
  * which is why every open window is updated: the `icon` option in
  * `createWindow` only covers windows opened *after* the choice was persisted.
  */
-export function applyAppIcon(icon: AppIconChoice, onIconError: (error: unknown) => void): void {
+export function applyAppIcon(value: unknown, onIconError: (error: unknown) => void): void {
+  const icon = toAppIconChoice(value);
   try {
     const image = loadAppIcon(icon);
     if (!image) {

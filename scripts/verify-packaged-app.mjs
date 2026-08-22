@@ -24,6 +24,7 @@ import { access, mkdir, readFile, readdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { join, resolve, sep } from 'node:path';
+import { APP_ICONS } from '../packages/core/dist/settings.js';
 import {
   ASSET_LICENSED_RENDERER_PACKAGES,
   collectProductionClosure,
@@ -758,6 +759,13 @@ export async function assertPackagedResources(
       : []),
     ...(requireCanonicalIcon ? [join('assets', 'icon.png')] : []),
     join('workers', 'filesystem-worker.js'),
+    // The app icon and the picker's catalog are read at runtime, and Electron
+    // reports a missing file as an empty image rather than an error — a
+    // packaging change that drops them would ship a blank dock tile silently.
+    join('assets', 'icon.png'),
+    ...APP_ICONS.filter((icon) => icon !== 'default').map((icon) =>
+      join('assets', 'app-icons', `${icon}.png`),
+    ),
     join('licenses', 'maka', 'LICENSE'),
     join('licenses', 'maka', 'NOTICE'),
     ...(requireDisclaimer ? [join('licenses', 'maka', 'DISCLAIMER-WIP')] : []),

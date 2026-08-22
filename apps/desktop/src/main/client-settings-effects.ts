@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import type { AppIconChoice, AppSettings } from '@maka/core/settings';
+import { toAppIconChoice, type AppIconChoice, type AppSettings } from '@maka/core/settings';
 import type { SettingsStore } from '@maka/storage';
 
 export interface ClientSettingsEffects {
@@ -60,7 +60,9 @@ export function createClientSettingsEffects(
       // Normalized settings always carry an id; the fallback covers a
       // snapshot handed straight to apply() by a caller that built it from a
       // partial patch rather than from a store read.
-      const nextAppIcon = settings.appearance.appIcon ?? 'default';
+      // Same reason as `appIconPath`: this snapshot did not come through
+      // `normalizeSettings`, so the value is untrusted until coerced.
+      const nextAppIcon = toAppIconChoice(settings.appearance.appIcon);
       const appIconChanged = nextAppIcon !== appIcon;
       dependencies.observeLocale(settings);
       if (keepAwakeChanged) {

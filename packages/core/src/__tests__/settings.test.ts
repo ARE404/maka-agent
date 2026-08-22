@@ -19,7 +19,12 @@
 
 import { describe, test } from 'node:test';
 import { expect } from './test-helpers.js';
-import { createDefaultSettings, mergeSettings, normalizeSettings } from '../settings.js';
+import {
+  createDefaultSettings,
+  mergeSettings,
+  normalizeSettings,
+  toAppIconChoice,
+} from '../settings.js';
 
 test('normalizes user-approved subagent presets without widening the catalog', () => {
   const normalized = normalizeSettings({
@@ -148,4 +153,23 @@ test('imported app icons normalize by id shape, never by path', () => {
       normalizeSettings({ appearance: { theme: 'auto', appIcon: bad } }).appearance.appIcon,
     ).toBe('default');
   }
+});
+
+test('an app icon that never passed normalization still coerces to the brand mark', () => {
+  // `SettingsStore.update` merges and writes without normalizing, so the
+  // object the main process acts on can carry anything a patch put there. The
+  // main process turns that value into a file path.
+  for (const escape of [
+    '../../../../tmp/owned',
+    'custom:../../etc/passwd',
+    'assets/app-icons/../../../etc/passwd',
+    '',
+    42,
+    null,
+    undefined,
+  ]) {
+    expect(toAppIconChoice(escape)).toBe('default');
+  }
+  expect(toAppIconChoice('sky')).toBe('sky');
+  expect(toAppIconChoice(`custom:${'a'.repeat(32)}`)).toBe(`custom:${'a'.repeat(32)}`);
 });

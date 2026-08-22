@@ -55,6 +55,7 @@ import type {
   DesktopSessionTracePage,
   DesktopSessionUsageSummary,
   AppIconImportResult,
+  AppIconRemoveResult,
 } from './bridge-contract.js';
 import type { ExternalSessionImportIpcResult } from './external-session-import-result.js';
 import {
@@ -2743,7 +2744,7 @@ const makaBridge = {
     importIcon(): Promise<AppIconImportResult> {
       return ipcRenderer.invoke('app:importIcon');
     },
-    removeIcon(icon: AppIconChoice): Promise<boolean> {
+    removeIcon(icon: AppIconChoice): Promise<AppIconRemoveResult> {
       return ipcRenderer.invoke('app:removeIcon', icon);
     },
     subscribeUpdateStatus(handler: (status: AppUpdateStatus) => void): () => void {

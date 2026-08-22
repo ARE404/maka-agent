@@ -60,4 +60,3 @@ export async function importCustomAppIcon(input: {
   }
   return `${CUSTOM_APP_ICON_PREFIX}${id}` as CustomAppIcon;
 }
-

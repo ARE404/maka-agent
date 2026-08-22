@@ -38,10 +38,3 @@ export function desktopAssetRoot(runtime: {
 }): string {
   return runtime.isPackaged ? runtime.resourcesPath : join(import.meta.dirname, '..', '..');
 }
-
-export function desktopAssetPath(
-  runtime: { readonly isPackaged: boolean; readonly resourcesPath: string },
-  ...segments: readonly string[]
-): string {
-  return join(desktopAssetRoot(runtime), ...segments);
-}

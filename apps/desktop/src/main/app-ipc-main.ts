@@ -21,14 +21,6 @@ import { join } from 'node:path';
 import { arch as osArch, homedir, release as osRelease } from 'node:os';
 import { app, ipcMain, shell } from 'electron';
 import { resolveOperationalStateDatabasePath } from '@maka/storage';
-import { listAppIconPreviews, type AppIconPreview } from './app-icon-surface.js';
-import { importCustomAppIcon } from './custom-app-icons.js';
-import {
-  CustomAppIconError,
-  removeCustomAppIcon,
-  type CustomAppIconImportResult,
-} from './custom-app-icon-store.js';
-import { customAppIconId, isAppIconChoice } from '@maka/core/settings';
 import { resolveProjectGitInfo } from '@maka/runtime/system-prompt/project-context';
 import type { createMainWindowController } from './main-window.js';
 import type { ProjectRootController } from './project-root-controller.js';
@@ -83,40 +75,6 @@ export function registerAppClientIpc(
   });
   targetIpc.handle('window:setTitleBarOverlayTheme', (event, theme: unknown): void => {
     mainWindowController.setTitleBarOverlayTheme(event.sender, theme);
-  });
-  // The picker asks for the whole set at once; there is no per-id request, so
-  // no id from the renderer ever reaches the filesystem.
-  targetIpc.handle('app:iconPreviews', (): Promise<readonly AppIconPreview[]> =>
-    listAppIconPreviews(),
-  );
-  // The picker hands back a choice it was given, never a path: the dialog runs
-  // here and the file it returns is the only path this ever sees.
-  targetIpc.handle('app:importIcon', async (): Promise<CustomAppIconImportResult> => {
-    const picked = await mainWindowController.showOpenDialog({
-      properties: ['openFile'],
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'tiff', 'webp'] }],
-    });
-    const sourcePath = picked.canceled ? undefined : picked.filePaths[0];
-    if (!sourcePath) return { ok: false, reason: 'cancelled' };
-    try {
-      return {
-        ok: true,
-        icon: await importCustomAppIcon({ sourcePath, userDataPath: app.getPath('userData') }),
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        reason: error instanceof CustomAppIconError ? error.reason : 'unreadable',
-      };
-    }
-  });
-  targetIpc.handle('app:removeIcon', async (_event, icon: unknown): Promise<boolean> => {
-    if (!isAppIconChoice(icon)) return false;
-    const id = customAppIconId(icon);
-    // The shipped set is not the user's to delete.
-    if (!id) return false;
-    await removeCustomAppIcon({ id, userDataPath: app.getPath('userData') });
-    return true;
   });
   targetIpc.handle('app:updateStatus', (): AppUpdateStatus => updateService.getStatus());
   targetIpc.handle('app:checkForUpdates', () => updateService.checkForUpdatesNow());

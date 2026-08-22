@@ -176,11 +176,13 @@ export function AppearanceSettingsPage(props: {
   async function removeAppIcon(icon: AppIconChoice) {
     setAppIconBusy(true);
     try {
-      await window.maka.app.removeIcon(icon);
-      // Deleting the art under the current choice would leave the dock holding
-      // a file that no longer exists, so hand it back to the brand mark first.
-      if (props.appIcon === icon) await setAppIcon('default');
+      // The main process owns the pair: it resets the selection before the
+      // file goes away, so there is no ordering for this side to get wrong.
+      const result = await window.maka.app.removeIcon(icon);
+      if (!result.ok) toast.error(copy.appIconRemoveFailed);
       await refreshAppIcons();
+    } catch (error) {
+      toast.error(copy.appIconRemoveFailed, settingsActionErrorMessage(error, locale));
     } finally {
       setAppIconBusy(false);
     }

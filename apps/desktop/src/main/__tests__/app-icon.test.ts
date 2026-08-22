@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { open } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { test } from 'node:test';
 import { APP_ICONS } from '@maka/core/settings';
 import {
@@ -8,6 +8,7 @@ import {
   appIconLoadOrder,
   resolveAppIconPath,
 } from '../app-icon.js';
+import { isAppIcon, toAppIconChoice } from '@maka/core/settings';
 import { desktopAssetRoot } from '../desktop-assets.js';
 
 const DEV_ROOT = desktopAssetRoot({ isPackaged: false, resourcesPath: '/not-used-in-dev' });
@@ -72,4 +73,21 @@ test('a variant falls back to the brand mark, and the brand mark has nothing to 
   // No self-referential retry: if the brand mark itself is unreadable there is
   // nothing left to try, and looping over it twice would only hide that.
   assert.deepEqual(appIconLoadOrder('default'), ['default']);
+});
+
+test('a malformed choice cannot become a path outside the asset root', () => {
+  const root = join('/app', 'Resources');
+  for (const escape of ['../../../../tmp/owned', 'custom:../../etc/passwd', '', 42, null]) {
+    const choice = toAppIconChoice(escape);
+    // The guard both documents the contract and narrows: nothing malformed
+    // survives as anything other than a shipped id.
+    assert.ok(isAppIcon(choice), `${String(escape)} should coerce to a shipped id`);
+    const resolved = resolveAppIconPath(root, choice);
+    assert.ok(
+      resolved.startsWith(root + sep),
+      `${String(escape)} resolved to ${resolved}, outside ${root}`,
+    );
+    // And it lands on the brand mark rather than on some other shipped file.
+    assert.equal(resolved, join(root, 'assets', 'icon.png'));
+  }
 });

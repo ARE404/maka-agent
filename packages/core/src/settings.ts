@@ -219,6 +219,19 @@ export function isAppIconChoice(value: unknown): value is AppIconChoice {
   return isAppIcon(value) || isCustomAppIcon(value);
 }
 
+/**
+ * Coerce anything to a usable choice.
+ *
+ * `normalizeSettings` runs when settings are READ from disk; an in-process
+ * update returns the merged object without passing through it, so a patch that
+ * carried an arbitrary string reaches the main process as-is. The main process
+ * turns this value into a file path, so every runtime ingress coerces here
+ * rather than trusting the declared type.
+ */
+export function toAppIconChoice(value: unknown): AppIconChoice {
+  return isAppIconChoice(value) ? value : 'default';
+}
+
 /** The bare id of an imported icon, or undefined for the shipped set. */
 export function customAppIconId(choice: AppIconChoice): string | undefined {
   return isCustomAppIcon(choice) ? choice.slice(CUSTOM_APP_ICON_PREFIX.length) : undefined;
