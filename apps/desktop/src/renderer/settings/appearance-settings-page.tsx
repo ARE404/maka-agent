@@ -243,7 +243,16 @@ export function AppearanceSettingsPage(props: {
   // surface applied by the main process, and the tile follows the settings
   // snapshot the write returns.
   async function setAppIcon(next: AppIconChoice) {
-    await persistAppearance({ appIcon: next });
+    // Not `persistAppearance`: selection goes through the icon seam so it
+    // queues behind import and removal in the main process. Writing it on the
+    // generic settings channel is what let a selection land between a removal
+    // resetting the setting and deleting the file.
+    try {
+      const result = await window.maka.app.selectIcon(next);
+      if (!result.ok) toast.error(copy.appIconSelectFailed);
+    } catch (error) {
+      toast.error(copy.appIconSelectFailed, settingsActionErrorMessage(error, locale));
+    }
   }
 
   // Group membership is a renderer concern: the main process reports what

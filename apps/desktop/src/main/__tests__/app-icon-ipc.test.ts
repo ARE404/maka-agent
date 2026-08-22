@@ -13,7 +13,7 @@ const ICON = `custom:${ID}`;
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
-async function harness(selected: string, options: { onCompareAndSet?: () => void } = {}) {
+async function harness(selected: string, options: { onCompareAndSet?: () => void; onApply?: () => void } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'maka-icon-ipc-'));
   await mkdir(customAppIconDirectory(root), { recursive: true });
   await writeFile(resolveCustomAppIconPath(root, ID), 'x');
@@ -30,6 +30,13 @@ async function harness(selected: string, options: { onCompareAndSet?: () => void
     listPreviews: async () => [],
     importArtwork: async () => 'default',
     settingsStore: {
+      update: async (patch: UpdateAppSettingsInput) => {
+        settings = {
+          ...settings,
+          appearance: { ...settings.appearance, ...patch.appearance },
+        } as AppSettings;
+        return settings;
+      },
       updateIf: async (
         predicate: (current: AppSettings) => boolean,
         patch: UpdateAppSettingsInput,
@@ -45,7 +52,10 @@ async function harness(selected: string, options: { onCompareAndSet?: () => void
         return { applied: true, settings };
       },
     },
-    applySettings: async (next: AppSettings) => void applied.push(next),
+    applySettings: async (next: AppSettings) => {
+      options.onApply?.();
+      applied.push(next);
+    },
     userDataPath: () => root,
   });
 
@@ -55,7 +65,11 @@ async function harness(selected: string, options: { onCompareAndSet?: () => void
     remove: (icon: unknown) =>
       handlers.get('app:removeIcon')!(undefined as unknown as IpcMainInvokeEvent, icon),
     current: () => settings.appearance.appIcon,
-    select: (icon: string) => {
+    select: (icon: unknown) =>
+      handlers.get('app:selectIcon')!(undefined as unknown as IpcMainInvokeEvent, icon),
+    // Stands in for whatever else reached the settings queue first; the IPC
+    // path above is the one under test.
+    forceSelect: (icon: string) => {
       settings = {
         ...settings,
         appearance: { ...settings.appearance, appIcon: icon },
@@ -111,7 +125,7 @@ test('shipped ids and malformed references are refused without touching disk', a
  */
 test('a selection landing during removal wins, and the file still goes', async () => {
   const newer = 'sky';
-  const h = await harness(ICON, { onCompareAndSet: () => h.select(newer) });
+  const h = await harness(ICON, { onCompareAndSet: () => h.forceSelect(newer) });
 
   const result = (await h.remove(ICON)) as { ok: boolean; selection?: string };
 
@@ -123,4 +137,37 @@ test('a selection landing during removal wins, and the file still goes', async (
   assert.equal(h.applied.length, 0);
   // The artwork is still deleted: it is no longer in use, which is what was asked.
   assert.deepEqual(await readdir(customAppIconDirectory(h.root)), []);
+});
+
+/**
+ * The window a compare-and-set around the settings write could not close:
+ * applying the icon yields, and a selection arriving in that gap would be left
+ * pointing at a file the removal is about to delete. Serializing the three
+ * operations removes the window rather than guarding it, so a selection issued
+ * mid-removal cannot interleave — it runs after, and is refused because the
+ * artwork it names is gone.
+ */
+test('a selection issued mid-removal cannot land between reset, apply and delete', async () => {
+  const observed: string[] = [];
+  const h = await harness(ICON, {
+    onCompareAndSet: () => observed.push('compare-and-set'),
+    onApply: () => observed.push('apply'),
+  });
+
+  const removal = h.remove(ICON);
+  // Issued without awaiting the removal: this is the interleaving attempt.
+  const selection = h.select(ICON);
+  const [removed, selected] = (await Promise.all([removal, selection])) as [
+    { ok: boolean },
+    { ok: boolean; reason?: string },
+  ];
+
+  assert.equal(removed.ok, true);
+  // It ran after the removal, not inside it, and the artwork was already gone.
+  assert.equal(selected.ok, false);
+  assert.equal(selected.reason, 'missing_artwork');
+  assert.equal(h.current(), 'default');
+  assert.deepEqual(await readdir(customAppIconDirectory(h.root)), []);
+  // Nothing ran between the reset and the delete.
+  assert.deepEqual(observed, ['compare-and-set', 'apply']);
 });

@@ -708,6 +708,10 @@ const makaBridge = {
         removable: true,
       },
     ],
+    selectIcon: async (icon: Parameters<typeof window.maka.app.selectIcon>[0]) => ({
+      ok: true as const,
+      selection: icon,
+    }),
     importIcon: async () => ({ ok: false as const, reason: 'cancelled' as const }),
     removeIcon: async () => ({ ok: true as const, selection: 'default' as const }),
     // About mounts update status + subscribe on open (Settings → 关于).

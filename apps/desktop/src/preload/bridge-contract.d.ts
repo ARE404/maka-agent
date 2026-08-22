@@ -126,6 +126,10 @@ import type { DesktopSessionSummary } from '../shared/desktop-session-projection
  * is not an error; the rest name why the file could not become an icon, so the
  * picker can say which rather than showing one generic failure.
  */
+export type AppIconSelectResult =
+  | { readonly ok: true; readonly selection: AppIconChoice }
+  | { readonly ok: false; readonly reason: 'invalid_id' | 'missing_artwork' | 'write_failed' };
+
 export type AppIconRemoveResult =
   | { readonly ok: true; readonly selection: AppIconChoice }
   | { readonly ok: false; readonly reason: 'invalid_id' | 'reset_failed' | 'remove_failed' };
@@ -1188,6 +1192,12 @@ export interface MakaBridge {
     iconPreviews(): Promise<
       ReadonlyArray<{ id: AppIconChoice; dataUrl: string; removable?: boolean }>
     >;
+    /**
+     * Persists the icon choice. Selection goes through here rather than the
+     * generic settings channel so it queues behind import and removal in the
+     * main process, and so a choice whose artwork is gone can be refused.
+     */
+    selectIcon(icon: AppIconChoice): Promise<AppIconSelectResult>;
     /** Opens a file picker in the main process and stores a normalized copy. */
     importIcon(): Promise<AppIconImportResult>;
     /**
