@@ -38,3 +38,15 @@ export function desktopAssetRoot(runtime: {
 }): string {
   return runtime.isPackaged ? runtime.resourcesPath : join(import.meta.dirname, '..', '..');
 }
+
+/**
+ * One asset's path under that root. Deleted once as unused and restored when
+ * the permission overlay became a caller — the segments belong next to the
+ * root that resolves them, not spelled out at each call site.
+ */
+export function desktopAssetPath(
+  runtime: { readonly isPackaged: boolean; readonly resourcesPath: string },
+  ...segments: readonly string[]
+): string {
+  return join(desktopAssetRoot(runtime), ...segments);
+}
