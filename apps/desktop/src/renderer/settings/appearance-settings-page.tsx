@@ -179,15 +179,10 @@ export function AppearanceSettingsPage(props: {
       // The main process owns the pair: it resets the selection before the
       // file goes away, so there is no ordering for this side to get wrong.
       const result = await window.maka.app.removeIcon(icon);
-      if (!result.ok) {
-        toast.error(copy.appIconRemoveFailed);
-      } else if (result.selection !== props.appIcon) {
-        // The main process already moved the setting; nothing notifies this
-        // surface of a client-settings write it did not make, so persist the
-        // selection it reports to pull the snapshot back into agreement.
-        // Without this the picker keeps highlighting artwork that is gone.
-        await setAppIcon(result.selection);
-      }
+      if (!result.ok) toast.error(copy.appIconRemoveFailed);
+      // No second write from here: the main process already persisted the
+      // reset, `settings:clientChanged` reloads this surface from it, and
+      // writing again could stamp a stale value over a newer choice.
       await refreshAppIcons();
     } catch (error) {
       toast.error(copy.appIconRemoveFailed, settingsActionErrorMessage(error, locale));
@@ -417,6 +412,11 @@ export function AppearanceSettingsPage(props: {
                       key={option.id}
                       label={appIconLabel(option.id)}
                       isSelected={props.appIcon === option.id}
+                      // Removal reads the current selection in the main
+                      // process before it deletes. A click landing inside that
+                      // window would persist the very icon being removed, so
+                      // the whole set is fenced, not just the remove button.
+                      isDisabled={appIconBusy}
                       onChange={() => void setAppIcon(option.id)}
                       padding={2}
                     >

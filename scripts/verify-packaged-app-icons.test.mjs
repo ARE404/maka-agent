@@ -38,7 +38,6 @@ test('every shipped icon file is required in a packaged build', async () => {
   const probe = recorder();
   await assertPackagedResources('/Resources', probe);
 
-  assert.ok(probe.asked.includes(join('/Resources', 'assets', 'icon.png')));
   for (const name of artwork) {
     assert.ok(
       probe.asked.includes(join('/Resources', 'assets', 'app-icons', name)),
@@ -47,9 +46,31 @@ test('every shipped icon file is required in a packaged build', async () => {
   }
 });
 
+/**
+ * The upgrade lifecycle verifies the PREVIOUSLY released installer, which
+ * predates `assets/` being packaged at all. Requiring the catalog there would
+ * fail an upgrade check over an artifact that was correct when it shipped, so
+ * the requirement belongs to the current contract only.
+ */
+test('a legacy baseline is not asked for artwork that postdates it', async () => {
+  const probe = recorder();
+  // The canonical icon rides its own flag, added for the same reason; a legacy
+  // baseline predates both.
+  await assertPackagedResources('/Resources', {
+    ...probe,
+    requireAppIconCatalog: false,
+    requireCanonicalIcon: false,
+  });
+
+  const assets = probe.asked.filter((path) => path.includes('assets'));
+  assert.deepEqual(assets, [], `legacy baseline asked for ${assets.join(', ')}`);
+  // It still verifies everything the old contract did carry.
+  assert.ok(probe.asked.includes(join('/Resources', 'app.asar')));
+});
+
 test('a package that dropped the artwork fails the check', async () => {
   const [first] = (await readdir(ART_DIRECTORY)).filter((name) => name.endsWith('.png'));
-  for (const dropped of [join('assets', 'icon.png'), join('assets', 'app-icons', first)]) {
+  for (const dropped of [join('assets', 'app-icons', first)]) {
     await assert.rejects(
       assertPackagedResources('/Resources', recorder(new Set([dropped]))),
       /missing/,
