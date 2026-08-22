@@ -13,7 +13,7 @@ const ICON = `custom:${ID}`;
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
-async function harness(selected: string) {
+async function harness(selected: string, options: { onCompareAndSet?: () => void } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'maka-icon-ipc-'));
   await mkdir(customAppIconDirectory(root), { recursive: true });
   await writeFile(resolveCustomAppIconPath(root, ID), 'x');
@@ -30,13 +30,19 @@ async function harness(selected: string) {
     listPreviews: async () => [],
     importArtwork: async () => 'default',
     settingsStore: {
-      get: async () => settings,
-      update: async (patch: UpdateAppSettingsInput) => {
+      updateIf: async (
+        predicate: (current: AppSettings) => boolean,
+        patch: UpdateAppSettingsInput,
+      ) => {
+        // The real store evaluates the predicate and writes on one queue. The
+        // hook stands in for whatever else reached that queue first.
+        options.onCompareAndSet?.();
+        if (!predicate(settings)) return { applied: false, settings };
         settings = {
           ...settings,
           appearance: { ...settings.appearance, ...patch.appearance },
         } as AppSettings;
-        return settings;
+        return { applied: true, settings };
       },
     },
     applySettings: async (next: AppSettings) => void applied.push(next),
@@ -49,6 +55,12 @@ async function harness(selected: string) {
     remove: (icon: unknown) =>
       handlers.get('app:removeIcon')!(undefined as unknown as IpcMainInvokeEvent, icon),
     current: () => settings.appearance.appIcon,
+    select: (icon: string) => {
+      settings = {
+        ...settings,
+        appearance: { ...settings.appearance, appIcon: icon },
+      } as AppSettings;
+    },
   };
 }
 
@@ -90,4 +102,25 @@ test('shipped ids and malformed references are refused without touching disk', a
   }
   assert.deepEqual(await readdir(customAppIconDirectory(h.root)), [`${ID}.png`]);
   assert.equal(h.current(), ICON);
+});
+
+/**
+ * The gap a busy flag cannot close: the selection can move between the read
+ * and the write, and on the far side of an IPC boundary at that. Resetting
+ * unconditionally would stamp `default` over a choice the user just made.
+ */
+test('a selection landing during removal wins, and the file still goes', async () => {
+  const newer = 'sky';
+  const h = await harness(ICON, { onCompareAndSet: () => h.select(newer) });
+
+  const result = (await h.remove(ICON)) as { ok: boolean; selection?: string };
+
+  assert.equal(result.ok, true);
+  // The newer choice is the authority, and it is what the caller is told.
+  assert.equal(result.selection, newer);
+  assert.equal(h.current(), newer);
+  // Nothing was applied, because nothing about the selection changed here.
+  assert.equal(h.applied.length, 0);
+  // The artwork is still deleted: it is no longer in use, which is what was asked.
+  assert.deepEqual(await readdir(customAppIconDirectory(h.root)), []);
 });

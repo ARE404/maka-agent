@@ -46,7 +46,7 @@ export function registerAppIconIpc(input: {
     readonly sourcePath: string;
     readonly userDataPath: string;
   }) => Promise<AppIconChoice>;
-  readonly settingsStore: Pick<SettingsStore, 'get' | 'update'>;
+  readonly settingsStore: Pick<SettingsStore, 'updateIf'>;
   readonly applySettings: (settings: AppSettings) => Promise<void>;
   readonly userDataPath: () => string;
 }): void {
@@ -92,19 +92,26 @@ export function registerAppIconIpc(input: {
       const id = customAppIconId(icon);
       if (!id) return { ok: false, reason: 'invalid_id' };
 
-      const current = await input.settingsStore.get();
-      let selection = toAppIconChoice(current.appearance.appIcon);
-      if (selection === icon) {
-        // Hand the OS back to the brand mark BEFORE the file goes away. The
-        // other order leaves a persisted choice pointing at nothing whenever
-        // this write fails.
-        try {
-          const next = await input.settingsStore.update({ appearance: { appIcon: 'default' } });
-          await input.applySettings(next);
-          selection = toAppIconChoice(next.appearance.appIcon);
-        } catch {
-          return { ok: false, reason: 'reset_failed' };
-        }
+      // Compare-and-set, not read-then-write. Between a read and an
+      // unconditional write another surface can select a different icon, and
+      // resetting anyway would stamp `default` over that newer choice. The
+      // store runs the predicate and the write on one queue, so this is the
+      // only place the pair can be made atomic — no renderer busy flag
+      // reaches across the IPC boundary to do it.
+      //
+      // When the predicate no longer holds, the newer selection stands and the
+      // file is still deleted: it is no longer the one in use, which is
+      // exactly the state the caller asked for.
+      let settings: AppSettings;
+      try {
+        const outcome = await input.settingsStore.updateIf(
+          (current) => toAppIconChoice(current.appearance.appIcon) === icon,
+          { appearance: { appIcon: 'default' } },
+        );
+        settings = outcome.settings;
+        if (outcome.applied) await input.applySettings(settings);
+      } catch {
+        return { ok: false, reason: 'reset_failed' };
       }
 
       try {
@@ -112,7 +119,7 @@ export function registerAppIconIpc(input: {
       } catch {
         return { ok: false, reason: 'remove_failed' };
       }
-      return { ok: true, selection };
+      return { ok: true, selection: toAppIconChoice(settings.appearance.appIcon) };
     },
   );
 }
