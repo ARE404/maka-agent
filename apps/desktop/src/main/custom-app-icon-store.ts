@@ -28,9 +28,6 @@ export type CustomAppIconImportReason =
   | 'too_small'
   | 'write_failed';
 
-export type CustomAppIconImportResult =
-  | { readonly ok: true; readonly icon: CustomAppIcon }
-  | { readonly ok: false; readonly reason: CustomAppIconImportReason };
 
 export class CustomAppIconError extends Error {
   readonly reason: Exclude<CustomAppIconImportReason, 'cancelled'>;
