@@ -140,17 +140,23 @@ export function registerAppIconIpc(input: {
   );
 
   // The dialog runs here and the file it returns is the only path this sees.
-  input.ipcMain.handle("app:importIcon", () =>
-    serialize(async (): Promise<AppIconImportResult> => {
-      const picked = await input.showOpenDialog({
-        properties: ["openFile"],
-        // Only what `nativeImage` guarantees on every platform. Offering TIFF
-        // or WebP would let a Windows or Linux user pick a file that then fails
-        // to decode, with the dialog having implied otherwise.
-        filters: [{ name: "PNG and JPEG", extensions: ["png", "jpg", "jpeg"] }],
-      });
-      const sourcePath = picked.canceled ? undefined : picked.filePaths[0];
-      if (!sourcePath) return { ok: false, reason: "cancelled" };
+  input.ipcMain.handle("app:importIcon", async (): Promise<AppIconImportResult> => {
+    // The dialog stays OUTSIDE the queue on purpose: it is open for as long as
+    // the user looks at it, and holding the owner for that would block select
+    // and remove in every other window while someone reads a file list. The
+    // dialog changes nothing; only the copy-into-place below does, and that is
+    // what this owner exists to order.
+    const picked = await input.showOpenDialog({
+      properties: ["openFile"],
+      // Only what `nativeImage` guarantees on every platform. Offering TIFF
+      // or WebP would let a Windows or Linux user pick a file that then fails
+      // to decode, with the dialog having implied otherwise.
+      filters: [{ name: "PNG and JPEG", extensions: ["png", "jpg", "jpeg"] }],
+    });
+    const sourcePath = picked.canceled ? undefined : picked.filePaths[0];
+    if (!sourcePath) return { ok: false, reason: "cancelled" };
+
+    return serialize(async (): Promise<AppIconImportResult> => {
       try {
         return {
           ok: true,
@@ -166,8 +172,8 @@ export function registerAppIconIpc(input: {
             error instanceof CustomAppIconError ? error.reason : "unreadable",
         };
       }
-    }),
-  );
+    });
+  });
 
   input.ipcMain.handle("app:removeIcon", (_event, icon: unknown) =>
     serialize(async (): Promise<AppIconRemoveResult> => {

@@ -32,7 +32,11 @@ const ICON = `custom:${ID}`;
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
 
-async function harness(selected: string, options: { onCompareAndSet?: () => void; onApply?: () => void } = {}) {
+async function harness(selected: string, options: {
+    onCompareAndSet?: () => void;
+    onApply?: () => void;
+    onShowOpenDialog?: () => Promise<void>;
+  } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'maka-icon-ipc-'));
   await mkdir(customAppIconDirectory(root), { recursive: true });
   await writeFile(resolveCustomAppIconPath(root, ID), 'x');
@@ -45,7 +49,10 @@ async function harness(selected: string, options: { onCompareAndSet?: () => void
     // Typed, not cast: a stub that stops matching the real dependencies should
     // fail the build rather than keep passing against a shape that is gone.
     ipcMain: { handle: (channel: string, handler: Handler) => void handlers.set(channel, handler) },
-    showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+    showOpenDialog: async () => {
+      await options.onShowOpenDialog?.();
+      return { canceled: true, filePaths: [] };
+    },
     listPreviews: async () => [],
     importArtwork: async () => 'default',
     settingsStore: {
@@ -86,6 +93,8 @@ async function harness(selected: string, options: { onCompareAndSet?: () => void
     current: () => settings.appearance.appIcon,
     select: (icon: unknown) =>
       handlers.get('app:selectIcon')!(undefined as unknown as IpcMainInvokeEvent, icon),
+    importIcon: () =>
+      handlers.get('app:importIcon')!(undefined as unknown as IpcMainInvokeEvent),
     // Stands in for whatever else reached the settings queue first; the IPC
     // path above is the one under test.
     forceSelect: (icon: string) => {
@@ -189,4 +198,26 @@ test('a selection issued mid-removal cannot land between reset, apply and delete
   assert.deepEqual(await readdir(customAppIconDirectory(h.root)), []);
   // Nothing ran between the reset and the delete.
   assert.deepEqual(observed, ['compare-and-set', 'apply']);
+});
+
+/**
+ * The dialog is user time, not work time. Holding the owner while it is open
+ * would block selection and removal in every other window on someone reading a
+ * file list, so only the copy-into-place is serialized.
+ */
+test('an open file dialog does not hold the queue', async () => {
+  let releaseDialog: () => void = () => {};
+  const dialogOpen = new Promise<void>((resolve) => {
+    releaseDialog = resolve;
+  });
+  const h = await harness('sky', { onShowOpenDialog: () => dialogOpen });
+
+  const importing = h.importIcon();
+  // The dialog is still open; a selection issued now must not wait for it.
+  const selected = (await h.select('ink')) as { ok: boolean };
+  assert.equal(selected.ok, true);
+  assert.equal(h.current(), 'ink');
+
+  releaseDialog();
+  await importing;
 });
