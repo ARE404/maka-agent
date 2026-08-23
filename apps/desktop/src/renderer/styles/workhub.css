@@ -149,6 +149,8 @@
   align-items: flex-start;
   justify-content: space-between;
   width: 100%;
+  height: auto;
+  min-height: var(--h-control-md, 32px);
   padding: 10px 0;
   gap: 16px;
   border: 0;
