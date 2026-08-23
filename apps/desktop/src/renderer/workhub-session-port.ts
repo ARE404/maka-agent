@@ -230,18 +230,19 @@ async function readWorkHubSessionMessages(
     resolveReady = resolve;
     rejectReady = reject;
   });
-  const timeout = globalThis.setTimeout(() => {
-    rejectReady?.(new Error('WorkHub Session transcript did not become ready'));
-  }, WORKHUB_TRANSCRIPT_READY_TIMEOUT_MS);
   let handle: DesktopTranscriptHandle | undefined;
+  let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
   try {
     handle = await transcripts.open(target.sessionId, (batch) => {
       store.accept(batch);
       if (batch.ready) resolveReady?.(store.snapshot().messages);
     });
+    timeout = globalThis.setTimeout(() => {
+      rejectReady?.(new Error('WorkHub Session transcript did not become ready'));
+    }, WORKHUB_TRANSCRIPT_READY_TIMEOUT_MS);
     return await ready;
   } finally {
-    globalThis.clearTimeout(timeout);
+    if (timeout !== undefined) globalThis.clearTimeout(timeout);
     await handle?.close();
   }
 }
