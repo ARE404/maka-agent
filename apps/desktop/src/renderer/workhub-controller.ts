@@ -53,8 +53,21 @@ export interface WorkHubSessionFacts {
 
 export type WorkHubSessionSummary = Omit<WorkHubSessionFacts, 'kind'>;
 
+export type WorkHubProjectedTurnState = 'running' | 'completed' | 'aborted' | 'failed';
+
+export interface WorkHubProjectedTurn {
+  messageId: string;
+  target: WorkHubSessionTarget;
+  turnId: string;
+  text: string;
+  state: WorkHubProjectedTurnState;
+  result?: string;
+  updatedAt: number;
+}
+
 export interface WorkHubProjection {
   sessions: WorkHubSessionSummary[];
+  turns: WorkHubProjectedTurn[];
 }
 
 export interface WorkHubSubmitInput {
@@ -107,6 +120,11 @@ export type WorkHubSubmission = (
 export interface WorkHubSessionPort {
   list(): Promise<WorkHubSessionFacts[]>;
   /**
+   * Rebuilds a bounded recent conversation from the authoritative Session
+   * transcripts. Missing transcripts are omitted rather than copied elsewhere.
+   */
+  recentTurns(targets: readonly WorkHubSessionTarget[]): Promise<WorkHubProjectedTurn[]>;
+  /**
    * Returns rebuildable routing evidence read from the authoritative Session
    * log. Implementations must not persist a second writable copy of it.
    */
@@ -138,11 +156,13 @@ export function createWorkHubController(deps: {
     },
     async read() {
       const facts = await deps.sessions.list();
+      const ordinary = facts
+        .filter((session) => session.kind === 'ordinary')
+        .sort((left, right) => right.updatedAt - left.updatedAt);
       return {
-        sessions: facts
-          .filter((session) => session.kind === 'ordinary')
-          .sort((left, right) => right.updatedAt - left.updatedAt)
+        sessions: ordinary
           .map(({ kind: _kind, ...session }) => session),
+        turns: await deps.sessions.recentTurns(ordinary.map((session) => session.target)),
       };
     },
     async submit(input) {

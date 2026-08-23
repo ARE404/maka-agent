@@ -19,8 +19,12 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { StoredMessage } from '@maka/core/session';
+import type { DesktopTranscriptBatch } from '../../preload/transcript-contract.js';
+import { desktopSessionKey } from '../../shared/runtime-host-identity.js';
 import {
   createDesktopWorkHubSessionPort,
+  projectWorkHubSessionTurns,
   type WorkHubDesktopSession,
 } from '../../renderer/workhub-session-port.js';
 
@@ -40,6 +44,159 @@ function desktopSession(
     ...overrides,
   };
 }
+
+const unusedTranscripts = {
+  open: async () => {
+    throw new Error('transcript is not used by this test');
+  },
+};
+
+test('projects durable Session messages into an ordered WorkHub conversation', () => {
+  const turns = projectWorkHubSessionTurns({
+    target: { sessionId: 'payment' },
+    messages: [
+      { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 10, text: '检查重复投递' },
+      {
+        type: 'assistant',
+        id: 'assistant-1',
+        turnId: 'turn-1',
+        ts: 11,
+        text: '已定位风险',
+        modelId: 'test-model',
+      },
+      { type: 'user', id: 'user-2', turnId: 'turn-1', ts: 12, text: '再补充测试点' },
+      {
+        type: 'assistant',
+        id: 'assistant-2',
+        turnId: 'turn-1',
+        ts: 13,
+        text: '已补充测试点',
+        modelId: 'test-model',
+      },
+      {
+        type: 'turn_state',
+        id: 'state-1',
+        turnId: 'turn-1',
+        ts: 14,
+        status: 'completed',
+        partialOutputRetained: true,
+      },
+    ],
+  });
+
+  assert.deepEqual(turns, [
+    {
+      messageId: 'user-1',
+      target: { sessionId: 'payment' },
+      turnId: 'turn-1',
+      text: '检查重复投递',
+      state: 'completed',
+      result: '已定位风险',
+      updatedAt: 10,
+    },
+    {
+      messageId: 'user-2',
+      target: { sessionId: 'payment' },
+      turnId: 'turn-1',
+      text: '再补充测试点',
+      state: 'completed',
+      result: '已补充测试点',
+      updatedAt: 12,
+    },
+  ]);
+});
+
+test('desktop adapter rebuilds recent turns from the Session transcript and closes the read', async () => {
+  const sessionId = desktopSessionKey({ hostId: 'local-host', sessionId: 'payment' });
+  const messages: StoredMessage[] = [
+    { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 10, text: '检查重复投递' },
+    {
+      type: 'assistant',
+      id: 'assistant-1',
+      turnId: 'turn-1',
+      ts: 11,
+      text: '已定位风险',
+      modelId: 'test-model',
+    },
+    {
+      type: 'turn_state',
+      id: 'state-1',
+      turnId: 'turn-1',
+      ts: 12,
+      status: 'completed',
+      partialOutputRetained: true,
+    },
+  ];
+  let closes = 0;
+  const adapter = createDesktopWorkHubSessionPort({
+    sessions: {
+      list: async () => [],
+      listTurns: async () => [],
+      create: async () => {
+        throw new Error('not used');
+      },
+      send: async () => {
+        throw new Error('not used');
+      },
+      stop: async () => {},
+      subscribeChanges: () => () => {},
+    },
+    transcripts: {
+      open: async (requestedSessionId, handler) => {
+        assert.equal(requestedSessionId, sessionId);
+        const fragments = messages.map((message, sequence) => {
+          const data = new TextEncoder().encode(JSON.stringify(message));
+          return {
+            source: 'durable' as const,
+            identity: sequence,
+            order: null,
+            byteOffset: 0,
+            totalBytes: data.byteLength,
+            data,
+          };
+        });
+        handler({
+          sessionId: 'payment',
+          deliverySequence: 1,
+          generation: 'generation-1',
+          hostEpoch: 'epoch-1',
+          durableThrough: 2,
+          fragments,
+          evictedDurableSequences: [],
+          completedOverlayMessageIds: [],
+          hasOlder: false,
+          hasNewer: false,
+          reset: true,
+          ready: true,
+        } satisfies DesktopTranscriptBatch);
+        return {
+          sessionId,
+          generation: 'generation-1',
+          hostEpoch: 'epoch-1',
+          readThroughMessageId: null,
+          loadBefore: async () => {},
+          loadAround: async () => {},
+          close: async () => {
+            closes += 1;
+          },
+        };
+      },
+    },
+    projectName: () => 'Maka',
+    newTurnId: () => 'unused',
+  });
+
+  assert.deepEqual(await adapter.recentTurns([{ sessionId }]), [{
+    messageId: 'user-1',
+    target: { sessionId },
+    turnId: 'turn-1',
+    text: '检查重复投递',
+    state: 'completed',
+    result: '已定位风险',
+    updatedAt: 10,
+  }]);
+  assert.equal(closes, 1);
+});
 
 test('desktop adapter projects Session catalog facts without owning copies', async () => {
   const source = [
@@ -65,6 +222,7 @@ test('desktop adapter projects Session catalog facts without owning copies', asy
     }),
   ];
   const adapter = createDesktopWorkHubSessionPort({
+    transcripts: unusedTranscripts,
     sessions: {
       list: async () => source,
       listTurns: async () => [],
@@ -126,6 +284,7 @@ test('desktop adapter delegates create, send, and invalidation to Session APIs',
   const calls: unknown[] = [];
   let onChanged: (() => void) | undefined;
   const adapter = createDesktopWorkHubSessionPort({
+    transcripts: unusedTranscripts,
     sessions: {
       list: async () => [desktopSession('created', {
         status: 'running',
@@ -175,6 +334,7 @@ test('desktop adapter delegates create, send, and invalidation to Session APIs',
 
 test('desktop adapter preserves when Session delivery steered an existing root Turn', async () => {
   const adapter = createDesktopWorkHubSessionPort({
+    transcripts: unusedTranscripts,
     sessions: {
       list: async () => [],
       listTurns: async () => [],
@@ -202,6 +362,7 @@ test('desktop adapter preserves when Session delivery steered an existing root T
 test('desktop adapter binds stop to the root Turn owned by the WorkHub submission', async () => {
   const stopped: unknown[] = [];
   const adapter = createDesktopWorkHubSessionPort({
+    transcripts: unusedTranscripts,
     sessions: {
       list: async () => [],
       listTurns: async () => [],
@@ -231,6 +392,7 @@ test('desktop adapter binds stop to the root Turn owned by the WorkHub submissio
 test('desktop adapter derives stable origin evidence from the existing Session log', async () => {
   let reads = 0;
   const adapter = createDesktopWorkHubSessionPort({
+    transcripts: unusedTranscripts,
     sessions: {
       list: async () => [],
       listTurns: async (sessionId) => {

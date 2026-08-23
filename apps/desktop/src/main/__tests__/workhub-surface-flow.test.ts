@@ -22,6 +22,7 @@ import test from 'node:test';
 import {
   WorkHubSurfaceRouteGate,
   submitWorkHubSurfaceInput,
+  visibleWorkHubProjectedTurns,
   workHubSubmissionCanCorrect,
   workHubSubmissionClearsDraft,
 } from '../../renderer/workhub-surface.js';
@@ -84,10 +85,53 @@ test('surface disables correction after a request was steered into existing work
   assert.equal(workHubSubmissionCanCorrect({ ...submission, steered: true }), false);
 });
 
+test('surface hides a rebuilt Session turn while the matching local turn is still mounted', () => {
+  assert.deepEqual(
+    visibleWorkHubProjectedTurns(
+      [{
+        messageId: 'user-0',
+        target: { sessionId: 'payment' },
+        turnId: 'turn-payment',
+        text: '检查支付回调风险',
+        state: 'running',
+        updatedAt: 9,
+      }, {
+        messageId: 'user-1',
+        target: { sessionId: 'payment' },
+        turnId: 'turn-payment',
+        text: '补充重复投递测试',
+        state: 'completed',
+        updatedAt: 10,
+      }],
+      [{
+        requestId: 'request-payment',
+        text: '补充重复投递测试',
+        state: 'settled',
+        outcome: {
+          kind: 'submitted',
+          strategyId: 'wh-r2.3-session-core-evidence',
+          requestId: 'request-payment',
+          target: { sessionId: 'payment' },
+          turnId: 'turn-payment',
+          evidence: 'explicit_target',
+        },
+      }],
+    ),
+    [{
+      messageId: 'user-0',
+      target: { sessionId: 'payment' },
+      turnId: 'turn-payment',
+      text: '检查支付回调风险',
+      state: 'running',
+      updatedAt: 9,
+    }],
+  );
+});
+
 test('surface keeps clarification and successful routing in WorkHub', async () => {
   const submissions: WorkHubSubmitInput[] = [];
   const controller: WorkHubController = {
-    read: async () => ({ sessions: [] }),
+    read: async () => ({ sessions: [], turns: [] }),
     subscribe: () => () => {},
     submit: async (input) => {
       submissions.push(input);
@@ -135,7 +179,7 @@ test('surface keeps clarification and successful routing in WorkHub', async () =
 
 test('surface leaves discussion in WorkHub instead of creating a task view', async () => {
   const controller: WorkHubController = {
-    read: async () => ({ sessions: [] }),
+    read: async () => ({ sessions: [], turns: [] }),
     subscribe: () => () => {},
     submit: async (input) => ({
       kind: 'discussion',
@@ -171,6 +215,11 @@ test('real Session projection creates new guide topics and preserves origin ambi
   ]]);
   const created: string[] = [];
   const port = createDesktopWorkHubSessionPort({
+    transcripts: {
+      open: async () => {
+        throw new Error('transcript is not used by this routing test');
+      },
+    },
     sessions: {
       list: async () => sessions,
       listTurns: async (sessionId) => (prompts.get(sessionId) ?? [])
