@@ -1168,7 +1168,7 @@ test('steering the same WorkHub-owned root preserves ownership for a later corre
       paymentSubmissions += 1;
       return paymentSubmissions === 1
         ? { turnId: 'turn-payment-root' }
-        : { turnId: 'turn-payment-root', steered: true };
+        : { turnId: 'turn-payment-steering-command', steered: true };
     }
     return { turnId: 'turn-login-' + submitted.length };
   };
@@ -1200,6 +1200,117 @@ test('steering the same WorkHub-owned root preserves ownership for a later corre
   assert.deepEqual(corrected.kind === 'submitted' ? corrected.target : undefined, {
     sessionId: 'login',
   });
+  assert.deepEqual(stopped, [['payment', 'turn-payment-root']]);
+});
+
+test('a late root completion cannot overwrite newer ownership after remount', async () => {
+  const stopped: Array<[string, string]> = [];
+  const sessions = port([
+    session('login', { sessionName: '登录稳定性', updatedAt: 20 }),
+    session('payment', { sessionName: '支付稳定性', updatedAt: 30 }),
+  ]);
+  let signalOlderStarted!: () => void;
+  const olderStarted = new Promise<void>((resolve) => {
+    signalOlderStarted = resolve;
+  });
+  let finishOlder!: (value: { turnId: string }) => void;
+  const olderTurn = new Promise<{ turnId: string }>((resolve) => {
+    finishOlder = resolve;
+  });
+  let paymentSubmissions = 0;
+  sessions.submit = async (target) => {
+    if (target.sessionId === 'payment') {
+      paymentSubmissions += 1;
+      if (paymentSubmissions === 1) {
+        signalOlderStarted();
+        return olderTurn;
+      }
+      return { turnId: 'turn-payment-new' };
+    }
+    return { turnId: 'turn-login' };
+  };
+  sessions.stop = async (target, turnId) => {
+    stopped.push([target.sessionId, turnId]);
+  };
+  const controller = createWorkHubController({ sessions });
+
+  const olderSubmission = controller.submit({
+    requestId: 'request-payment-old',
+    text: '先继续支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  });
+  await olderStarted;
+  controller.resetVisitContext();
+  await controller.submit({
+    requestId: 'request-payment-new',
+    text: '重新继续支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  });
+  finishOlder({ turnId: 'turn-payment-old' });
+  await olderSubmission;
+
+  const corrected = await controller.submit({
+    requestId: 'request-correct-after-late-root',
+    text: '不是这个工作，换成登录稳定性',
+  });
+
+  assert.deepEqual(corrected.kind === 'submitted' ? corrected.target : undefined, {
+    sessionId: 'login',
+  });
+  assert.deepEqual(stopped, [['payment', 'turn-payment-new']]);
+});
+
+test('a stopped ownership tombstone blocks an older root completion', async () => {
+  const stopped: Array<[string, string]> = [];
+  const sessions = port([
+    session('login', { sessionName: '登录稳定性', updatedAt: 20 }),
+    session('payment', { sessionName: '支付稳定性', updatedAt: 30 }),
+  ]);
+  let signalStaleStarted!: () => void;
+  const staleStarted = new Promise<void>((resolve) => {
+    signalStaleStarted = resolve;
+  });
+  let finishStale!: (value: { turnId: string }) => void;
+  const staleTurn = new Promise<{ turnId: string }>((resolve) => {
+    finishStale = resolve;
+  });
+  let paymentSubmissions = 0;
+  sessions.submit = async (target) => {
+    if (target.sessionId !== 'payment') return { turnId: 'turn-login' };
+    paymentSubmissions += 1;
+    if (paymentSubmissions === 1) return { turnId: 'turn-payment-root' };
+    signalStaleStarted();
+    return staleTurn;
+  };
+  sessions.stop = async (target, turnId) => {
+    stopped.push([target.sessionId, turnId]);
+  };
+  const controller = createWorkHubController({ sessions });
+  await controller.submit({
+    requestId: 'request-payment-owned',
+    text: '继续支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  });
+  const staleSubmission = controller.submit({
+    requestId: 'request-payment-stale',
+    text: '再继续支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  });
+  await staleStarted;
+
+  await controller.submit({
+    requestId: 'request-stop-before-stale-finishes',
+    text: '不是这个工作，换成登录稳定性',
+  });
+  finishStale({ turnId: 'turn-payment-stale' });
+  await staleSubmission;
+  controller.resetVisitContext();
+  await controller.read({ focus: { sessionId: 'payment' } });
+  await controller.submit({
+    requestId: 'request-correct-after-stale-finishes',
+    text: '不是这个工作，换成登录稳定性',
+  });
+
   assert.deepEqual(stopped, [['payment', 'turn-payment-root']]);
 });
 

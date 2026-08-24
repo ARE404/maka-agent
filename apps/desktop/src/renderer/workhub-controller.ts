@@ -164,7 +164,12 @@ export interface WorkHubController {
   resetVisitContext(): void;
 }
 
-const MAX_OWNED_ROOTS = 32;
+const MAX_OWNERSHIP_RECORDS = 32;
+
+interface WorkHubRootOwnership {
+  order: number;
+  turnId?: string;
+}
 
 export function createWorkHubController(deps: {
   sessions: WorkHubSessionPort;
@@ -172,7 +177,7 @@ export function createWorkHubController(deps: {
   let routePolicy = createWorkHubRoutePolicy();
   let focusReadVersion = 0;
   let pendingFocusReadVersion: number | undefined;
-  const ownedRootBySessionId = new Map<string, string>();
+  const rootOwnershipBySessionId = new Map<string, WorkHubRootOwnership>();
   const reconcileFocus = (
     policy: ReturnType<typeof createWorkHubRoutePolicy>,
     sessions: readonly WorkHubSessionFacts[],
@@ -183,29 +188,52 @@ export function createWorkHubController(deps: {
       .map((session) => session.target));
   };
   const correctionFor = (from: WorkHubSessionTarget): WorkHubCorrectionContext => {
-    const turnId = ownedRootBySessionId.get(from.sessionId);
+    const turnId = rootOwnershipBySessionId.get(from.sessionId)?.turnId;
     if (!turnId) return { from };
     return {
       from,
       turnId,
     };
   };
+  const storeOwnership = (
+    target: WorkHubSessionTarget,
+    ownership: WorkHubRootOwnership,
+  ) => {
+    rootOwnershipBySessionId.delete(target.sessionId);
+    rootOwnershipBySessionId.set(target.sessionId, ownership);
+    while (rootOwnershipBySessionId.size > MAX_OWNERSHIP_RECORDS) {
+      const oldest = rootOwnershipBySessionId.keys().next().value;
+      if (!oldest) break;
+      rootOwnershipBySessionId.delete(oldest);
+    }
+  };
   const rememberOwnedRoot = (
     target: WorkHubSessionTarget,
     turn: { turnId: string; steered?: true },
+    order: number,
   ) => {
-    const existing = ownedRootBySessionId.get(target.sessionId);
-    if (turn.steered) {
-      if (existing !== turn.turnId) ownedRootBySessionId.delete(target.sessionId);
-      return;
-    }
-    ownedRootBySessionId.delete(target.sessionId);
-    ownedRootBySessionId.set(target.sessionId, turn.turnId);
-    while (ownedRootBySessionId.size > MAX_OWNED_ROOTS) {
-      const oldest = ownedRootBySessionId.keys().next().value;
-      if (!oldest) break;
-      ownedRootBySessionId.delete(oldest);
-    }
+    // A steered command created no root and its command ID is not the running
+    // root ID. Preserve known ownership; if the root admission itself is still
+    // resolving, its older non-steered result may still publish that root ID.
+    if (turn.steered) return;
+    const existing = rootOwnershipBySessionId.get(target.sessionId);
+    if (existing && existing.order > order) return;
+    storeOwnership(target, { order, turnId: turn.turnId });
+  };
+  const forgetOwnedRoot = (
+    target: WorkHubSessionTarget,
+    expectedTurnId: string,
+    order: number,
+  ) => {
+    const existing = rootOwnershipBySessionId.get(target.sessionId);
+    if (
+      !existing?.turnId ||
+      existing.turnId !== expectedTurnId ||
+      existing.order > order
+    ) return;
+    // Retain a bounded tombstone so an older in-flight root result cannot
+    // resurrect ownership after this correction stopped it.
+    storeOwnership(target, { order });
   };
   return {
     subscribe(handler) {
@@ -322,12 +350,10 @@ export function createWorkHubController(deps: {
       }
       if (correction?.turnId && !correction.steered) {
         await deps.sessions.stop(correction.from, correction.turnId);
-        if (ownedRootBySessionId.get(correction.from.sessionId) === correction.turnId) {
-          ownedRootBySessionId.delete(correction.from.sessionId);
-        }
+        forgetOwnedRoot(correction.from, correction.turnId, submissionOrder);
       }
       const turn = await deps.sessions.submit(target, input.text);
-      rememberOwnedRoot(target, turn);
+      rememberOwnedRoot(target, turn, submissionOrder);
       submissionPolicy.rememberTarget(target);
       if (correction) {
         submissionPolicy.rememberCorrection(input.text, target, submissionOrder);
