@@ -1338,7 +1338,7 @@ test('a correction after remount stops a root whose admission is still pending',
   ]);
 });
 
-test('a correction retries Stop when the same reserved root is admitted late', async () => {
+test('a correction retries Stop when the same reserved root is admitted before Stop settles', async () => {
   const stopped: Array<[string, string]> = [];
   const sessions = port([
     session('login', { sessionName: '登录稳定性', updatedAt: 20 }),
@@ -1361,8 +1361,20 @@ test('a correction retries Stop when the same reserved root is admitted late', a
     }
     return { turnId };
   };
+  let signalFirstStopStarted!: () => void;
+  const firstStopStarted = new Promise<void>((resolve) => {
+    signalFirstStopStarted = resolve;
+  });
+  let finishFirstStop!: () => void;
+  const firstStop = new Promise<void>((resolve) => {
+    finishFirstStop = resolve;
+  });
   sessions.stop = async (target, turnId) => {
     stopped.push([target.sessionId, turnId]);
+    if (stopped.length === 1) {
+      signalFirstStopStarted();
+      await firstStop;
+    }
   };
   const controller = createWorkHubController({ sessions });
 
@@ -1375,14 +1387,16 @@ test('a correction retries Stop when the same reserved root is admitted late', a
   controller.resetVisitContext();
   await controller.read({ focus: { sessionId: 'payment' } });
 
-  await controller.submit({
+  const correction = controller.submit({
     requestId: 'request-correct-same-id-pending-root',
     text: '不是这个工作，换成登录稳定性',
   });
+  await firstStopStarted;
   assert.deepEqual(stopped, [['payment', 'turn-reserved-1']]);
 
   finishPayment({ turnId: 'turn-reserved-1' });
-  await pendingSubmission;
+  finishFirstStop();
+  await Promise.all([pendingSubmission, correction]);
 
   assert.deepEqual(stopped, [
     ['payment', 'turn-reserved-1'],

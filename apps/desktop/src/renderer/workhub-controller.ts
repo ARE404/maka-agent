@@ -398,6 +398,17 @@ export function createWorkHubController(deps: {
       stopped = tombstone.stoppedTurnIds.has(turn.turnId);
       if (!stopped) {
         try {
+          const priorStopAttempt = stopAttemptByTurn.get(
+            `${target.sessionId}\0${turn.turnId}`,
+          );
+          if (priorStopAttempt) {
+            try {
+              await priorStopAttempt;
+            } catch {
+              // Admission is new evidence. Retry against the admitted root even
+              // when the earlier pre-admission Stop failed or observed nothing.
+            }
+          }
           await attemptStop(target, turn.turnId);
           const currentBarrier = ownershipTombstoneBySessionId.get(target.sessionId);
           if (currentBarrier && currentBarrier.order >= order) {
