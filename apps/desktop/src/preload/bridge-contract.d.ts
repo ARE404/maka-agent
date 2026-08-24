@@ -682,6 +682,10 @@ export interface MakaBridge {
   };
   sessions: {
     list(filter?: SessionListFilter): Promise<DesktopSessionSummary[]>;
+    listWithCoverage(): Promise<{
+      sessions: DesktopSessionSummary[];
+      completeHostIds: string[];
+    }>;
     create(input?: CreateSessionRequestInput): Promise<DesktopSessionSummary>;
     send(
       sessionId: string,

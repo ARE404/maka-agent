@@ -557,7 +557,7 @@ test("queues a mid-turn send as steering when the Host reports the session busy"
   assert.deepEqual(submits, [
     {
       sessionId: "session-1",
-      messageId: "id-1",
+      messageId: "turn-1",
       content: { text: "also check the tests", inlineReferences: [] },
       placement: "current_turn",
     },
@@ -577,6 +577,7 @@ test("queues a mid-turn send as steering when the Host reports the session busy"
 
 test("starts the turn from the queued message when the busy race resolves idle", async () => {
   const changes: unknown[] = [];
+  const submits: unknown[] = [];
   const ipc = ipcHarness();
   registerExecutionIpc(
     {
@@ -589,10 +590,13 @@ test("starts the turn from the queued message when the busy race resolves idle",
             "Session already has an active root Turn",
           );
         },
-        submitMessage: async () => ({
-          disposition: "turn_started",
-          turnId: "turn-9",
-        }),
+        submitMessage: async (input) => {
+          submits.push(input);
+          return {
+            disposition: "turn_started",
+            turnId: "turn-9",
+          };
+        },
       }),
       observer: unusedObserver(),
       attachmentApprovals: createAttachmentApprovalRegistry(),
@@ -619,6 +623,12 @@ test("starts the turn from the queued message when the busy race resolves idle",
     inlineReferences: [],
     skillInvocation: { loaded: [], failed: [], receipts: [] },
   });
+  assert.deepEqual(submits, [{
+    sessionId: "session-1",
+    messageId: "turn-1",
+    content: { text: "also check the tests", inlineReferences: [] },
+    placement: "current_turn",
+  }]);
   assert.deepEqual(changes, [
     { reason: "status-change", sessionId: "session-1", turnId: "turn-9" },
   ]);

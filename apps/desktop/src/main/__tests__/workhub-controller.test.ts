@@ -18,16 +18,36 @@
  */
 
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   createWorkHubController,
+  WorkHubSessionSubmitError,
   WORKHUB_ROUTING_STRATEGY_ID,
   type WorkHubSessionFacts,
   type WorkHubSessionPort,
 } from '../../renderer/workhub-controller.js';
 
+const appShellUrl = [
+  new URL('../../renderer/app-shell.tsx', import.meta.url),
+  new URL('../../../src/renderer/app-shell.tsx', import.meta.url),
+].find((candidate) => existsSync(candidate));
+
+if (!appShellUrl) throw new Error('Could not locate renderer/app-shell.tsx');
+
 test('binds the controller to the immutable WH-R2.4 strategy ID', () => {
   assert.equal(WORKHUB_ROUTING_STRATEGY_ID, 'wh-r2.4-session-context-continuity');
+});
+
+test('binds the WorkHub controller to the app runtime rather than project refreshes', () => {
+  const source = readFileSync(appShellUrl, 'utf8');
+
+  assert.match(source, /workHubControllerRef\s*=\s*useRef/u);
+  assert.match(source, /workHubProjectsRef\.current\s*=\s*projects/u);
+  assert.doesNotMatch(
+    source,
+    /useMemo\(\(\)\s*=>\s*createWorkHubController\([\s\S]*?\),\s*\[projects\]\)/u,
+  );
 });
 
 function session(
@@ -59,6 +79,7 @@ function port(sessions: WorkHubSessionFacts[]): WorkHubSessionPort {
     submit: async () => {
       throw new Error('submit is not used by this read test');
     },
+    reconcileSubmission: async () => ({ kind: 'unknown' }),
     stop: async () => {},
     subscribe: () => () => {},
   };
@@ -1431,7 +1452,7 @@ test('tombstone retention never evicts live ownership for another Session', asyn
   assert.equal(stopped[0]?.[1], live.kind === 'submitted' ? live.turnId : undefined);
 });
 
-test('correction cleanup preserves ownership submitted while stop is pending', async () => {
+test('correction barrier rejects a new root while Stop is pending', async () => {
   const stopped: Array<[string, string]> = [];
   const sessions = port([
     session('login', { sessionName: '登录稳定性', updatedAt: 20 }),
@@ -1468,14 +1489,20 @@ test('correction cleanup preserves ownership submitted while stop is pending', a
     text: '不是这个工作，换成登录稳定性',
   });
   await stopStarted;
+  await assert.rejects(controller.submit({
+    requestId: 'request-overlapping-payment',
+    text: '重新处理支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  }), /still reconciling/u);
+  finishFirstStop();
+  await correction;
+
   const newer = await controller.submit({
     requestId: 'request-newer-payment',
     text: '重新处理支付稳定性',
     explicitTarget: { sessionId: 'payment' },
   });
   assert.equal(newer.kind, 'submitted');
-  finishFirstStop();
-  await correction;
 
   controller.resetVisitContext();
   await controller.read({ focus: { sessionId: 'payment' } });
@@ -1488,6 +1515,479 @@ test('correction cleanup preserves ownership submitted while stop is pending', a
     ['payment', original.kind === 'submitted' ? original.turnId : ''],
     ['payment', newer.kind === 'submitted' ? newer.turnId : ''],
   ]);
+});
+
+test('a partially failed correction records only successful Stops and keeps failures reachable', async () => {
+  const stopAttempts: Array<[string, string]> = [];
+  const sessions = port([
+    session('login', { sessionName: '登录稳定性', updatedAt: 20 }),
+    session('payment', { sessionName: '支付稳定性', updatedAt: 30 }),
+  ]);
+  let finishPending!: (value: { turnId: string }) => void;
+  const pendingTurn = new Promise<{ turnId: string }>((resolve) => {
+    finishPending = resolve;
+  });
+  let paymentSubmissions = 0;
+  sessions.reserveTurnId = (() => {
+    let next = 0;
+    return () => `reserved-${++next}`;
+  })();
+  sessions.submit = async (target, _text, turnId) => {
+    if (target.sessionId !== 'payment') return { turnId };
+    paymentSubmissions += 1;
+    return paymentSubmissions === 1 ? { turnId: 'payment-root' } : pendingTurn;
+  };
+  let failPaymentRoot = true;
+  sessions.stop = async (target, turnId) => {
+    stopAttempts.push([target.sessionId, turnId]);
+    if (turnId === 'payment-root' && failPaymentRoot) {
+      failPaymentRoot = false;
+      throw new Error('Host rejected the first Stop');
+    }
+  };
+  const controller = createWorkHubController({ sessions });
+  const confirmed = await controller.submit({
+    requestId: 'confirmed-payment-root',
+    text: '继续支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  });
+  assert.equal(confirmed.kind, 'submitted');
+  const pending = controller.submit({
+    requestId: 'pending-payment-root',
+    text: '再次处理支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  await assert.rejects(controller.submit({
+    requestId: 'partially-failed-correction',
+    text: '不是支付，改成登录',
+    explicitTarget: { sessionId: 'login' },
+    correction: {
+      from: { sessionId: 'payment' },
+      turnId: 'payment-root',
+    },
+  }), /Host rejected the first Stop/u);
+
+  assert.equal(stopAttempts.some(([, turnId]) => turnId === 'reserved-2'), true);
+  finishPending({ turnId: 'payment-host-rebound' });
+  await pending;
+  assert.equal(stopAttempts.some(([, turnId]) => turnId === 'payment-host-rebound'), true);
+
+  await controller.submit({
+    requestId: 'retry-failed-correction',
+    text: '不是支付，改成登录',
+    explicitTarget: { sessionId: 'login' },
+    correction: {
+      from: { sessionId: 'payment' },
+      turnId: 'payment-root',
+    },
+  });
+  assert.equal(
+    stopAttempts.filter(([, turnId]) => turnId === 'payment-root').length,
+    2,
+  );
+});
+
+test('the 33rd unresolved root is back-pressured before Host admission', async () => {
+  const facts = Array.from({ length: 33 }, (_, index) =>
+    session(`work-${index}`, { runningTurnIds: [] }));
+  const sessions = port(facts);
+  const finishes = new Map<string, (value: { turnId: string }) => void>();
+  let admitted = 0;
+  let signalThirtyTwo!: () => void;
+  const thirtyTwoAdmitted = new Promise<void>((resolve) => {
+    signalThirtyTwo = resolve;
+  });
+  sessions.submit = async (target, _text, turnId) => {
+    admitted += 1;
+    if (admitted === 32) signalThirtyTwo();
+    return await new Promise<{ turnId: string }>((resolve) => {
+      finishes.set(target.sessionId, resolve);
+    });
+  };
+  const controller = createWorkHubController({ sessions });
+  const inFlight = facts.slice(0, 32).map((fact, index) => controller.submit({
+    requestId: `root-${index}`,
+    text: `开始工作 ${index}`,
+    explicitTarget: fact.target,
+  }));
+  await thirtyTwoAdmitted;
+
+  await assert.rejects(controller.submit({
+    requestId: 'root-33',
+    text: '开始工作 33',
+    explicitTarget: facts[32]!.target,
+  }), /too many unresolved root submissions/u);
+  assert.equal(admitted, 32);
+
+  finishes.get('work-0')?.({ turnId: 'settled-work-0' });
+  await inFlight[0];
+  const thirtyThird = controller.submit({
+    requestId: 'root-33-after-capacity',
+    text: '开始工作 33',
+    explicitTarget: facts[32]!.target,
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(admitted, 33);
+  finishes.get('work-32')?.({ turnId: 'settled-work-32' });
+  await thirtyThird;
+});
+
+test('an old correction barrier survives more than 32 newer corrections', async () => {
+  const stopped: Array<[string, string]> = [];
+  const fillers = Array.from({ length: 32 }, (_, index) =>
+    session(`barrier-filler-${index}`, { sessionName: `屏障填充 ${index}` }));
+  const sessions = port([
+    session('old-pending', { sessionName: '旧的待定工作', updatedAt: 100 }),
+    session('sink', { sessionName: '安全收件箱', updatedAt: 90 }),
+    ...fillers,
+  ]);
+  let finishOld!: (value: { turnId: string }) => void;
+  const oldTurn = new Promise<{ turnId: string }>((resolve) => {
+    finishOld = resolve;
+  });
+  sessions.submit = async (target, _text, turnId) => {
+    if (target.sessionId === 'old-pending') return oldTurn;
+    if (target.sessionId === 'sink') return { turnId, steered: true };
+    return { turnId };
+  };
+  sessions.stop = async (target, turnId) => {
+    stopped.push([target.sessionId, turnId]);
+  };
+  const controller = createWorkHubController({ sessions });
+  const oldSubmission = controller.submit({
+    requestId: 'old-pending-root',
+    text: '开始旧的待定工作',
+    explicitTarget: { sessionId: 'old-pending' },
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  await controller.submit({
+    requestId: 'correct-old-pending',
+    text: '旧工作路由错了',
+    explicitTarget: { sessionId: 'sink' },
+    correction: {
+      from: { sessionId: 'old-pending' },
+      turnId: 'reserved-turn-1',
+    },
+  });
+
+  for (const [index, filler] of fillers.entries()) {
+    const owned = await controller.submit({
+      requestId: `newer-barrier-root-${index}`,
+      text: `开始屏障填充 ${index}`,
+      explicitTarget: filler.target,
+    });
+    assert.equal(owned.kind, 'submitted');
+    if (owned.kind !== 'submitted') continue;
+    await controller.submit({
+      requestId: `newer-barrier-correction-${index}`,
+      text: `屏障填充 ${index} 路由错了`,
+      explicitTarget: { sessionId: 'sink' },
+      correction: { from: filler.target, turnId: owned.turnId },
+    });
+  }
+
+  finishOld({ turnId: 'old-host-rebound' });
+  await oldSubmission;
+  assert.equal(
+    stopped.some(([sessionId, turnId]) =>
+      sessionId === 'old-pending' && turnId === 'old-host-rebound'),
+    true,
+  );
+});
+
+test('a definite Host rejection releases only its own pending admission', async () => {
+  const stopped: Array<[string, string]> = [];
+  const sessions = port([
+    session('login', { sessionName: '登录稳定性' }),
+    session('payment', { sessionName: '支付稳定性' }),
+  ]);
+  let shouldReject = true;
+  sessions.submit = async (_target, _text, turnId) => {
+    if (shouldReject) {
+      shouldReject = false;
+      throw new WorkHubSessionSubmitError('not admitted', 'rejected');
+    }
+    return { turnId };
+  };
+  sessions.stop = async (target, turnId) => {
+    stopped.push([target.sessionId, turnId]);
+  };
+  const controller = createWorkHubController({ sessions });
+
+  await assert.rejects(controller.submit({
+    requestId: 'definitely-rejected',
+    text: '继续支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  }), /not admitted/u);
+  const admitted = await controller.submit({
+    requestId: 'later-admitted',
+    text: '继续支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  });
+  assert.equal(admitted.kind, 'submitted');
+  await controller.submit({
+    requestId: 'correct-later-admitted',
+    text: '不是支付，改成登录',
+    explicitTarget: { sessionId: 'login' },
+    correction: { from: { sessionId: 'payment' } },
+  });
+
+  assert.deepEqual(stopped, [[
+    'payment',
+    admitted.kind === 'submitted' ? admitted.turnId : '',
+  ]]);
+});
+
+test('a lost delivery reply is reconciled to its authoritative root ownership', async () => {
+  const stopped: Array<[string, string]> = [];
+  const sessions = port([
+    session('login', { sessionName: '登录稳定性' }),
+    session('payment', { sessionName: '支付稳定性' }),
+  ]);
+  sessions.submit = async () => {
+    throw new WorkHubSessionSubmitError('reply lost', 'unknown');
+  };
+  sessions.reconcileSubmission = async () => ({
+    kind: 'root',
+    turnId: 'authoritative-payment-root',
+  });
+  sessions.stop = async (target, turnId) => {
+    stopped.push([target.sessionId, turnId]);
+  };
+  const controller = createWorkHubController({ sessions });
+
+  await assert.rejects(controller.submit({
+    requestId: 'reply-lost',
+    text: '继续支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  }), /reply lost/u);
+  sessions.submit = async (_target, _text, turnId) => ({ turnId });
+  await controller.submit({
+    requestId: 'correct-reconciled-root',
+    text: '不是支付，改成登录',
+    explicitTarget: { sessionId: 'login' },
+    correction: { from: { sessionId: 'payment' } },
+  });
+
+  assert.deepEqual(stopped, [['payment', 'authoritative-payment-root']]);
+});
+
+test('an unknown delivery remains pending until a later authoritative reconciliation', async () => {
+  const stopped: Array<[string, string]> = [];
+  const sessions = port([
+    session('login', { sessionName: '登录稳定性' }),
+    session('payment', { sessionName: '支付稳定性' }),
+  ]);
+  sessions.submit = async () => {
+    throw new WorkHubSessionSubmitError('reply lost', 'unknown');
+  };
+  let reconciliation: Awaited<ReturnType<WorkHubSessionPort['reconcileSubmission']>> = {
+    kind: 'unknown',
+  };
+  sessions.reconcileSubmission = async () => reconciliation;
+  sessions.stop = async (target, turnId) => {
+    stopped.push([target.sessionId, turnId]);
+  };
+  const controller = createWorkHubController({ sessions });
+
+  await assert.rejects(controller.submit({
+    requestId: 'unknown-delivery',
+    text: '继续支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  }), /reply lost/u);
+  reconciliation = { kind: 'root', turnId: 'later-authoritative-root' };
+  await controller.read();
+  sessions.submit = async (_target, _text, turnId) => ({ turnId });
+  await controller.submit({
+    requestId: 'correct-later-reconciled-root',
+    text: '不是支付，改成登录',
+    explicitTarget: { sessionId: 'login' },
+    correction: { from: { sessionId: 'payment' } },
+  });
+
+  assert.deepEqual(stopped, [['payment', 'later-authoritative-root']]);
+});
+
+test('a partial multi-Host catalog never erases confirmed ownership', async () => {
+  const stopped: Array<[string, string]> = [];
+  const allSessions = [
+    session('login', { sessionName: '登录稳定性' }),
+    session('remote-payment', { sessionName: '远端支付稳定性' }),
+  ];
+  const sessions = port(allSessions);
+  let visible = allSessions;
+  let paymentCatalogComplete = true;
+  sessions.listCatalog = async () => ({
+    sessions: visible,
+    isCompleteFor: (target) =>
+      target.sessionId !== 'remote-payment' || paymentCatalogComplete,
+  });
+  sessions.submit = async (_target, _text, turnId) => ({ turnId });
+  sessions.stop = async (target, turnId) => {
+    stopped.push([target.sessionId, turnId]);
+  };
+  const controller = createWorkHubController({ sessions });
+  const owned = await controller.submit({
+    requestId: 'remote-root',
+    text: '继续远端支付',
+    explicitTarget: { sessionId: 'remote-payment' },
+  });
+  assert.equal(owned.kind, 'submitted');
+
+  visible = [allSessions[0]!];
+  paymentCatalogComplete = false;
+  await controller.submit({
+    requestId: 'correct-after-partial-catalog',
+    text: '不是支付，改成登录',
+    explicitTarget: { sessionId: 'login' },
+    correction: { from: { sessionId: 'remote-payment' } },
+  });
+
+  assert.deepEqual(stopped, [[
+    'remote-payment',
+    owned.kind === 'submitted' ? owned.turnId : '',
+  ]]);
+});
+
+test('a stale complete catalog never erases newer confirmed ownership', async () => {
+  const stopped: Array<[string, string]> = [];
+  const allSessions = [
+    session('login', { sessionName: '登录稳定性' }),
+    session('payment', { sessionName: '支付稳定性' }),
+  ];
+  const sessions = port(allSessions);
+  let signalStaleReadStarted!: () => void;
+  const staleReadStarted = new Promise<void>((resolve) => {
+    signalStaleReadStarted = resolve;
+  });
+  let finishStaleRead!: (value: {
+    sessions: WorkHubSessionFacts[];
+    isCompleteFor(target: { sessionId: string }): boolean;
+  }) => void;
+  const staleCatalog = new Promise<{
+    sessions: WorkHubSessionFacts[];
+    isCompleteFor(target: { sessionId: string }): boolean;
+  }>((resolve) => {
+    finishStaleRead = resolve;
+  });
+  let catalogReads = 0;
+  sessions.listCatalog = async () => {
+    catalogReads += 1;
+    if (catalogReads === 1) {
+      signalStaleReadStarted();
+      return staleCatalog;
+    }
+    return {
+      sessions: allSessions,
+      isCompleteFor: () => true,
+    };
+  };
+  sessions.submit = async (_target, _text, turnId) => ({ turnId });
+  sessions.stop = async (target, turnId) => {
+    stopped.push([target.sessionId, turnId]);
+  };
+  const controller = createWorkHubController({ sessions });
+
+  const staleRead = controller.read();
+  await staleReadStarted;
+  const owned = await controller.submit({
+    requestId: 'payment-root-after-stale-read-started',
+    text: '继续支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  });
+  assert.equal(owned.kind, 'submitted');
+
+  finishStaleRead({
+    sessions: [allSessions[0]!],
+    isCompleteFor: () => true,
+  });
+  await staleRead;
+  await controller.submit({
+    requestId: 'correct-after-stale-complete-catalog',
+    text: '不是支付，改成登录',
+    explicitTarget: { sessionId: 'login' },
+    correction: { from: { sessionId: 'payment' } },
+  });
+
+  assert.deepEqual(stopped, [[
+    'payment',
+    owned.kind === 'submitted' ? owned.turnId : '',
+  ]]);
+});
+
+test('authoritative Session removal releases uncertain admissions before global backpressure', async () => {
+  const stale = Array.from({ length: 32 }, (_, index) =>
+    session(`removed-${index}`, { sessionName: `已删除工作 ${index}` }));
+  const fresh = session('fresh', { sessionName: '新工作' });
+  const sessions = port(stale);
+  let visible = stale;
+  let removedCatalogComplete = false;
+  sessions.listCatalog = async () => ({
+    sessions: visible,
+    isCompleteFor: (target) =>
+      target.sessionId.startsWith('removed-') && removedCatalogComplete,
+  });
+  sessions.submit = async () => {
+    throw new WorkHubSessionSubmitError('reply lost', 'unknown');
+  };
+  sessions.reconcileSubmission = async () => ({ kind: 'unknown' });
+  const controller = createWorkHubController({ sessions });
+
+  for (const [index, fact] of stale.entries()) {
+    await assert.rejects(controller.submit({
+      requestId: `uncertain-${index}`,
+      text: `开始已删除工作 ${index}`,
+      explicitTarget: fact.target,
+    }), /reply lost/u);
+  }
+
+  visible = [fresh];
+  removedCatalogComplete = true;
+  sessions.submit = async (_target, _text, turnId) => ({ turnId });
+  const admitted = await controller.submit({
+    requestId: 'after-authoritative-removal',
+    text: '开始新工作',
+    explicitTarget: fresh.target,
+  });
+
+  assert.equal(admitted.kind, 'submitted');
+  assert.deepEqual(admitted.kind === 'submitted' ? admitted.target : undefined, fresh.target);
+});
+
+test('a lost reply reconciled as steering never claims the pre-existing root', async () => {
+  const stopped: Array<[string, string]> = [];
+  const sessions = port([
+    session('login', { sessionName: '登录稳定性' }),
+    session('payment', { sessionName: '支付稳定性' }),
+  ]);
+  sessions.submit = async () => {
+    throw new WorkHubSessionSubmitError('steering reply lost', 'unknown');
+  };
+  sessions.reconcileSubmission = async () => ({ kind: 'steered' });
+  sessions.stop = async (target, turnId) => {
+    stopped.push([target.sessionId, turnId]);
+  };
+  const controller = createWorkHubController({ sessions });
+
+  await assert.rejects(controller.submit({
+    requestId: 'steering-reply-lost',
+    text: '补充支付测试',
+    explicitTarget: { sessionId: 'payment' },
+  }), /steering reply lost/u);
+  sessions.submit = async (_target, _text, turnId) => ({ turnId });
+  await controller.submit({
+    requestId: 'correct-after-steering-reply-loss',
+    text: '不是支付，改成登录',
+    explicitTarget: { sessionId: 'login' },
+    correction: { from: { sessionId: 'payment' } },
+  });
+
+  assert.deepEqual(stopped, []);
 });
 
 test('WorkHub-owned root remains stoppable after navigating away and back', async () => {
