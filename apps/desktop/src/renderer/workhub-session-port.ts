@@ -157,8 +157,10 @@ export function createDesktopWorkHubSessionPort(deps: {
     async create({ name }) {
       return projectSession(await deps.sessions.create({ name }));
     },
-    async submit(target: WorkHubSessionTarget, text: string) {
-      const turnId = deps.newTurnId();
+    reserveTurnId() {
+      return deps.newTurnId();
+    },
+    async submit(target: WorkHubSessionTarget, text: string, turnId: string) {
       const result = await deps.sessions.send(target.sessionId, {
         type: 'send',
         turnId,

@@ -47,6 +47,7 @@ function session(
 }
 
 function port(sessions: WorkHubSessionFacts[]): WorkHubSessionPort {
+  let nextTurnId = 0;
   return {
     list: async () => sessions,
     recentTurns: async () => [],
@@ -54,6 +55,7 @@ function port(sessions: WorkHubSessionFacts[]): WorkHubSessionPort {
     create: async () => {
       throw new Error('create is not used by this read test');
     },
+    reserveTurnId: () => `reserved-turn-${++nextTurnId}`,
     submit: async () => {
       throw new Error('submit is not used by this read test');
     },
@@ -1260,6 +1262,61 @@ test('a late root completion cannot overwrite newer ownership after remount', as
   assert.deepEqual(stopped, [['payment', 'turn-payment-new']]);
 });
 
+test('a correction after remount stops a root whose admission is still pending', async () => {
+  const stopped: Array<[string, string]> = [];
+  const sessions = port([
+    session('login', { sessionName: '登录稳定性', updatedAt: 20 }),
+    session('payment', { sessionName: '支付稳定性', updatedAt: 30 }),
+  ]);
+  let signalPaymentStarted!: () => void;
+  const paymentStarted = new Promise<void>((resolve) => {
+    signalPaymentStarted = resolve;
+  });
+  let finishPayment!: (value: { turnId: string }) => void;
+  const paymentTurn = new Promise<{ turnId: string }>((resolve) => {
+    finishPayment = resolve;
+  });
+  let nextReservedTurnId = 0;
+  sessions.reserveTurnId = () => `turn-reserved-${++nextReservedTurnId}`;
+  sessions.submit = async (target, _text, turnId) => {
+    if (target.sessionId === 'payment') {
+      assert.equal(turnId, 'turn-reserved-1');
+      signalPaymentStarted();
+      return paymentTurn;
+    }
+    return { turnId };
+  };
+  sessions.stop = async (target, turnId) => {
+    stopped.push([target.sessionId, turnId]);
+  };
+  const controller = createWorkHubController({ sessions });
+
+  const pendingSubmission = controller.submit({
+    requestId: 'request-payment-pending',
+    text: '继续支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  });
+  await paymentStarted;
+  controller.resetVisitContext();
+  await controller.read({ focus: { sessionId: 'payment' } });
+
+  const corrected = await controller.submit({
+    requestId: 'request-correct-pending-root',
+    text: '不是这个工作，换成登录稳定性',
+  });
+
+  assert.deepEqual(corrected.kind === 'submitted' ? corrected.target : undefined, {
+    sessionId: 'login',
+  });
+  assert.deepEqual(stopped, [['payment', 'turn-reserved-1']]);
+  finishPayment({ turnId: 'turn-payment-host-rebound' });
+  await pendingSubmission;
+  assert.deepEqual(stopped, [
+    ['payment', 'turn-reserved-1'],
+    ['payment', 'turn-payment-host-rebound'],
+  ]);
+});
+
 test('a stopped ownership tombstone blocks an older root completion', async () => {
   const stopped: Array<[string, string]> = [];
   const sessions = port([
@@ -1311,7 +1368,126 @@ test('a stopped ownership tombstone blocks an older root completion', async () =
     text: '不是这个工作，换成登录稳定性',
   });
 
-  assert.deepEqual(stopped, [['payment', 'turn-payment-root']]);
+  assert.deepEqual(stopped, [
+    ['payment', 'turn-payment-root'],
+    ['payment', 'reserved-turn-2'],
+    ['payment', 'turn-payment-stale'],
+  ]);
+});
+
+test('tombstone retention never evicts live ownership for another Session', async () => {
+  const stopped: Array<[string, string]> = [];
+  const fillers = Array.from({ length: 32 }, (_, index) =>
+    session(`filler-${index}`, { sessionName: `填充工作 ${index}` }));
+  const sessions = port([
+    session('long-running', { sessionName: '长期工作', updatedAt: 100 }),
+    session('sink', { sessionName: '收件箱工作', updatedAt: 90 }),
+    ...fillers,
+  ]);
+  sessions.submit = async (target, _text, turnId) => target.sessionId === 'sink'
+    ? { turnId, steered: true }
+    : { turnId };
+  sessions.stop = async (target, turnId) => {
+    stopped.push([target.sessionId, turnId]);
+  };
+  const controller = createWorkHubController({ sessions });
+
+  const live = await controller.submit({
+    requestId: 'request-live-root',
+    text: '开始长期工作',
+    explicitTarget: { sessionId: 'long-running' },
+  });
+  assert.equal(live.kind, 'submitted');
+
+  for (const [index, filler] of fillers.entries()) {
+    const owned = await controller.submit({
+      requestId: `request-filler-${index}`,
+      text: `开始填充工作 ${index}`,
+      explicitTarget: filler.target,
+    });
+    assert.equal(owned.kind, 'submitted');
+    if (owned.kind !== 'submitted') continue;
+    await controller.submit({
+      requestId: `request-stop-filler-${index}`,
+      text: `填充工作 ${index} 路由错了`,
+      explicitTarget: { sessionId: 'sink' },
+      correction: {
+        from: filler.target,
+        turnId: owned.turnId,
+      },
+    });
+  }
+
+  stopped.length = 0;
+  controller.resetVisitContext();
+  await controller.read({ focus: { sessionId: 'long-running' } });
+  await controller.submit({
+    requestId: 'request-correct-live-root',
+    text: '不是这个工作，换成收件箱工作',
+  });
+
+  assert.equal(stopped.length, 1);
+  assert.equal(stopped[0]?.[0], 'long-running');
+  assert.equal(stopped[0]?.[1], live.kind === 'submitted' ? live.turnId : undefined);
+});
+
+test('correction cleanup preserves ownership submitted while stop is pending', async () => {
+  const stopped: Array<[string, string]> = [];
+  const sessions = port([
+    session('login', { sessionName: '登录稳定性', updatedAt: 20 }),
+    session('payment', { sessionName: '支付稳定性', updatedAt: 30 }),
+  ]);
+  let signalStopStarted!: () => void;
+  const stopStarted = new Promise<void>((resolve) => {
+    signalStopStarted = resolve;
+  });
+  let finishFirstStop!: () => void;
+  const firstStop = new Promise<void>((resolve) => {
+    finishFirstStop = resolve;
+  });
+  let stopCalls = 0;
+  sessions.submit = async (_target, _text, turnId) => ({ turnId });
+  sessions.stop = async (target, turnId) => {
+    stopped.push([target.sessionId, turnId]);
+    stopCalls += 1;
+    if (stopCalls === 1) {
+      signalStopStarted();
+      await firstStop;
+    }
+  };
+  const controller = createWorkHubController({ sessions });
+  const original = await controller.submit({
+    requestId: 'request-original-payment',
+    text: '继续支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  });
+  assert.equal(original.kind, 'submitted');
+
+  const correction = controller.submit({
+    requestId: 'request-correct-original-payment',
+    text: '不是这个工作，换成登录稳定性',
+  });
+  await stopStarted;
+  const newer = await controller.submit({
+    requestId: 'request-newer-payment',
+    text: '重新处理支付稳定性',
+    explicitTarget: { sessionId: 'payment' },
+  });
+  assert.equal(newer.kind, 'submitted');
+  finishFirstStop();
+  await correction;
+
+  controller.resetVisitContext();
+  await controller.read({ focus: { sessionId: 'payment' } });
+  await controller.submit({
+    requestId: 'request-correct-newer-payment',
+    text: '不是这个工作，换成登录稳定性',
+  });
+
+  assert.deepEqual(stopped, [
+    ['payment', original.kind === 'submitted' ? original.turnId : ''],
+    ['payment', newer.kind === 'submitted' ? newer.turnId : ''],
+  ]);
 });
 
 test('WorkHub-owned root remains stoppable after navigating away and back', async () => {

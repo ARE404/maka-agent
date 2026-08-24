@@ -375,7 +375,8 @@ test('desktop adapter delegates create, send, and invalidation to Session APIs',
   });
 
   const created = await adapter.create({ name: '实现导出发票 PDF 功能' });
-  const turn = await adapter.submit(created.target, '实现导出发票 PDF 功能');
+  const turnId = adapter.reserveTurnId();
+  const turn = await adapter.submit(created.target, '实现导出发票 PDF 功能', turnId);
   await adapter.stop(created.target, 'turn-new');
   let invalidations = 0;
   const unsubscribe = adapter.subscribe(() => {
@@ -417,7 +418,11 @@ test('desktop adapter preserves when Session delivery steered an existing root T
   });
 
   assert.deepEqual(
-    await adapter.submit({ sessionId: 'busy' }, '补充已有执行流'),
+    await adapter.submit(
+      { sessionId: 'busy' },
+      '补充已有执行流',
+      adapter.reserveTurnId(),
+    ),
     { turnId: 'turn-steered', steered: true },
   );
 });
