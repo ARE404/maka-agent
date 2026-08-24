@@ -30,6 +30,7 @@ import type {
   WorkHubSessionState,
   WorkHubSessionTarget,
 } from './workhub-controller.js';
+import { boundedWorkHubTimelineText } from './workhub-controller.js';
 
 export interface WorkHubDesktopSession {
   id: string;
@@ -73,7 +74,6 @@ export interface WorkHubDesktopTranscriptBridge {
 
 const WORKHUB_TIMELINE_SESSION_LIMIT = 10;
 const WORKHUB_TIMELINE_TURN_LIMIT = 40;
-const WORKHUB_TIMELINE_TEXT_LIMIT = 600;
 const WORKHUB_TRANSCRIPT_READY_TIMEOUT_MS = 5_000;
 
 export function createDesktopWorkHubSessionPort(deps: {
@@ -115,7 +115,7 @@ export function createDesktopWorkHubSessionPort(deps: {
       return (await deps.sessions.list()).map(projectSession);
     },
     async recentTurns(targets) {
-      const projected = await Promise.all(
+      const turnsBySession = await Promise.all(
         targets.slice(0, WORKHUB_TIMELINE_SESSION_LIMIT).map(async (target) => {
           try {
             const messages = await readWorkHubSessionMessages(deps.transcripts, target);
@@ -127,7 +127,7 @@ export function createDesktopWorkHubSessionPort(deps: {
           }
         }),
       );
-      return projected
+      return turnsBySession
         .flat()
         .sort((left, right) =>
           left.updatedAt - right.updatedAt ||
@@ -194,7 +194,7 @@ export function projectWorkHubSessionTurns(input: {
 
   for (const message of input.messages) {
     if (message.type === 'user') {
-      const text = boundedTimelineText(message.displayText ?? message.text);
+      const text = boundedWorkHubTimelineText(message.displayText ?? message.text);
       if (!text) continue;
       const state = stateByTurnId.get(message.turnId) ?? 'completed';
       turns.push({
@@ -209,7 +209,7 @@ export function projectWorkHubSessionTurns(input: {
       continue;
     }
     if (message.type !== 'assistant') continue;
-    const result = boundedTimelineText(message.text);
+    const result = boundedWorkHubTimelineText(message.text);
     if (!result) continue;
     const userIndex = latestUserIndexByTurnId.get(message.turnId);
     if (userIndex === undefined) continue;
@@ -225,34 +225,41 @@ async function readWorkHubSessionMessages(
 ): Promise<readonly StoredMessage[]> {
   const store = new DesktopTranscriptRangeStore(target.sessionId);
   let resolveReady: ((messages: readonly StoredMessage[]) => void) | undefined;
-  let rejectReady: ((error: Error) => void) | undefined;
-  const ready = new Promise<readonly StoredMessage[]>((resolve, reject) => {
+  const ready = new Promise<readonly StoredMessage[]>((resolve) => {
     resolveReady = resolve;
-    rejectReady = reject;
   });
+  let cancelOpen = () => {};
+  let timedOut = false;
   let handle: DesktopTranscriptHandle | undefined;
-  let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
-  try {
-    handle = await transcripts.open(target.sessionId, (batch) => {
+  let rejectTimeout!: (error: Error) => void;
+  const timeoutFailure = new Promise<never>((_resolve, reject) => {
+    rejectTimeout = reject;
+  });
+  void timeoutFailure.catch(() => undefined);
+  const timeout = globalThis.setTimeout(() => {
+    timedOut = true;
+    cancelOpen();
+    rejectTimeout(new Error('WorkHub Session transcript did not become ready'));
+  }, WORKHUB_TRANSCRIPT_READY_TIMEOUT_MS);
+  const opening = transcripts.open(
+    target.sessionId,
+    (batch) => {
       store.accept(batch);
       if (batch.ready) resolveReady?.(store.snapshot().messages);
-    });
-    timeout = globalThis.setTimeout(() => {
-      rejectReady?.(new Error('WorkHub Session transcript did not become ready'));
-    }, WORKHUB_TRANSCRIPT_READY_TIMEOUT_MS);
-    return await ready;
+    },
+    (cancel) => {
+      cancelOpen = cancel;
+      if (timedOut) cancel();
+    },
+  );
+  void opening.catch(() => undefined);
+  try {
+    handle = await Promise.race([opening, timeoutFailure]);
+    return await Promise.race([ready, timeoutFailure]);
   } finally {
-    if (timeout !== undefined) globalThis.clearTimeout(timeout);
-    await handle?.close();
+    globalThis.clearTimeout(timeout);
+    await handle?.close().catch(() => undefined);
   }
-}
-
-function boundedTimelineText(value: string): string {
-  const text = value.trim();
-  const chars = Array.from(text);
-  return chars.length <= WORKHUB_TIMELINE_TEXT_LIMIT
-    ? text
-    : `${chars.slice(0, WORKHUB_TIMELINE_TEXT_LIMIT - 1).join('')}…`;
 }
 
 function projectState(session: WorkHubDesktopSession): WorkHubSessionState {

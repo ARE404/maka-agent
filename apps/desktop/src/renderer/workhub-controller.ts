@@ -65,6 +65,16 @@ export interface WorkHubProjectedTurn {
   updatedAt: number;
 }
 
+const WORKHUB_TIMELINE_TEXT_LIMIT = 600;
+
+export function boundedWorkHubTimelineText(value: string): string {
+  const text = value.trim();
+  const chars = Array.from(text);
+  return chars.length <= WORKHUB_TIMELINE_TEXT_LIMIT
+    ? text
+    : `${chars.slice(0, WORKHUB_TIMELINE_TEXT_LIMIT - 1).join('')}…`;
+}
+
 export interface WorkHubProjection {
   sessions: WorkHubSessionSummary[];
   turns: WorkHubProjectedTurn[];

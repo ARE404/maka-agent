@@ -198,6 +198,69 @@ test('desktop adapter rebuilds recent turns from the Session transcript and clos
   assert.equal(closes, 1);
 });
 
+test('desktop adapter cancels an unavailable transcript without hiding ready Sessions', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const unavailableId = desktopSessionKey({ hostId: 'local-host', sessionId: 'unavailable' });
+  const readyId = desktopSessionKey({ hostId: 'local-host', sessionId: 'ready' });
+  let cancellations = 0;
+  const adapter = createDesktopWorkHubSessionPort({
+    sessions: {
+      list: async () => [],
+      listTurns: async () => [],
+      create: async () => { throw new Error('not used'); },
+      send: async () => { throw new Error('not used'); },
+      stop: async () => {},
+      subscribeChanges: () => () => {},
+    },
+    transcripts: {
+      open: async (sessionId, handler, registerCancellation) => {
+        if (sessionId === unavailableId) {
+          return await new Promise<never>((_resolve, reject) => {
+            registerCancellation?.(() => {
+              cancellations += 1;
+              reject(new Error('cancelled unavailable transcript'));
+            });
+          });
+        }
+        const message: StoredMessage = {
+          type: 'user', id: 'user-ready', turnId: 'turn-ready', ts: 10, text: '可用工作',
+        };
+        const data = new TextEncoder().encode(JSON.stringify(message));
+        handler({
+          sessionId: 'ready', deliverySequence: 1, generation: 'generation-ready',
+          hostEpoch: 'epoch-ready', durableThrough: 0,
+          fragments: [{
+            source: 'durable', identity: 0, order: null, byteOffset: 0,
+            totalBytes: data.byteLength, data,
+          }],
+          evictedDurableSequences: [], completedOverlayMessageIds: [],
+          hasOlder: false, hasNewer: false, reset: true, ready: true,
+        });
+        return {
+          sessionId: readyId, generation: 'generation-ready', hostEpoch: 'epoch-ready',
+          readThroughMessageId: null, loadBefore: async () => {}, loadAround: async () => {},
+          close: async () => {},
+        };
+      },
+    },
+    projectName: () => 'Maka',
+    newTurnId: () => 'unused',
+  });
+
+  const turns = adapter.recentTurns([
+    { sessionId: unavailableId },
+    { sessionId: readyId },
+  ]);
+  await Promise.resolve();
+  t.mock.timers.tick(5_000);
+
+  assert.deepEqual(await turns, [{
+    messageId: 'user-ready', target: { sessionId: readyId }, turnId: 'turn-ready',
+    text: '可用工作', state: 'completed', updatedAt: 10,
+  }]);
+  assert.equal(cancellations, 1);
+});
+
 test('desktop adapter projects Session catalog facts without owning copies', async () => {
   const source = [
     desktopSession('ordinary', {

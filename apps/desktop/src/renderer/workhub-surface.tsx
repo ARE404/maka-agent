@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChatMessage, ChatMessageBubble, ChatMessageList } from '@astryxdesign/core';
 import { Button } from '@astryxdesign/core/Button';
 import type { UiLocale } from '@maka/core/ui-locale';
@@ -30,6 +30,7 @@ import type {
   WorkHubSubmission,
   WorkHubSubmitInput,
 } from './workhub-controller.js';
+import { boundedWorkHubTimelineText } from './workhub-controller.js';
 
 export interface WorkHubConversationTurn {
   requestId: string;
@@ -53,6 +54,19 @@ export class WorkHubSurfaceRouteGate {
     } finally {
       this.#pending = false;
     }
+  }
+}
+
+export class WorkHubProjectionRefreshGate {
+  #generation = 0;
+
+  begin(): () => boolean {
+    const generation = ++this.#generation;
+    return () => generation === this.#generation;
+  }
+
+  invalidate(): void {
+    this.#generation += 1;
   }
 }
 
@@ -85,13 +99,18 @@ export function visibleWorkHubProjectedTurns(
     const key = projectedTurnKey(turn.outcome.target, turn.outcome.turnId, turn.text);
     localTurnCounts.set(key, (localTurnCounts.get(key) ?? 0) + 1);
   }
-  return projected.filter((turn) => {
+  const visible: WorkHubProjectedTurn[] = [];
+  for (let index = projected.length - 1; index >= 0; index -= 1) {
+    const turn = projected[index]!;
     const key = projectedTurnKey(turn.target, turn.turnId, turn.text);
     const remaining = localTurnCounts.get(key) ?? 0;
-    if (remaining === 0) return true;
-    localTurnCounts.set(key, remaining - 1);
-    return false;
-  });
+    if (remaining > 0) {
+      localTurnCounts.set(key, remaining - 1);
+    } else {
+      visible.push(turn);
+    }
+  }
+  return visible.reverse();
 }
 
 function projectedTurnKey(
@@ -99,7 +118,23 @@ function projectedTurnKey(
   turnId: string,
   text: string,
 ): string {
-  return JSON.stringify([target.sessionId, turnId, text.trim()]);
+  return JSON.stringify([
+    target.sessionId,
+    turnId,
+    boundedWorkHubTimelineText(text),
+  ]);
+}
+
+export function projectedWorkHubTurnPresentation(
+  state: WorkHubProjectedTurn['state'],
+  archived: boolean,
+  locale: UiLocale,
+): { heading: string; state: string } {
+  const copy = workHubCopy(locale);
+  return {
+    heading: archived ? copy.archivedSessionRecord : copy.sessionRecord,
+    state: copy.turnStates[state],
+  };
 }
 
 /**
@@ -121,20 +156,29 @@ export function WorkHubSurface(props: {
   // React state paints the lock; the gate closes the same-frame window before
   // a rerender can disable Composer and clarification controls.
   const routeGate = useRef(new WorkHubSurfaceRouteGate()).current;
+  const refreshGate = useRef(new WorkHubProjectionRefreshGate()).current;
   const [loadError, setLoadError] = useState(false);
   const refresh = useCallback(async () => {
+    const isLatest = refreshGate.begin();
     try {
-      setProjection(await props.controller.read());
+      const next = await props.controller.read();
+      if (!isLatest()) return;
+      setProjection(next);
       setLoadError(false);
     } catch {
+      if (!isLatest()) return;
       setLoadError(true);
     }
-  }, [props.controller]);
+  }, [props.controller, refreshGate]);
 
   useEffect(() => {
     void refresh();
-    return props.controller.subscribe(() => void refresh());
-  }, [props.controller, refresh]);
+    const unsubscribe = props.controller.subscribe(() => void refresh());
+    return () => {
+      refreshGate.invalidate();
+      unsubscribe();
+    };
+  }, [props.controller, refresh, refreshGate]);
 
   const route = useCallback(async (
     input: WorkHubSubmitInput,
@@ -276,33 +320,26 @@ function ProjectedWorkHubTurnView(props: {
   const session = props.projection.sessions.find(
     (candidate) => candidate.target.sessionId === props.turn.target.sessionId,
   );
-  const state = session?.archived
-    ? props.copy.archived
-    : props.copy.turnStates[props.turn.state];
+  const presentation = projectedWorkHubTurnPresentation(
+    props.turn.state,
+    session?.archived ?? false,
+    props.copy.locale,
+  );
   return (
-    <section className="workhub-turn workhub-projected-turn" data-state="settled">
-      <ChatMessage sender="user" density="compact" className="workhub-message">
-        <ChatMessageBubble className="maka-chat-message-bubble maka-chat-message-bubble-user workhub-user-bubble">
-          <p>{props.turn.text}</p>
-        </ChatMessageBubble>
-      </ChatMessage>
-      <ChatMessage sender="assistant" density="compact" className="workhub-message">
-        <ChatMessageBubble variant="ghost" className="maka-chat-message-bubble maka-chat-message-bubble-assistant workhub-assistant-bubble">
-          <SubmittedWorkView
-            session={session}
-            correctedFrom={undefined}
-            targetSessionId={props.turn.target.sessionId}
-            heading={props.copy.sessionRecord}
-            state={state}
-            result={props.turn.result}
-            copy={props.copy}
-            correctionOptions={[]}
-            pending={false}
-            onOpenSession={props.onOpenSession}
-          />
-        </ChatMessageBubble>
-      </ChatMessage>
-    </section>
+    <WorkHubMessageFrame text={props.turn.text} state="settled" projected>
+      <SubmittedWorkView
+        session={session}
+        correctedFrom={undefined}
+        targetSessionId={props.turn.target.sessionId}
+        heading={presentation.heading}
+        state={presentation.state}
+        result={props.turn.result}
+        copy={props.copy}
+        correctionOptions={[]}
+        pending={false}
+        onOpenSession={props.onOpenSession}
+      />
+    </WorkHubMessageFrame>
   );
 }
 
@@ -325,14 +362,7 @@ function WorkHubTurnView(props: {
     : undefined;
 
   return (
-    <section className="workhub-turn" data-state={turn.state}>
-      <ChatMessage sender="user" density="compact" className="workhub-message">
-        <ChatMessageBubble className="maka-chat-message-bubble maka-chat-message-bubble-user workhub-user-bubble">
-          <p>{turn.text}</p>
-        </ChatMessageBubble>
-      </ChatMessage>
-      <ChatMessage sender="assistant" density="compact" className="workhub-message">
-        <ChatMessageBubble variant="ghost" className="maka-chat-message-bubble maka-chat-message-bubble-assistant workhub-assistant-bubble">
+    <WorkHubMessageFrame text={turn.text} state={turn.state}>
           {turn.state === 'routing' ? (
             <p className="workhub-status" role="status">{copy.routing}</p>
           ) : turn.state === 'failed' ? (
@@ -395,6 +425,29 @@ function WorkHubTurnView(props: {
               onOpenSession={props.onOpenSession}
             />
           ) : null}
+    </WorkHubMessageFrame>
+  );
+}
+
+function WorkHubMessageFrame(props: {
+  text: string;
+  state: string;
+  projected?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      className={`workhub-turn${props.projected ? ' workhub-projected-turn' : ''}`}
+      data-state={props.state}
+    >
+      <ChatMessage sender="user" density="compact" className="workhub-message">
+        <ChatMessageBubble className="maka-chat-message-bubble maka-chat-message-bubble-user workhub-user-bubble">
+          <p>{props.text}</p>
+        </ChatMessageBubble>
+      </ChatMessage>
+      <ChatMessage sender="assistant" density="compact" className="workhub-message">
+        <ChatMessageBubble variant="ghost" className="maka-chat-message-bubble maka-chat-message-bubble-assistant workhub-assistant-bubble">
+          {props.children}
         </ChatMessageBubble>
       </ChatMessage>
     </section>
@@ -463,6 +516,7 @@ function SubmittedWorkView(props: {
 function workHubCopy(locale: UiLocale) {
   if (locale === 'zh') {
     return {
+      locale,
       subtitle: '在一个入口里继续、创建和查看普通 Session',
       emptyTitle: '从这里继续所有工作',
       emptyBody: (count: number) => count > 0
@@ -474,6 +528,7 @@ function workHubCopy(locale: UiLocale) {
       discussionHint: '提出明确的执行目标后，我会把它交给对应的 Session。',
       sentTo: '已交给：', accepted: '已接收', sessionFallback: '普通 Session',
       sessionRecord: '来自 Session：',
+      archivedSessionRecord: '来自已归档 Session：',
       correctTarget: '更正目标',
       correctedFrom: (name: string) => `已从“${name}”更正`,
       waitingForDecision: '这项工作正在等待你的决定。',
@@ -485,6 +540,7 @@ function workHubCopy(locale: UiLocale) {
     } as const;
   }
   return {
+    locale,
     subtitle: 'Continue, create, and review ordinary Sessions from one place',
     emptyTitle: 'Continue all work from here',
     emptyBody: (count: number) => count > 0
@@ -496,6 +552,7 @@ function workHubCopy(locale: UiLocale) {
     discussionHint: 'State an executable goal and I will hand it to the owning Session.',
     sentTo: 'Sent to:', accepted: 'Accepted', sessionFallback: 'Ordinary Session',
     sessionRecord: 'From Session:',
+    archivedSessionRecord: 'From archived Session:',
     correctTarget: 'Correct target',
     correctedFrom: (name: string) => `Corrected from “${name}”`,
     waitingForDecision: 'This work is waiting for your decision.',
