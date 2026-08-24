@@ -243,6 +243,10 @@ export function createWorkHubController(deps: {
     },
     async submit(input) {
       const submissionPolicy = routePolicy;
+      // Reserve the order synchronously, before any await. Corrections are
+      // learned only after successful delivery, but their precedence follows
+      // user submission order rather than network completion order.
+      const submissionOrder = submissionPolicy.reserveSubmissionOrder();
       const sessions = await deps.sessions.list();
       reconcileFocus(submissionPolicy, sessions);
       const ordinary = sessions.filter((session) => session.kind === 'ordinary');
@@ -325,7 +329,9 @@ export function createWorkHubController(deps: {
       const turn = await deps.sessions.submit(target, input.text);
       rememberOwnedRoot(target, turn);
       submissionPolicy.rememberTarget(target);
-      if (correction) submissionPolicy.rememberCorrection(input.text, target);
+      if (correction) {
+        submissionPolicy.rememberCorrection(input.text, target, submissionOrder);
+      }
       return {
         kind: 'submitted',
         strategyId: WORKHUB_ROUTING_STRATEGY_ID,

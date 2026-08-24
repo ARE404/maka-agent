@@ -54,7 +54,8 @@ export interface WorkHubRoutePolicy {
   initializeFocus(targets: readonly WorkHubSessionTarget[]): void;
   newVisit(): WorkHubRoutePolicy;
   rememberTarget(target: WorkHubSessionTarget): void;
-  rememberCorrection(text: string, target: WorkHubSessionTarget): void;
+  reserveSubmissionOrder(): number;
+  rememberCorrection(text: string, target: WorkHubSessionTarget, order: number): void;
 }
 
 export function workHubNewSessionName(text: string): string {
@@ -286,9 +287,13 @@ function createWorkHubRoutePolicyVisit(
       previousFocus = currentFocus;
       currentFocus = target;
     },
-    rememberCorrection(text, target) {
+    reserveSubmissionOrder() {
       correctionMemory.sequence += 1;
-      corrections.unshift({ text, target, sequence: correctionMemory.sequence });
+      return correctionMemory.sequence;
+    },
+    rememberCorrection(text, target, order) {
+      corrections.push({ text, target, sequence: order });
+      corrections.sort((left, right) => right.sequence - left.sequence);
       corrections.splice(MAX_ROUTE_CORRECTIONS);
     },
   };

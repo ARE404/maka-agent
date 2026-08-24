@@ -1367,6 +1367,56 @@ test('latest route correction wins for the same expression family', async () => 
   assert.equal(result.kind === 'submitted' ? result.evidence : undefined, 'route_correction');
 });
 
+test('user correction order wins when overlapping submissions finish out of order', async () => {
+  const sessions = port([
+    session('login', { sessionName: '登录稳定性' }),
+    session('payment', { sessionName: '支付稳定性' }),
+  ]);
+  let signalOlderStarted!: () => void;
+  const olderStarted = new Promise<void>((resolve) => {
+    signalOlderStarted = resolve;
+  });
+  let finishOlder!: (value: { turnId: string }) => void;
+  const olderTurn = new Promise<{ turnId: string }>((resolve) => {
+    finishOlder = resolve;
+  });
+  sessions.submit = async (target) => {
+    if (target.sessionId === 'login') {
+      signalOlderStarted();
+      return olderTurn;
+    }
+    return { turnId: 'turn-payment' };
+  };
+  const controller = createWorkHubController({ sessions });
+
+  const olderCorrection = controller.submit({
+    requestId: 'correction-older-login',
+    text: '继续白鹭点，列出验收项。',
+    explicitTarget: { sessionId: 'login' },
+    correction: { from: { sessionId: 'payment' } },
+  });
+  await olderStarted;
+  controller.resetVisitContext();
+  await controller.submit({
+    requestId: 'correction-newer-payment',
+    text: '继续白鹭点，列出异常项。',
+    explicitTarget: { sessionId: 'payment' },
+    correction: { from: { sessionId: 'login' } },
+  });
+  finishOlder({ turnId: 'turn-login' });
+  await olderCorrection;
+
+  const result = await controller.submit({
+    requestId: 'correction-after-overlap',
+    text: '继续白鹭点，补充回滚条件。',
+  });
+
+  assert.deepEqual(result.kind === 'submitted' ? result.target : undefined, {
+    sessionId: 'payment',
+  });
+  assert.equal(result.kind === 'submitted' ? result.evidence : undefined, 'route_correction');
+});
+
 test('waiting Session rejects a second root request without calling submit', async () => {
   let submitted = false;
   const sessions = port([
