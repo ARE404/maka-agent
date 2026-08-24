@@ -84,14 +84,20 @@ export interface WorkHubSubmitInput {
   requestId: string;
   text: string;
   explicitTarget?: WorkHubSessionTarget;
-  correction?: {
-    from: WorkHubSessionTarget;
-    turnId: string;
-    steered?: true;
-  };
+  correction?: WorkHubCorrectionContext;
 }
 
-export const WORKHUB_ROUTING_STRATEGY_ID = 'wh-r2.3-session-core-evidence' as const;
+export interface WorkHubCorrectionContext {
+  from: WorkHubSessionTarget;
+  turnId?: string;
+  steered?: true;
+}
+
+export interface WorkHubReadInput {
+  focus?: WorkHubSessionTarget;
+}
+
+export const WORKHUB_ROUTING_STRATEGY_ID = 'wh-r2.4-session-context-continuity' as const;
 export type WorkHubRoutingStrategyId = typeof WORKHUB_ROUTING_STRATEGY_ID;
 
 export type WorkHubSubmission = (
@@ -109,6 +115,7 @@ export type WorkHubSubmission = (
       requestId: string;
       text: string;
       options: Array<Pick<WorkHubSessionSummary, 'target' | 'projectName' | 'sessionName'>>;
+      correction?: WorkHubCorrectionContext;
     }
   | {
       kind: 'discussion';
@@ -151,32 +158,93 @@ export interface WorkHubSessionPort {
 }
 
 export interface WorkHubController {
-  read(): Promise<WorkHubProjection>;
+  read(input?: WorkHubReadInput): Promise<WorkHubProjection>;
   submit(input: WorkHubSubmitInput): Promise<WorkHubSubmission>;
   subscribe(handler: () => void): () => void;
+  resetVisitContext(): void;
 }
+
+const MAX_OWNED_ROOTS = 32;
 
 export function createWorkHubController(deps: {
   sessions: WorkHubSessionPort;
 }): WorkHubController {
-  const routePolicy = createWorkHubRoutePolicy();
+  let routePolicy = createWorkHubRoutePolicy();
+  let focusReadVersion = 0;
+  let pendingFocusReadVersion: number | undefined;
+  const ownedRootBySessionId = new Map<string, string>();
+  const reconcileFocus = (
+    policy: ReturnType<typeof createWorkHubRoutePolicy>,
+    sessions: readonly WorkHubSessionFacts[],
+  ) => {
+    policy.initializeFocus(sessions
+      .filter((session) => session.kind === 'ordinary' && !session.archived)
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .map((session) => session.target));
+  };
+  const correctionFor = (from: WorkHubSessionTarget): WorkHubCorrectionContext => {
+    const turnId = ownedRootBySessionId.get(from.sessionId);
+    if (!turnId) return { from };
+    return {
+      from,
+      turnId,
+    };
+  };
+  const rememberOwnedRoot = (
+    target: WorkHubSessionTarget,
+    turn: { turnId: string; steered?: true },
+  ) => {
+    const existing = ownedRootBySessionId.get(target.sessionId);
+    if (turn.steered) {
+      if (existing !== turn.turnId) ownedRootBySessionId.delete(target.sessionId);
+      return;
+    }
+    ownedRootBySessionId.delete(target.sessionId);
+    ownedRootBySessionId.set(target.sessionId, turn.turnId);
+    while (ownedRootBySessionId.size > MAX_OWNED_ROOTS) {
+      const oldest = ownedRootBySessionId.keys().next().value;
+      if (!oldest) break;
+      ownedRootBySessionId.delete(oldest);
+    }
+  };
   return {
     subscribe(handler) {
       return deps.sessions.subscribe(handler);
     },
-    async read() {
-      const facts = await deps.sessions.list();
-      const ordinary = facts
-        .filter((session) => session.kind === 'ordinary')
-        .sort((left, right) => right.updatedAt - left.updatedAt);
-      return {
-        sessions: ordinary
-          .map(({ kind: _kind, ...session }) => session),
-        turns: await deps.sessions.recentTurns(ordinary.map((session) => session.target)),
-      };
+    async read(input) {
+      const readPolicy = routePolicy;
+      let readFocusVersion = focusReadVersion;
+      if (input?.focus) {
+        readFocusVersion = ++focusReadVersion;
+        pendingFocusReadVersion = readFocusVersion;
+        readPolicy.rememberTarget(input.focus);
+      }
+      try {
+        const facts = await deps.sessions.list();
+        const ordinary = facts
+          .filter((session) => session.kind === 'ordinary')
+          .sort((left, right) => right.updatedAt - left.updatedAt);
+        if (
+          readFocusVersion === focusReadVersion &&
+          (input?.focus || pendingFocusReadVersion === undefined)
+        ) {
+          reconcileFocus(readPolicy, facts);
+        }
+        return {
+          sessions: ordinary
+            .map(({ kind: _kind, ...session }) => session),
+          turns: await deps.sessions.recentTurns(ordinary.map((session) => session.target)),
+        };
+      } finally {
+        if (input?.focus && pendingFocusReadVersion === readFocusVersion) {
+          pendingFocusReadVersion = undefined;
+        }
+      }
     },
     async submit(input) {
+      const submissionPolicy = routePolicy;
       const sessions = await deps.sessions.list();
+      reconcileFocus(submissionPolicy, sessions);
       const ordinary = sessions.filter((session) => session.kind === 'ordinary');
       // Archived Sessions remain visible as historical work, but Runtime Host
       // rejects new root Turns for them. Never offer one as a routing target.
@@ -184,7 +252,7 @@ export function createWorkHubController(deps: {
       const routingEvidence = input.explicitTarget
         ? []
         : await deps.sessions.routingEvidence(routable.map((session) => session.target));
-      const decision = routePolicy.resolve({
+      const decision = submissionPolicy.resolve({
         text: input.text,
         sessions: routable,
         originPromptBySessionId: new Map(
@@ -193,6 +261,9 @@ export function createWorkHubController(deps: {
         ...(input.explicitTarget ? { explicitTarget: input.explicitTarget } : {}),
       });
       if (decision.kind === 'clarification') {
+        const correction = decision.correctedFrom
+          ? correctionFor(decision.correctedFrom)
+          : undefined;
         return {
           kind: 'clarification',
           strategyId: WORKHUB_ROUTING_STRATEGY_ID,
@@ -203,6 +274,7 @@ export function createWorkHubController(deps: {
             projectName: session.projectName,
             sessionName: session.sessionName,
           })),
+          ...(correction ? { correction } : {}),
         };
       }
       if (decision.kind === 'discussion') {
@@ -215,6 +287,9 @@ export function createWorkHubController(deps: {
       }
       let target: WorkHubSessionTarget;
       let evidence: Extract<WorkHubSubmission, { kind: 'submitted' }>['evidence'];
+      const correction = input.correction ?? (decision.kind === 'target' && decision.correctedFrom
+        ? correctionFor(decision.correctedFrom)
+        : undefined);
       if (decision.kind === 'new_session') {
         const created = await deps.sessions.create({ name: workHubNewSessionName(input.text) });
         if (created.kind !== 'ordinary') {
@@ -224,7 +299,7 @@ export function createWorkHubController(deps: {
         evidence = 'new_session';
       } else {
         target = decision.target;
-        evidence = input.correction ? 'route_correction' : decision.evidence;
+        evidence = correction ? 'route_correction' : decision.evidence;
       }
       const targetSession = routable.find(
         (session) => session.target.sessionId === target.sessionId,
@@ -241,12 +316,16 @@ export function createWorkHubController(deps: {
           target,
         };
       }
-      if (input.correction && !input.correction.steered) {
-        await deps.sessions.stop(input.correction.from, input.correction.turnId);
+      if (correction?.turnId && !correction.steered) {
+        await deps.sessions.stop(correction.from, correction.turnId);
+        if (ownedRootBySessionId.get(correction.from.sessionId) === correction.turnId) {
+          ownedRootBySessionId.delete(correction.from.sessionId);
+        }
       }
       const turn = await deps.sessions.submit(target, input.text);
-      routePolicy.rememberTarget(target);
-      if (input.correction) routePolicy.rememberCorrection(input.text, target);
+      rememberOwnedRoot(target, turn);
+      submissionPolicy.rememberTarget(target);
+      if (correction) submissionPolicy.rememberCorrection(input.text, target);
       return {
         kind: 'submitted',
         strategyId: WORKHUB_ROUTING_STRATEGY_ID,
@@ -255,8 +334,13 @@ export function createWorkHubController(deps: {
         turnId: turn.turnId,
         ...(turn.steered ? { steered: true as const } : {}),
         evidence,
-        ...(input.correction ? { correctedFrom: input.correction.from } : {}),
+        ...(correction ? { correctedFrom: correction.from } : {}),
       };
+    },
+    resetVisitContext() {
+      focusReadVersion += 1;
+      pendingFocusReadVersion = undefined;
+      routePolicy = routePolicy.newVisit();
     },
   };
 }

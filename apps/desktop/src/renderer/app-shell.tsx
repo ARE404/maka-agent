@@ -2948,6 +2948,7 @@ function AppShellContent({
                 <WorkHubSurface
                   controller={workHubController}
                   locale={uiLocale}
+                  {...(activeId ? { initialFocusSessionId: activeId } : {})}
                   onOpenSession={openSessionInChat}
                 />
               ) : (
