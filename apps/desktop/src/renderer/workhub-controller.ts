@@ -497,12 +497,16 @@ export function createWorkHubController(deps: {
     const confirmed = confirmedOwnershipBySessionId.get(correction.from.sessionId);
     const pending = pendingAdmissions(correction.from.sessionId);
     const turnIds = new Set<string>();
+    const unconfirmedTurnIds = new Set<string>();
     if (correction.turnId) turnIds.add(correction.turnId);
     if (confirmed && confirmed.order < order) {
       turnIds.add(confirmed.turnId);
     }
     for (const candidate of pending) {
-      if (candidate.order < order) turnIds.add(candidate.turnId);
+      if (candidate.order < order) {
+        turnIds.add(candidate.turnId);
+        unconfirmedTurnIds.add(candidate.turnId);
+      }
     }
     if (turnIds.size === 0) return;
     // Publish only the order barrier before awaiting Host acknowledgements.
@@ -513,7 +517,7 @@ export function createWorkHubController(deps: {
       try {
         await attemptStop(correction.from, turnId);
         const barrier = ownershipTombstoneBySessionId.get(correction.from.sessionId);
-        if (barrier && barrier.order >= order) {
+        if (barrier && barrier.order >= order && !unconfirmedTurnIds.has(turnId)) {
           storeOwnershipTombstone(correction.from.sessionId, barrier.order, [turnId]);
         }
         const owned = confirmedOwnershipBySessionId.get(correction.from.sessionId);
