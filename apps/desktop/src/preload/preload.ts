@@ -30,12 +30,14 @@ import type {
   PermissionOverlayStartResult,
   RendererIngestInput,
   DesktopBranchFromTurnInput,
+  DesktopSideConversationBranchResult,
   DesktopReviseBeforeTurnInput,
   AppUpdateInstallRequest,
   AppUpdateInstallResult,
   AppUpdateStatus,
   WindowCommand,
   PetPackChangedEvent,
+  WorkBoardChangedEvent,
   DesktopRuntimeHostProfileAddInput,
   DesktopRuntimeHostProfileChangedEvent,
   DesktopRuntimeHostProfileSnapshot,
@@ -186,7 +188,7 @@ import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime/bots';
 import type { ShellRunPtyDataEvent, ShellRunPtySnapshot } from '@maka/runtime/shell-run-contract';
 import type { GoalState } from '@maka/runtime/goal-state';
 import type { BundledSkillCatalogEntry, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry } from '@maka/ui';
-import type { ConfigCategory } from '@maka/storage';
+import type { ConfigCategory } from '@maka/storage/config-transfer';
 import {
   SENSITIVE_PLACEHOLDER,
   type TestProxyInput,
@@ -609,6 +611,34 @@ async function invokeSessionSummary(
     ...args,
   ) as SessionSummary;
   return projectSessionSummary(session.scope, summary);
+}
+
+async function invokeBranchFromTurn(
+  sessionId: string,
+  input: DesktopBranchFromTurnInput & { sideConversation: true },
+): Promise<DesktopSideConversationBranchResult>;
+async function invokeBranchFromTurn(
+  sessionId: string,
+  input: DesktopBranchFromTurnInput & { sideConversation?: false },
+): Promise<DesktopSessionSummary>;
+async function invokeBranchFromTurn(
+  sessionId: string,
+  input: DesktopBranchFromTurnInput,
+): Promise<DesktopSessionSummary | DesktopSideConversationBranchResult> {
+  const ref = await runtimeHostSessionRef(sessionId);
+  const result = await ipcRenderer.invoke(
+    'sessions:branchFromTurn',
+    ref.scope,
+    ref.sessionId,
+    input,
+  ) as SessionSummary | { ok: true; session: SessionSummary } | { ok: false; reason: string };
+  if (input.sideConversation) {
+    if (!('ok' in result) || result.ok === false) {
+      return result as DesktopSideConversationBranchResult;
+    }
+    return { ok: true, session: projectSessionSummary(ref.scope, result.session) };
+  }
+  return projectSessionSummary(ref.scope, result as SessionSummary);
 }
 
 async function invokeSessionInput<T, I extends { readonly sessionId: string }>(
@@ -1359,6 +1389,32 @@ const makaBridge = {
       return () => ipcRenderer.off('pets:changed', listener);
     },
   },
+  workBoard: {
+    list(query) {
+      return ipcRenderer.invoke('workBoard:list', query);
+    },
+    create(item) {
+      return ipcRenderer.invoke('workBoard:create', item);
+    },
+    update(id, patch, options) {
+      return ipcRenderer.invoke('workBoard:update', id, patch, options);
+    },
+    archive(id, options) {
+      return ipcRenderer.invoke('workBoard:archive', id, options);
+    },
+    unarchive(id, options) {
+      return ipcRenderer.invoke('workBoard:unarchive', id, options);
+    },
+    remove(id, options) {
+      return ipcRenderer.invoke('workBoard:remove', id, options);
+    },
+    subscribeChanges(handler: (event: WorkBoardChangedEvent) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, payload: WorkBoardChangedEvent) =>
+        handler(payload);
+      ipcRenderer.on('workBoard:changed', listener);
+      return () => ipcRenderer.off('workBoard:changed', listener);
+    },
+  },
   tasks: {
     list(sessionId: string): Promise<Task[]> {
       return invokeProjectedSessionRuntimeHost('tasks:list', sessionId);
@@ -1587,6 +1643,20 @@ const makaBridge = {
     promoteQueueEntry(sessionId: string, entryId: string): Promise<void> {
       return invokeSessionRuntimeHost('sessions:promoteQueueEntry', sessionId, entryId);
     },
+    updateQueueEntry(
+      sessionId: string,
+      entryId: string,
+      expectedQueueRevision: number,
+      text: string,
+    ): Promise<void> {
+      return invokeSessionRuntimeHost(
+        'sessions:updateQueueEntry',
+        sessionId,
+        entryId,
+        expectedQueueRevision,
+        text,
+      );
+    },
     reorderQueueEntries(sessionId: string, entryIds: readonly string[]): Promise<void> {
       return invokeSessionRuntimeHost('sessions:reorderQueueEntries', sessionId, [...entryIds]);
     },
@@ -1626,13 +1696,7 @@ const makaBridge = {
     regenerateTurn(sessionId: string, input: RegenerateTurnInput): Promise<void> {
       return invokeSessionRuntimeHost('sessions:regenerateTurn', sessionId, input);
     },
-    async branchFromTurn(sessionId: string, input: DesktopBranchFromTurnInput): Promise<DesktopSessionSummary> {
-      const ref = await runtimeHostSessionRef(sessionId);
-      const summary = await ipcRenderer.invoke(
-        'sessions:branchFromTurn', ref.scope, ref.sessionId, input,
-      ) as SessionSummary;
-      return projectSessionSummary(ref.scope, summary);
-    },
+    branchFromTurn: invokeBranchFromTurn,
     async reviseBeforeTurn(sessionId: string, input: DesktopReviseBeforeTurnInput): Promise<DesktopSessionSummary> {
       const ref = await runtimeHostSessionRef(sessionId);
       const summary = await ipcRenderer.invoke(
