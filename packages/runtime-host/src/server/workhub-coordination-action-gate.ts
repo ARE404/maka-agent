@@ -306,7 +306,9 @@ export class WorkHubCoordinationActionGate {
           { sessionId: freshSource.sessionId, turnId: owned.turnId },
           context,
         );
-        this.#ownedRoots.delete(freshSource.sessionId);
+        if (this.#ownedRoots.get(freshSource.sessionId) === owned) {
+          this.#ownedRoots.delete(freshSource.sessionId);
+        }
         return this.#submitExisting(input, freshTarget, context);
       });
     }

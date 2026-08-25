@@ -20,6 +20,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
+import type { WorkHubCoordinationActInput } from '@maka/runtime-host/protocol';
 import {
   createLegacyWorkHubControllerForTests as createWorkHubController,
   createWorkHubController as createGatedWorkHubController,
@@ -2531,6 +2532,94 @@ test('production corrections fail closed instead of dropping an incomplete repla
     /source is outside the admitted candidate set/u,
   );
   assert.deepEqual(actions, []);
+});
+
+test('production natural-language correction carries the Runtime-admitted source Turn', async () => {
+  const actions: WorkHubCoordinationActInput[] = [];
+  const sessions = port([
+    session('login', {
+      sessionName: '登录稳定性',
+      latestResult: '刷新令牌过期导致重复登录',
+      updatedAt: 20,
+    }),
+    session('payment', {
+      sessionName: '支付稳定性',
+      latestResult: '支付回调重复投递',
+      updatedAt: 30,
+    }),
+  ]);
+  const candidateSetId = `sha256:${'e'.repeat(64)}`;
+  const candidates = [
+    {
+      candidateRef: 'candidate-login',
+      sessionId: 'login',
+      sessionName: '登录稳定性',
+      workspace: {
+        target: { kind: 'host_path' as const, path: '/workspace/login' },
+        hostCwd: '/workspace/login',
+      },
+      state: 'active' as const,
+      updatedAt: 20,
+    },
+    {
+      candidateRef: 'candidate-payment',
+      sessionId: 'payment',
+      sessionName: '支付稳定性',
+      workspace: {
+        target: { kind: 'host_path' as const, path: '/workspace/payment' },
+        hostCwd: '/workspace/payment',
+      },
+      state: 'active' as const,
+      updatedAt: 30,
+    },
+  ];
+  const controller = createGatedWorkHubController({
+    sessions,
+    coordination: {
+      open: async () => ({ close: async () => undefined }),
+      answer: async (input) => ({ turnId: input.turnId }),
+      record: async (input) => ({ turnId: input.turnId }),
+      candidates: async () => ({ candidateSetId, candidates }),
+      act: async (input) => {
+        actions.push(input);
+        return {
+          disposition: 'delegate_existing',
+          targetSessionId: input.proposal.disposition === 'delegate_existing' &&
+              input.proposal.candidateRef === 'candidate-login'
+            ? 'login'
+            : 'payment',
+          targetTurnId: input.actionId === 'production-wrong-payment'
+            ? 'runtime-payment-turn'
+            : 'runtime-login-turn',
+        };
+      },
+    },
+  });
+  await controller.read();
+  await controller.submit({
+    requestId: 'production-wrong-payment',
+    text: '继续这个工作，补充验收项',
+  });
+
+  const corrected = await controller.submit({
+    requestId: 'production-natural-correction',
+    text: '不是这个，换成登录那个，补充刷新令牌失败判定',
+  });
+
+  assert.equal(corrected.kind, 'submitted');
+  assert.deepEqual(actions[1], {
+    actionId: 'production-natural-correction',
+    userText: '不是这个，换成登录那个，补充刷新令牌失败判定',
+    candidateSetId,
+    proposal: {
+      disposition: 'delegate_existing',
+      candidateRef: 'candidate-login',
+      replace: {
+        candidateRef: 'candidate-payment',
+        expectedTurnId: 'runtime-payment-turn',
+      },
+    },
+  });
 });
 
 test('production clarification is persisted through the typed Action Gate disposition', async () => {

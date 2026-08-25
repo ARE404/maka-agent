@@ -41,7 +41,16 @@ export interface WorkHubConversationTurn {
   text: string;
   state: 'routing' | 'settled' | 'failed';
   outcome?: WorkHubSubmission;
+  failure?: WorkHubSurfaceFailure;
 }
+
+export type WorkHubSurfaceFailure =
+  | 'candidates_changed'
+  | 'correction_expired'
+  | 'confirmation_required'
+  | 'target_waiting'
+  | 'action_changed'
+  | 'delivery_failed';
 
 export class WorkHubSurfaceRouteGate {
   #pending = false;
@@ -87,8 +96,30 @@ export function workHubReplacementText(input: {
   originalText: string;
 }): string {
   return input.locale === 'zh'
-    ? `不是“${input.sourceName}”，改成“${input.targetName}”：${input.originalText}`
-    : `Not “${input.sourceName}”; use “${input.targetName}” instead: ${input.originalText}`;
+    ? `不是原目标，改成“${input.targetName}”：${input.originalText}（原目标：“${input.sourceName}”）`
+    : `Not the previous target; use “${input.targetName}” instead: ${input.originalText} (previous target: “${input.sourceName}”)`;
+}
+
+export function workHubSurfaceFailure(error: unknown): WorkHubSurfaceFailure {
+  const message = error instanceof Error ? error.message : '';
+  if (
+    /candidates changed|not in the admitted candidate set|source or target is not in/iu.test(
+      message,
+    )
+  ) {
+    return 'candidates_changed';
+  }
+  if (/cannot stop a Turn it did not admit|source is outside/iu.test(message)) {
+    return 'correction_expired';
+  }
+  if (/explicit user correction|requires an exact owned Turn/iu.test(message)) {
+    return 'confirmation_required';
+  }
+  if (/waiting for user input/iu.test(message)) return 'target_waiting';
+  if (/identity belongs to a different proposal|replacement target did not change/iu.test(message)) {
+    return 'action_changed';
+  }
+  return 'delivery_failed';
 }
 
 export function workHubSubmissionCanCorrect(
@@ -239,10 +270,15 @@ export function WorkHubSurface(props: {
         ));
         if (result.kind === 'submitted') await refresh();
         return result;
-      } catch {
+      } catch (error) {
         setTurns((current) => current.map((turn) =>
           turn.requestId === localRequestId
-            ? { ...turn, state: 'failed', outcome: undefined }
+            ? {
+                ...turn,
+                state: 'failed',
+                outcome: undefined,
+                failure: workHubSurfaceFailure(error),
+              }
             : turn,
         ));
         return undefined;
@@ -521,7 +557,9 @@ function WorkHubTurnView(props: {
           {turn.state === 'routing' ? (
             <p className="workhub-status" role="status">{copy.routing}</p>
           ) : turn.state === 'failed' ? (
-            <p className="workhub-error" role="alert">{copy.submitFailed}</p>
+            <p className="workhub-error" role="alert">
+              {copy.submitFailures[turn.failure ?? 'delivery_failed']}
+            </p>
           ) : turn.outcome?.kind === 'clarification' ? (
             <>
               <p>{copy.chooseWork}</p>
@@ -695,7 +733,14 @@ function workHubCopy(locale: UiLocale) {
       coordinationFailedTitle: 'WorkHub 暂时无法启动',
       coordinationFailedBody: '请检查当前 Runtime Host 的默认模型配置，然后重试。',
       retry: '重试',
-      submitFailed: '输入未能送达，请重试。', scrollToBottom: '滚动到底部', archived: '已归档',
+      submitFailures: {
+        candidates_changed: '工作列表已变化，请重新发送以使用最新目标。',
+        correction_expired: '原目标已无法安全更正，请重新选择目标后发送。',
+        confirmation_required: '请明确说明停止原目标并改交给哪个 Session。',
+        target_waiting: '目标 Session 正在等待你的处理；请先打开并完成该交互。',
+        action_changed: '这次操作已发生变化，请重新发送。',
+        delivery_failed: '输入未能送达，请重试。',
+      }, scrollToBottom: '滚动到底部', archived: '已归档',
       states: { active: '活跃', running: '进行中', waiting_for_user: '等待你', blocked: '受阻', aborted: '已中止' },
       turnStates: { running: '进行中', completed: '已完成', aborted: '已中止', failed: '失败' },
     } as const;
@@ -725,7 +770,14 @@ function workHubCopy(locale: UiLocale) {
     coordinationFailedTitle: 'WorkHub could not start',
     coordinationFailedBody: 'Check the default model for the current Runtime Host, then retry.',
     retry: 'Retry',
-    submitFailed: 'The input could not be delivered. Try again.', scrollToBottom: 'Scroll to bottom', archived: 'Archived',
+    submitFailures: {
+      candidates_changed: 'The work list changed. Send again to use the latest targets.',
+      correction_expired: 'The previous target can no longer be corrected safely. Choose a target again.',
+      confirmation_required: 'Explicitly say to stop the previous target and name its replacement.',
+      target_waiting: 'The target Session needs your input. Open it and resolve that interaction first.',
+      action_changed: 'This action changed. Send it again.',
+      delivery_failed: 'The input could not be delivered. Try again.',
+    }, scrollToBottom: 'Scroll to bottom', archived: 'Archived',
     states: { active: 'Active', running: 'Running', waiting_for_user: 'Waiting for you', blocked: 'Blocked', aborted: 'Aborted' },
     turnStates: { running: 'Running', completed: 'Completed', aborted: 'Aborted', failed: 'Failed' },
   } as const;

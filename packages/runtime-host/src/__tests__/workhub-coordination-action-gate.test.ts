@@ -20,6 +20,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
+  WorkHubActionEffectFailure,
   WorkHubActionGateFailure,
   WorkHubCoordinationActionGate,
   type WorkHubActionGateEffects,
@@ -172,12 +173,24 @@ describe('WorkHub Coordination Action Gate', () => {
     assert.equal(effects.answers.length, 1);
     assert.equal(effects.clarifications.length, 1);
     assert.deepEqual(effects.submissions, []);
-    assert.deepEqual(effects.creations, []);
+    assert.equal(effects.creations.length, 0);
   });
 
   test('only create_new creates and retries the exact action idempotently', async () => {
     const effects = fakeEffects([session('ordinary')]);
     const gate = new WorkHubCoordinationActionGate(effects);
+    await assert.rejects(
+      gate.act(
+        {
+          actionId: 'missing-create-context',
+          userText: 'Create an accessibility audit',
+          proposal: { disposition: 'create_new', title: 'Accessibility audit' },
+        },
+        CONTEXT,
+      ),
+      (error) => error instanceof WorkHubActionGateFailure && error.code === 'action_conflict',
+    );
+    assert.equal(effects.creations.length, 0);
     const input = {
       actionId: 'create-action',
       userText: 'Create an accessibility audit',
@@ -208,6 +221,32 @@ describe('WorkHub Coordination Action Gate', () => {
       (error) => error instanceof WorkHubActionGateFailure && error.code === 'action_conflict',
     );
     assert.equal(effects.creations.length, 1);
+  });
+
+  test('effect rejection grants no root ownership and releases the action identity', async () => {
+    const effects = fakeEffects([session('ordinary')]);
+    const gate = new WorkHubCoordinationActionGate(effects);
+    const snapshot = await gate.candidates();
+    const submit = effects.submit;
+    effects.submit = async () => {
+      throw new WorkHubActionEffectFailure('unauthorized', 'Target permission denied');
+    };
+    const input = {
+      actionId: 'permission-rejected-action',
+      userText: 'Continue ordinary work',
+      candidateSetId: snapshot.candidateSetId,
+      proposal: {
+        disposition: 'delegate_existing' as const,
+        candidateRef: snapshot.candidates[0]!.candidateRef,
+      },
+    };
+
+    await assert.rejects(
+      gate.act(input, CONTEXT),
+      (error) => error instanceof WorkHubActionEffectFailure && error.code === 'unauthorized',
+    );
+    effects.submit = submit;
+    assert.equal((await gate.act(input, CONTEXT)).disposition, 'delegate_existing');
   });
 
   test('stops only an exact root previously admitted by this gate', async () => {
@@ -243,6 +282,44 @@ describe('WorkHub Coordination Action Gate', () => {
         CONTEXT,
       ),
       (error) => error instanceof WorkHubActionGateFailure && error.code === 'stop_not_owned',
+    );
+    assert.deepEqual(effects.stops, []);
+
+    await assert.rejects(
+      gate.act(
+        {
+          actionId: 'missing-source-correction',
+          userText: 'No, use target instead',
+          candidateSetId: firstSet.candidateSetId,
+          proposal: {
+            disposition: 'delegate_existing',
+            candidateRef: target.candidateRef,
+            replace: { candidateRef: 'missing-source', expectedTurnId: first.targetTurnId },
+          },
+        },
+        CONTEXT,
+      ),
+      (error) =>
+        error instanceof WorkHubActionGateFailure && error.code === 'candidate_unavailable',
+    );
+    await assert.rejects(
+      gate.act(
+        {
+          actionId: 'same-target-correction',
+          userText: 'No, use source instead',
+          candidateSetId: firstSet.candidateSetId,
+          proposal: {
+            disposition: 'delegate_existing',
+            candidateRef: source.candidateRef,
+            replace: {
+              candidateRef: source.candidateRef,
+              expectedTurnId: first.targetTurnId,
+            },
+          },
+        },
+        CONTEXT,
+      ),
+      (error) => error instanceof WorkHubActionGateFailure && error.code === 'action_conflict',
     );
     assert.deepEqual(effects.stops, []);
 
@@ -358,6 +435,104 @@ describe('WorkHub Coordination Action Gate', () => {
       effects.submissions.map(({ sessionId }) => sessionId),
       ['source', 'target-a'],
     );
+  });
+
+  test('a completed Stop cannot erase a newer root admitted to the same source', async () => {
+    const effects = fakeEffects([
+      session('source'),
+      session('target-a', { statusUpdatedAt: 2 }),
+      session('target-b', { statusUpdatedAt: 3 }),
+    ]);
+    const gate = new WorkHubCoordinationActionGate(effects);
+    const snapshot = await gate.candidates();
+    const source = snapshot.candidates.find(({ sessionId }) => sessionId === 'source')!;
+    const targetA = snapshot.candidates.find(({ sessionId }) => sessionId === 'target-a')!;
+    const targetB = snapshot.candidates.find(({ sessionId }) => sessionId === 'target-b')!;
+    const original = await gate.act(
+      {
+        actionId: 'original-source-action',
+        userText: 'Start source work',
+        candidateSetId: snapshot.candidateSetId,
+        proposal: { disposition: 'delegate_existing', candidateRef: source.candidateRef },
+      },
+      CONTEXT,
+    );
+    assert.equal(original.disposition, 'delegate_existing');
+    if (original.disposition !== 'delegate_existing') return;
+
+    let signalStop!: () => void;
+    const stopStarted = new Promise<void>((resolve) => {
+      signalStop = resolve;
+    });
+    let releaseStop!: () => void;
+    const stopBarrier = new Promise<void>((resolve) => {
+      releaseStop = resolve;
+    });
+    effects.stop = async (input) => {
+      effects.stops.push(input);
+      signalStop();
+      await stopBarrier;
+    };
+    effects.submit = async (input) => {
+      effects.submissions.push(input);
+      return {
+        turnId: input.sessionId === 'source'
+          ? 'turn-source-renewed'
+          : `turn-${input.sessionId}`,
+      };
+    };
+
+    const firstReplacement = gate.act(
+      {
+        actionId: 'first-replacement',
+        userText: 'No, use target-a instead',
+        candidateSetId: snapshot.candidateSetId,
+        proposal: {
+          disposition: 'delegate_existing',
+          candidateRef: targetA.candidateRef,
+          replace: {
+            candidateRef: source.candidateRef,
+            expectedTurnId: original.targetTurnId,
+          },
+        },
+      },
+      CONTEXT,
+    );
+    await stopStarted;
+    const renewed = await gate.act(
+      {
+        actionId: 'renew-source',
+        userText: 'Start newer source work',
+        candidateSetId: snapshot.candidateSetId,
+        proposal: { disposition: 'delegate_existing', candidateRef: source.candidateRef },
+      },
+      CONTEXT,
+    );
+    assert.equal(renewed.disposition, 'delegate_existing');
+    if (renewed.disposition !== 'delegate_existing') return;
+
+    releaseStop();
+    await firstReplacement;
+    await gate.act(
+      {
+        actionId: 'replace-renewed-source',
+        userText: 'No, use target-b instead',
+        candidateSetId: snapshot.candidateSetId,
+        proposal: {
+          disposition: 'delegate_existing',
+          candidateRef: targetB.candidateRef,
+          replace: {
+            candidateRef: source.candidateRef,
+            expectedTurnId: renewed.targetTurnId,
+          },
+        },
+      },
+      CONTEXT,
+    );
+    assert.deepEqual(effects.stops, [
+      { sessionId: 'source', turnId: original.targetTurnId },
+      { sessionId: 'source', turnId: renewed.targetTurnId },
+    ]);
   });
 });
 

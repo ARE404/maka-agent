@@ -29,6 +29,7 @@ import {
   submitWorkHubSurfaceInput,
   visibleWorkHubConversation,
   workHubReplacementText,
+  workHubSurfaceFailure,
   workHubSubmissionCanCorrect,
   workHubSubmissionClearsDraft,
 } from '../../renderer/workhub-surface.js';
@@ -51,7 +52,7 @@ test('correction clicks produce explicit replacement intent in both locales', ()
       targetName: '登录',
       originalText: '补上重试逻辑',
     }),
-    '不是“支付”，改成“登录”：补上重试逻辑',
+    '不是原目标，改成“登录”：补上重试逻辑（原目标：“支付”）',
   );
   assert.equal(
     workHubReplacementText({
@@ -60,8 +61,45 @@ test('correction clicks produce explicit replacement intent in both locales', ()
       targetName: 'Login',
       originalText: 'Add the retry logic',
     }),
-    'Not “Payments”; use “Login” instead: Add the retry logic',
+    'Not the previous target; use “Login” instead: Add the retry logic (previous target: “Payments”)',
   );
+});
+
+test('replacement intent keywords stay adjacent when a Session name is long', () => {
+  const sourceName = 'Source'.repeat(100);
+  const text = workHubReplacementText({
+    locale: 'en',
+    sourceName,
+    targetName: 'Login',
+    originalText: 'Add the retry logic',
+  });
+
+  assert.match(text, /^Not the previous target; use /u);
+  assert.match(text, new RegExp(sourceName, 'u'));
+});
+
+test('surface turns Action Gate rejections into safe actionable failures', () => {
+  assert.equal(
+    workHubSurfaceFailure(
+      new Error('WorkHub Session candidates changed; refresh before delegating'),
+    ),
+    'candidates_changed',
+  );
+  assert.equal(
+    workHubSurfaceFailure(new Error('WorkHub cannot stop a Turn it did not admit')),
+    'correction_expired',
+  );
+  assert.equal(
+    workHubSurfaceFailure(
+      new Error('Stopping and rerouting work requires an explicit user correction'),
+    ),
+    'confirmation_required',
+  );
+  assert.equal(
+    workHubSurfaceFailure(new Error('Target Session is waiting for user input')),
+    'target_waiting',
+  );
+  assert.equal(workHubSurfaceFailure(new Error('private transport detail')), 'delivery_failed');
 });
 
 test('surface route gate rejects same-frame duplicate operations and reopens after settle', async () => {
