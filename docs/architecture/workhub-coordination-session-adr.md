@@ -54,6 +54,11 @@ ordinary Sessions belonging to the same Runtime Host. Switching Runtime Hosts
 selects the other Host's Coordination Session; the first milestone does not support
 cross-Host coordination or a global Coordination Session.
 
+The Coordination Session is hidden from the ordinary Session list and excluded
+from every routing-candidate set. The Action Gate's self-route rejection remains a
+defense in depth; it is not a substitute for keeping the Coordination Session out of
+ordinary navigation and target discovery.
+
 ## Durable authority boundaries
 
 | Concern | Durable authority |

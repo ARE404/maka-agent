@@ -39,7 +39,9 @@ each Runtime Host for its WorkHub conversation. It owns WorkHub user messages,
 ordinary Q&A, clarification, coordination decisions, bounded delegation references,
 and coordination summaries, but no ordinary Session execution or lifecycle facts.
 It is not a separate database, event store, transcript substrate, or lifecycle
-authority. Cross-Host coordination is not supported in the first milestone.
+authority. It is hidden from the ordinary Session list and excluded from every
+routing-candidate set, so it never routes to itself. Cross-Host coordination is not
+supported in the first milestone.
 
 **ordinary Session**: A Session that owns concrete work execution, including its
 project/filesystem scope, model and permissions, root-Turn admission, tools,
