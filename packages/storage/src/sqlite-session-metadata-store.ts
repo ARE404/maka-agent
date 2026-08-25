@@ -140,6 +140,10 @@ import {
   buildSqliteSessionCatalogPageQuery,
   type SqliteSessionCatalogCursor,
 } from './sqlite-session-catalog-query.js';
+import {
+  sqliteOrdinarySessionRolePredicate,
+  sqliteRecognizedSessionRolePredicate,
+} from './sqlite-session-role-scope.js';
 
 export { SQLITE_SESSION_METADATA_SCHEMA_VERSION } from './sqlite-session-metadata-schema.js';
 
@@ -182,6 +186,8 @@ export type SqliteSessionMetadataStoreFailpoint =
   | 'after_agent_graph_schedule_update_write'
   | 'after_agent_graph_operator_provision_write'
   | 'after_sandbox_boundary_write';
+
+type SessionMetadataRoleScope = 'all' | 'ordinary' | 'recognized';
 
 export interface SqliteSessionMetadataStoreOptions {
   now?: () => number;
@@ -1039,6 +1045,7 @@ export class SqliteSessionMetadataStore {
   async readCatalogRecord(sessionId: string): Promise<SessionMetadataCatalogRecord> {
     this.assertOpen();
     assertSafeSessionId(sessionId);
+    const role = sqliteOrdinarySessionRolePredicate();
     const row = this.db
       .prepare(
         `
@@ -1053,6 +1060,7 @@ export class SqliteSessionMetadataStore {
         JOIN session_metadata metadata
           ON metadata.session_id = projection.session_id
         WHERE projection.session_id = ?
+          AND ${role.sql}
           AND COALESCE(
             json_extract(metadata.payload_json, '$.conversationCopy.state'),
             ''
@@ -1063,7 +1071,7 @@ export class SqliteSessionMetadataStore {
           ) <> 0
       `,
       )
-      .get(sessionId) as SessionMetadataCatalogRow | undefined;
+      .get(sessionId, ...role.parameters) as SessionMetadataCatalogRow | undefined;
     if (!row) throw new SessionNotFoundError(sessionId);
     return decodeCatalogRecord(row);
   }
@@ -1263,9 +1271,21 @@ export class SqliteSessionMetadataStore {
     });
   }
 
-  async list(filter: SessionListFilter = {}): Promise<SessionMetadataRecord[]> {
+  async list(
+    filter: SessionListFilter = {},
+    roleScope: SessionMetadataRoleScope = 'all',
+  ): Promise<SessionMetadataRecord[]> {
     this.assertOpen();
     const { where, parameters } = buildSessionListPredicate(filter);
+    if (roleScope === 'ordinary') {
+      const role = sqliteOrdinarySessionRolePredicate();
+      where.push(role.sql);
+      parameters.push(...role.parameters);
+    } else if (roleScope === 'recognized') {
+      const role = sqliteRecognizedSessionRolePredicate();
+      where.push(role.sql);
+      parameters.push(...role.parameters);
+    }
     const rows = this.db
       .prepare(
         `
@@ -3483,6 +3503,9 @@ export class SqliteSessionMetadataStore {
     }
     if (Object.prototype.hasOwnProperty.call(patch, 'externalOrigin')) {
       throw new Error('External Session origin is immutable');
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'role')) {
+      throw new Error('Session role is immutable');
     }
     return this.transaction(() =>
       this.updateHeaderSync(sessionId, patch, {

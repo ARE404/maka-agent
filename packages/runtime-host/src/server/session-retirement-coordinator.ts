@@ -17,7 +17,11 @@
  * under the License.
  */
 
-import { sessionRevisionFamilyId } from '@maka/core/session';
+import {
+  WORKHUB_COORDINATION_SESSION_ID,
+  isWorkHubCoordinationSession,
+  sessionRevisionFamilyId,
+} from '@maka/core/session';
 import type {
   SubagentWorkspaceBinding,
   SubagentWorktreeExecutor,
@@ -456,6 +460,14 @@ export class HostSessionRetirementCoordinator {
     const target = await this.#stores.probeSessionRemoval(sessionId);
     if (target.kind !== 'present') {
       throw new SessionRetirementMissingSessionError(target.kind);
+    }
+    if (
+      target.record.header.id === WORKHUB_COORDINATION_SESSION_ID ||
+      isWorkHubCoordinationSession(target.record.header)
+    ) {
+      throw new SessionMetadataConflictError(
+        'WorkHub Coordination Session lifecycle is owned by WorkHub',
+      );
     }
     if (target.record.header.subagentParent?.graph) {
       throw new SessionMetadataConflictError(

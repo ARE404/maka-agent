@@ -19,7 +19,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 
-export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 29;
+export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 30;
 export const SQLITE_SESSION_MESSAGE_CHUNK_BYTES = 64 * 1024;
 export const SQLITE_SESSION_MESSAGE_CHUNK_MARKER = '{"$maka":"session-message-chunks-v1"}';
 
@@ -1118,6 +1118,14 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
       SET generation = generation + 1
       WHERE scope = 'catalog';
     END;
+  `,
+  ],
+  [
+    30,
+    `
+    CREATE UNIQUE INDEX session_metadata_one_workhub_coordination_session
+      ON session_metadata(json_extract(payload_json, '$.role'))
+      WHERE json_extract(payload_json, '$.role') = 'workhub_coordination';
   `,
   ],
 ]);

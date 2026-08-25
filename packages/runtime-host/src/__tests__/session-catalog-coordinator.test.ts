@@ -26,12 +26,13 @@ import { createDefaultRuntimePolicy } from '@maka/core/runtime-policy';
 import { createGenesisExecutionBoundary } from '@maka/core/sandbox-boundary';
 import { DEEP_RESEARCH_SESSION_LABEL, DEEP_RESEARCH_SESSION_NAME } from '@maka/core/explore-agent';
 import { type RelayModelProfile } from '@maka/core/model-thinking';
-import { type SessionHeader } from '@maka/core/session';
+import type { SessionHeader } from '@maka/core/session';
 import {
   SessionConfigurationTransitionError,
   headerToSummary,
 } from '@maka/runtime/session-manager';
 import { type ProjectCatalog, ProjectUnavailableError } from '@maka/storage/project-catalog';
+import { SessionNotFoundError } from '@maka/storage/session-store';
 import type { ResolveExecutionConnectionResult } from '@maka/storage/runtime-policy-stores';
 import {
   SessionMetadataVersionConflictError,
@@ -212,6 +213,26 @@ test('catalog queries project known-empty and running state from Runtime authori
   assert.deepEqual(session.liveRunState, {
     schemaVersion: 1,
     runningTurnIds: ['turn-live'],
+  });
+});
+
+test('ordinary catalog lookup hides the WorkHub Coordination Session', async () => {
+  const fixture = createFixture({
+    stores: {
+      readCatalogRecord: async () => {
+        throw new SessionNotFoundError('session-1');
+      },
+    },
+  });
+
+  const outcome = await fixture.coordinator.handlers['session.catalog.query'](
+    { kind: 'get', sessionId: fixture.sessionId },
+    context,
+  );
+
+  assert.deepEqual(outcome, {
+    ok: true,
+    result: { kind: 'session', session: null },
   });
 });
 

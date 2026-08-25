@@ -73,6 +73,11 @@ export const SESSION_BLOCKED_REASONS = [
 
 export type SessionBlockedReason = (typeof SESSION_BLOCKED_REASONS)[number];
 
+/** Reserved durable role for the one WorkHub coordination conversation owned by a Runtime Host. */
+export const WORKHUB_COORDINATION_SESSION_ROLE = 'workhub_coordination' as const;
+export const WORKHUB_COORDINATION_SESSION_ID = 'maka_workhub_coordination' as const;
+export type SessionRole = typeof WORKHUB_COORDINATION_SESSION_ROLE;
+
 export const TURN_STATUSES = ['running', 'completed', 'aborted', 'failed'] as const;
 
 export type TurnStatus = (typeof TURN_STATUSES)[number];
@@ -210,6 +215,8 @@ export interface SessionExternalOrigin {
 export interface SessionHeader {
   // Identity
   id: string;
+  /** Absent means an ordinary Session; special roles remain on the same Session substrate. */
+  readonly role?: SessionRole;
   workspaceRoot: string;
   cwd: string;
   /** Stable project-catalog association. Null means the user explicitly chose no project. */
@@ -283,9 +290,14 @@ export interface SessionHeader {
   schemaVersion: 1;
 }
 
-export type SessionHeaderPatch = Partial<Omit<SessionHeader, 'isArchived'>> & {
+export type SessionHeaderPatch = Partial<Omit<SessionHeader, 'isArchived' | 'role'>> & {
   readonly isArchived?: never;
+  readonly role?: never;
 };
+
+export function isWorkHubCoordinationSession(session: Pick<SessionHeader, 'role'>): boolean {
+  return session.role === WORKHUB_COORDINATION_SESSION_ROLE;
+}
 
 /**
  * The backend a live build may select.

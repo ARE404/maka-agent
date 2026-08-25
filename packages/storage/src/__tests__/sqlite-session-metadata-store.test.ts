@@ -52,7 +52,7 @@ import {
 import { SQLITE_AGENT_GRAPH_CONTROL_TABLES } from '../sqlite-session-metadata-schema.js';
 
 describe('SqliteSessionMetadataStore', () => {
-  test('migrates v27 metadata to v28 without backfilling external origin', async () => {
+  test('migrates v27 metadata to the current schema without backfilling external origin', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-session-metadata-v27-'));
     const path = join(root, 'state.sqlite');
     const legacyHeader = fullHeader({
@@ -73,6 +73,7 @@ describe('SqliteSessionMetadataStore', () => {
     const legacy = new DatabaseSync(path);
     try {
       legacy.exec(`
+        DROP INDEX session_metadata_one_workhub_coordination_session;
         DROP INDEX session_metadata_by_external_origin;
         ALTER TABLE session_metadata DROP COLUMN external_adapter_id;
         ALTER TABLE session_metadata DROP COLUMN external_source_session_id;
@@ -84,7 +85,7 @@ describe('SqliteSessionMetadataStore', () => {
 
     const migrated = createSqliteSessionMetadataStore(path);
     try {
-      assert.equal(migrated.schemaVersion(), 29);
+      assert.equal(migrated.schemaVersion(), SQLITE_SESSION_METADATA_SCHEMA_VERSION);
       assert.equal((await migrated.read(legacyHeader.id)).header.externalOrigin, undefined);
     } finally {
       migrated.close();
@@ -271,6 +272,7 @@ describe('SqliteSessionMetadataStore', () => {
       const legacy = new DatabaseSync(path);
       try {
         legacy.exec(`
+          DROP INDEX session_metadata_one_workhub_coordination_session;
           ALTER TABLE session_metadata ADD COLUMN status TEXT;
           ALTER TABLE session_metadata ADD COLUMN status_updated_at INTEGER;
           UPDATE session_metadata
@@ -531,6 +533,7 @@ describe('SqliteSessionMetadataStore', () => {
       const legacy = new DatabaseSync(path);
       try {
         legacy.exec(`
+          DROP INDEX session_metadata_one_workhub_coordination_session;
           ALTER TABLE session_metadata ADD COLUMN status TEXT;
           ALTER TABLE session_metadata ADD COLUMN status_updated_at INTEGER;
           UPDATE session_metadata

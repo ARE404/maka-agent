@@ -46,6 +46,7 @@ import {
   isSubagentSessionSpawn,
   isSessionStatus,
   subagentSessionRuntimeSummary,
+  WORKHUB_COORDINATION_SESSION_ROLE,
 } from '@maka/core/session';
 import { isCollaborationMode } from '@maka/core/collaboration';
 import { isOrchestrationMode } from '@maka/core/orchestration';
@@ -75,6 +76,7 @@ import {
   type SessionConversationCopy,
   type SessionExternalOrigin,
   type SessionSummary,
+  type SessionRole,
   type StoredMessage,
   type TurnRecord,
   type TurnStateMessage,
@@ -166,6 +168,7 @@ export interface CreateStableSessionRequest {
 
 export type StableSessionCreateInput = CreateSessionInput & {
   readonly conversationCopy?: SessionConversationCopy;
+  readonly role?: SessionRole;
 };
 
 export type CreateStableSessionResult =
@@ -669,7 +672,7 @@ class SqliteSessionStore implements SessionAuthorityStore {
 
   async list(filter?: SessionListFilter): Promise<SessionSummary[]> {
     await this.ensureReady();
-    const records = (await this.metadata.list(filter)).filter(
+    const records = (await this.metadata.list(filter, 'ordinary')).filter(
       (record) => record.header.conversationCopy?.state !== 'preparing',
     );
     const withPreviews: Array<{
@@ -745,7 +748,7 @@ class SqliteSessionStore implements SessionAuthorityStore {
 
   async listHeaders(): Promise<SessionHeader[]> {
     await this.ensureReady();
-    return (await this.metadata.list())
+    return (await this.metadata.list({}, 'recognized'))
       .map((record) => record.header)
       .sort((a, b) => a.id.localeCompare(b.id));
   }
@@ -1014,7 +1017,7 @@ class SqliteSessionStore implements SessionAuthorityStore {
 
 function buildSessionHeader(
   workspaceRoot: string,
-  input: CreateSessionInput,
+  input: CreateSessionInput & { readonly role?: SessionRole },
   sessionId: string = randomUUID(),
   conversationCopy?: SessionConversationCopy,
 ): SessionHeader {
@@ -1031,6 +1034,7 @@ function buildSessionHeader(
     input.name === undefined ? DEFAULT_SESSION_NAME : normalizeRequiredSessionName(input.name);
   const header: SessionHeader = {
     id: sessionId,
+    ...(input.role === undefined ? {} : { role: input.role }),
     workspaceRoot,
     cwd: input.cwd,
     ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
@@ -1086,6 +1090,7 @@ export function normalizeSessionHeader(
 ): SessionHeader {
   const valid =
     header.id === sessionId &&
+    (header.role === undefined || header.role === WORKHUB_COORDINATION_SESSION_ROLE) &&
     typeof header.workspaceRoot === 'string' &&
     typeof header.cwd === 'string' &&
     (header.projectId === undefined ||
