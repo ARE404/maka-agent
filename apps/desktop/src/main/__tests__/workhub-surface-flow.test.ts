@@ -32,7 +32,7 @@ import {
   workHubSubmissionClearsDraft,
 } from '../../renderer/workhub-surface.js';
 import {
-  createWorkHubController,
+  createLegacyWorkHubControllerForTests as createWorkHubController,
   WORKHUB_ROUTING_STRATEGY_ID,
   type WorkHubController,
   type WorkHubSubmitInput,

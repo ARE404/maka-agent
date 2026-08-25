@@ -601,6 +601,11 @@ function coordinator(
     admission,
     continuity: { refreshCanonical: async () => undefined },
     executions,
+    sessionActions: {
+      create: async () => undefined,
+      submit: async ({ sessionId }) => ({ turnId: `turn-${sessionId}` }),
+      stop: async () => undefined,
+    },
     resolveCreateTarget:
       resolveCreateTarget ??
       (async () => ({

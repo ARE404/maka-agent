@@ -213,6 +213,7 @@ export function WorkHubSurface(props: {
               turnId: input.requestId,
               userText: recordedUserText,
               assistantText: workHubCoordinationSummary(result, projection, copy),
+              disposition: result.kind === 'clarification' ? 'clarify' : 'summary',
             });
           } catch {
             // The ordinary Session admission has already settled. A failed
