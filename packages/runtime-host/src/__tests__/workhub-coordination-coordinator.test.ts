@@ -18,7 +18,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -31,7 +31,11 @@ import { createSessionStore, type SessionAuthorityStore } from '@maka/storage/se
 import { OPERATIONAL_STATE_DATABASE_NAME } from '@maka/storage/operational-state-store';
 import type { ConnectionContext } from '../server/operation-dispatcher.js';
 import { SessionAdmissionGate } from '../server/session-admission-gate.js';
-import { HostWorkHubCoordinationCoordinator } from '../server/workhub-coordination-coordinator.js';
+import { SessionOperationFailure } from '../server/session-catalog-coordinator.js';
+import {
+  HostWorkHubCoordinationCoordinator,
+  type CoordinationCreateTarget,
+} from '../server/workhub-coordination-coordinator.js';
 
 const CONTEXT: ConnectionContext = {
   hostEpoch: 'workhub-test-epoch',
@@ -251,25 +255,124 @@ describe('Host WorkHub Coordination coordinator', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  test('relocates the durable workspace when the Host state root moves', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-workhub-relocate-'));
+    const movedRoot = await mkdtemp(join(tmpdir(), 'maka-workhub-relocated-'));
+    const store = createSessionStore(root);
+    try {
+      assert.equal(
+        (await coordinator(root, store).handlers['workhub.coordination.resolve']({}, CONTEXT)).ok,
+        true,
+      );
+
+      // Same durable Session, same database, new absolute state-root path:
+      // restoring the state directory elsewhere must not strand the identity
+      // that no ordinary lifecycle operation is allowed to relocate.
+      assert.deepEqual(
+        await coordinator(movedRoot, store).handlers['workhub.coordination.resolve']({}, CONTEXT),
+        { ok: true, result: { sessionId: WORKHUB_COORDINATION_SESSION_ID } },
+      );
+      const header = await store.readHeaderSnapshot(WORKHUB_COORDINATION_SESSION_ID);
+      assert.equal(header.cwd, join(movedRoot, 'workhub-coordination'));
+      assert.equal(header.role, WORKHUB_COORDINATION_SESSION_ROLE);
+      assert.equal((await store.listHeaders()).length, 1);
+    } finally {
+      await store.close?.();
+      await rm(root, { recursive: true, force: true });
+      await rm(movedRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('restores a Coordination workspace that was pruned after provisioning', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-workhub-workspace-'));
+    const store = createSessionStore(root);
+    try {
+      assert.equal(
+        (await coordinator(root, store).handlers['workhub.coordination.resolve']({}, CONTEXT)).ok,
+        true,
+      );
+      const coordinationCwd = join(root, 'workhub-coordination');
+      await rm(coordinationCwd, { recursive: true, force: true });
+
+      assert.deepEqual(
+        await coordinator(root, store).handlers['workhub.coordination.resolve']({}, CONTEXT),
+        { ok: true, result: { sessionId: WORKHUB_COORDINATION_SESSION_ID } },
+      );
+      assert.equal((await stat(coordinationCwd)).isDirectory(), true);
+    } finally {
+      await store.close?.();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('separates an unreadable model authority from a missing default model', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-workhub-model-authority-'));
+    const store = createSessionStore(root);
+    try {
+      assert.deepEqual(
+        await coordinator(
+          root,
+          store,
+          () => undefined,
+          async () => {
+            throw new SessionOperationFailure(
+              'persistence_failed',
+              'Runtime policy is unavailable',
+            );
+          },
+        ).handlers['workhub.coordination.resolve']({}, CONTEXT),
+        {
+          ok: false,
+          error: { code: 'persistence_failed', message: 'Runtime policy is unavailable' },
+        },
+      );
+      assert.deepEqual(
+        await coordinator(
+          root,
+          store,
+          () => undefined,
+          async () => {
+            throw new SessionOperationFailure(
+              'operation_unavailable',
+              'No default Session model is configured',
+            );
+          },
+        ).handlers['workhub.coordination.resolve']({}, CONTEXT),
+        {
+          ok: false,
+          error: {
+            code: 'operation_conflict',
+            message: 'WorkHub Coordination Session requires an available default model',
+          },
+        },
+      );
+      assert.deepEqual(await store.listHeaders(), []);
+    } finally {
+      await store.close?.();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 function coordinator(
   root: string,
   store: SessionAuthorityStore,
   requestDrain: () => void = () => undefined,
+  resolveCreateTarget: () => Promise<CoordinationCreateTarget> = async () => ({
+    llmConnectionSlug: 'test-connection',
+    model: 'test-model',
+    permissionMode: 'explore',
+    collaborationMode: 'agent',
+    orchestrationMode: 'default',
+  }),
 ) {
   return new HostWorkHubCoordinationCoordinator({
     stateRoot: root,
     stores: store,
     admission: new SessionAdmissionGate(),
     continuity: { refreshCanonical: async () => undefined },
-    resolveCreateTarget: async () => ({
-      llmConnectionSlug: 'test-connection',
-      model: 'test-model',
-      permissionMode: 'explore',
-      collaborationMode: 'agent',
-      orchestrationMode: 'default',
-    }),
+    resolveCreateTarget,
     requestDrain,
   });
 }

@@ -21,8 +21,10 @@ import type { DesktopRuntimeHostProfileChangedEvent } from '../preload/bridge-co
 
 export type WorkHubCoordinationHostChange = Pick<
   DesktopRuntimeHostProfileChangedEvent,
-  'isDefault' | 'readiness'
+  'isDefault' | 'readiness' | 'removed'
 >;
+
+const UNAVAILABLE_DEFAULT_HOST = 'The default Runtime Host is unavailable';
 
 /** Keeps active WorkHub resolution aligned with the current default Runtime Host. */
 export function startWorkHubCoordinationLifecycle(input: {
@@ -45,6 +47,12 @@ export function startWorkHubCoordinationLifecycle(input: {
     input.onResolving();
     return currentGeneration;
   };
+  const reportGenerationFailure = (currentGeneration: number, error: unknown) => {
+    failedGeneration = currentGeneration;
+    input.reportFailure(error, () => {
+      if (!stopped && failedGeneration === currentGeneration) beginResolve();
+    });
+  };
   const resolveGeneration = (currentGeneration: number) => {
     void input.resolve()
       .then((sessionId) => {
@@ -54,10 +62,7 @@ export function startWorkHubCoordinationLifecycle(input: {
       })
       .catch((error) => {
         if (stopped || currentGeneration !== generation) return;
-        failedGeneration = currentGeneration;
-        input.reportFailure(error, () => {
-          if (!stopped && failedGeneration === currentGeneration) beginResolve();
-        });
+        reportGenerationFailure(currentGeneration, error);
       });
   };
   const beginResolve = () => resolveGeneration(revoke());
@@ -65,7 +70,17 @@ export function startWorkHubCoordinationLifecycle(input: {
   const unsubscribeHosts = input.subscribeHostChanges((event) => {
     if (stopped || !event.isDefault) return;
     const currentGeneration = revoke();
-    if (event.readiness === 'ready') resolveGeneration(currentGeneration);
+    if (event.readiness === 'ready') {
+      resolveGeneration(currentGeneration);
+      return;
+    }
+    // Connecting and reconnecting are still on their way to an answer, so the
+    // loading state stays honest. An unavailable default Host is not: without a
+    // reported failure the surface would hold that spinner forever, and the
+    // availability subscription only reopens a generation that failed.
+    if (event.readiness === 'unavailable' || event.removed) {
+      reportGenerationFailure(currentGeneration, new Error(UNAVAILABLE_DEFAULT_HOST));
+    }
   });
   const unsubscribeAvailability = input.subscribeAvailabilityChanges(() => {
     if (!stopped && failedGeneration === generation) beginResolve();

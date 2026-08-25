@@ -72,6 +72,56 @@ test('WorkHub resolves on open and ready Host changes, then stops on feature dis
   assert.equal(calls.at(-1), 'unsubscribe-availability');
 });
 
+test('WorkHub reports an unavailable default Host instead of holding the loading state', () => {
+  let hostChange: ((event: WorkHubCoordinationHostChange) => void) | undefined;
+  let availabilityChange: (() => void) | undefined;
+  const calls: string[] = [];
+  let manualRetry: (() => void) | undefined;
+  const stop = startWorkHubCoordinationLifecycle({
+    resolve: () => {
+      calls.push('resolve');
+      return new Promise<string>(() => undefined);
+    },
+    subscribeHostChanges(handler) {
+      hostChange = handler;
+      return () => undefined;
+    },
+    subscribeAvailabilityChanges(handler) {
+      availabilityChange = handler;
+      return () => undefined;
+    },
+    onResolving: () => calls.push('resolving'),
+    onResolved: () => calls.push('resolved'),
+    reportFailure: (error, retry) => {
+      calls.push(`failure:${error instanceof Error ? error.message : String(error)}`);
+      manualRetry = retry;
+    },
+  });
+
+  // Connecting is still on its way to an answer and keeps the loading state.
+  hostChange?.({ isDefault: true, readiness: 'connecting' });
+  assert.deepEqual(calls, ['resolving', 'resolve', 'resolving']);
+
+  hostChange?.({ isDefault: true, readiness: 'unavailable' });
+  assert.deepEqual(calls, [
+    'resolving',
+    'resolve',
+    'resolving',
+    'resolving',
+    'failure:The default Runtime Host is unavailable',
+  ]);
+
+  // A revoked generation that reported a failure stays reopenable, by the
+  // Retry control and by an availability change alike.
+  availabilityChange?.();
+  assert.equal(calls.at(-1), 'resolve');
+  hostChange?.({ isDefault: true, readiness: 'unavailable', removed: true });
+  assert.equal(calls.at(-1), 'failure:The default Runtime Host is unavailable');
+  manualRetry?.();
+  assert.equal(calls.at(-1), 'resolve');
+  stop();
+});
+
 test('WorkHub exposes a retry and automatically retries when model availability changes', async () => {
   let hostChange: ((event: WorkHubCoordinationHostChange) => void) | undefined;
   let availabilityChange: (() => void) | undefined;

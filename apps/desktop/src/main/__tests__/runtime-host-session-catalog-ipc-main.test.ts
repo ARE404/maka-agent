@@ -20,10 +20,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { SessionCatalogProjection } from '@maka/runtime-host/protocol';
-import {
-  registerRuntimeHostSessionCatalogIpc,
-  toDesktopHostSessionSummary,
-} from '../runtime-host-session-catalog-ipc-main.js';
+import { toDesktopHostSessionSummary } from '../runtime-host-session-catalog-ipc-main.js';
 
 test('maps Runtime Host live run state without collapsing unknown and known-empty', () => {
   const unknown = toDesktopHostSessionSummary(projection());

@@ -46,6 +46,7 @@ import {
   SessionReadMarkerMessageNotFoundError,
   type SessionCatalogPageCursor,
   type SessionCatalogRecord,
+  type SessionHeaderSnapshot,
   type ExecutionStoresWriter,
 } from '@maka/storage/execution-stores';
 import type { RuntimePolicyStoresWriter } from '@maka/storage/runtime-policy-stores';
@@ -440,11 +441,7 @@ export class HostSessionCatalogCoordinator {
         const labels =
           input.patch.labels === undefined
             ? undefined
-            : await this.#replaceUserLabels(
-                input.sessionId,
-                input.expectedRevision,
-                input.patch.labels,
-              );
+            : replaceUserLabels(current, input.expectedRevision, input.patch.labels);
         const patch: SessionHeaderPatch = {
           ...(input.patch.name === undefined ? {} : normalizeSessionNamePatch(input.patch.name)),
           ...(labels === undefined ? {} : { labels }),
@@ -460,24 +457,6 @@ export class HostSessionCatalogCoordinator {
         );
       }
     });
-  }
-
-  async #replaceUserLabels(
-    sessionId: string,
-    expectedRevision: number,
-    requestedLabels: readonly string[],
-  ): Promise<string[]> {
-    const current = await this.#stores.readHeaderRecordSnapshot(sessionId);
-    if (isWorkHubCoordinationSessionTarget(current.header)) {
-      throw new SessionOperationFailure(
-        'operation_unavailable',
-        'WorkHub Coordination Session metadata requires WorkHub authority',
-      );
-    }
-    if (current.revision !== expectedRevision) {
-      throw new SessionMetadataVersionConflictError(sessionId, expectedRevision, current.revision);
-    }
-    return replaceUserOwnedLabels(current.header.labels, requestedLabels);
   }
 
   async #updateConfiguration(
@@ -1141,6 +1120,25 @@ function normalizedSessionName(name: string): string {
 
 function normalizeSessionNamePatch(name: string): Pick<SessionHeader, 'name' | 'titleIsManual'> {
   return { name: normalizedSessionName(name), titleIsManual: true };
+}
+
+/**
+ * The caller already holds the admitted snapshot: re-reading it here would cost
+ * a second identical read inside one lease.
+ */
+function replaceUserLabels(
+  current: SessionHeaderSnapshot,
+  expectedRevision: number,
+  requestedLabels: readonly string[],
+): string[] {
+  if (current.revision !== expectedRevision) {
+    throw new SessionMetadataVersionConflictError(
+      current.header.id,
+      expectedRevision,
+      current.revision,
+    );
+  }
+  return replaceUserOwnedLabels(current.header.labels, requestedLabels);
 }
 
 function replaceUserOwnedLabels(

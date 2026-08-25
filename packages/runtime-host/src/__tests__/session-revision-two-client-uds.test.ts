@@ -162,7 +162,25 @@ async function verifyConcurrentRevisionAuthority(
         }),
         operationError('operation_conflict'),
       );
+      // The reservation holds on both sides: the Coordination transcript cannot
+      // be lifted out into an ordinary Session that would then be executable.
+      await assert.rejects(
+        desktop.request(operation, {
+          sourceSessionId: WORKHUB_COORDINATION_SESSION_ID,
+          targetSessionId: 'coordination-copy-target',
+          sourceTurnId: 'turn-1',
+          expectedSourceRevision: source.revision,
+        }),
+        operationError('operation_conflict'),
+      );
     }
+    assert.deepEqual(
+      await tui.request('session.catalog.query', {
+        kind: 'get',
+        sessionId: 'coordination-copy-target',
+      }),
+      { kind: 'session', session: null },
+    );
     const continuationSource = await querySession(desktop, continuationSourceSessionId);
     await assert.rejects(
       desktop.request('session.branch.create', {

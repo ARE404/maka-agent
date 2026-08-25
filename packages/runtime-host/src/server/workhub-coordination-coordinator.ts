@@ -28,10 +28,11 @@ import {
   isWorkHubCoordinationSessionId,
   type SessionHeader,
 } from '@maka/core/session';
-import type { SessionAuthorityStore } from '@maka/storage/session-store';
+import type { SessionAuthorityStore, SessionHeaderSnapshot } from '@maka/storage/session-store';
 import type { OperationOutcome } from '../protocol/index.js';
 import type { WorkHubCoordinationOperationHandlerMap } from './operation-dispatcher.js';
 import { SessionAdmissionGate } from './session-admission-gate.js';
+import { SessionOperationFailure } from './session-catalog-coordinator.js';
 import type { SessionContinuityCoordinator } from './session-continuity-coordinator.js';
 
 const CREATE_FINGERPRINT = `sha256:${createHash('sha256')
@@ -41,10 +42,10 @@ const COORDINATION_CWD_DIRECTORY = 'workhub-coordination';
 
 type CoordinationStores = Pick<
   SessionAuthorityStore,
-  'createStableSession' | 'probeStableSessionCreate'
+  'createStableSession' | 'probeStableSessionCreate' | 'updateHeaderVersioned'
 >;
 
-type CoordinationCreateTarget = Omit<CreateSessionInput, 'cwd' | 'name' | 'projectId'>;
+export type CoordinationCreateTarget = Omit<CreateSessionInput, 'cwd' | 'name' | 'projectId'>;
 
 export interface HostWorkHubCoordinationCoordinatorOptions {
   readonly stateRoot: string;
@@ -79,6 +80,18 @@ export class HostWorkHubCoordinationCoordinator {
 
   #resolve(): Promise<OperationOutcome<'workhub.coordination.resolve'>> {
     return this.#admission.run(WORKHUB_COORDINATION_SESSION_ID, async (lease) => {
+      // The workspace exists for provisioning and for reuse alike: a directory
+      // that was pruned after creation must come back before anyone is handed
+      // the identity, and mkdir is idempotent.
+      try {
+        await mkdir(this.#coordinationCwd, { recursive: true });
+      } catch {
+        return failure(
+          'persistence_failed',
+          'WorkHub Coordination Session workspace is unavailable',
+        );
+      }
+
       let probe;
       try {
         probe = await this.#stores.probeStableSessionCreate(
@@ -91,8 +104,8 @@ export class HostWorkHubCoordinationCoordinator {
       }
 
       if (probe.kind === 'existing') {
-        return validCoordinationHeader(probe.record.header, this.#coordinationCwd)
-          ? success()
+        return validCoordinationHeader(probe.record.header)
+          ? await this.#alignWorkspace(probe.record)
           : identityConflict();
       }
       if (probe.kind === 'conflict') return identityConflict();
@@ -100,17 +113,11 @@ export class HostWorkHubCoordinationCoordinator {
       let target: CoordinationCreateTarget;
       try {
         target = await this.#resolveCreateTarget();
-      } catch {
-        return failure(
-          'operation_conflict',
-          'WorkHub Coordination Session requires an available default model',
-        );
+      } catch (error) {
+        return createTargetFailure(error);
       }
 
-      let commitAttempted = false;
       try {
-        await mkdir(this.#coordinationCwd, { recursive: true });
-        commitAttempted = true;
         const result = await this.#stores.createStableSession({
           sessionId: WORKHUB_COORDINATION_SESSION_ID,
           requestFingerprint: CREATE_FINGERPRINT,
@@ -123,29 +130,68 @@ export class HostWorkHubCoordinationCoordinator {
           },
         });
         if (result.kind === 'conflict') return identityConflict();
-        if (!validCoordinationHeader(result.record.header, this.#coordinationCwd)) {
+        if (
+          !validCoordinationHeader(result.record.header) ||
+          result.record.header.cwd !== this.#coordinationCwd
+        ) {
           return identityConflict();
         }
         await this.#continuity.refreshCanonical(WORKHUB_COORDINATION_SESSION_ID, lease);
         return success();
       } catch {
         this.#requestDrain();
-        return commitAttempted
-          ? failure(
-              'commit_outcome_unknown',
-              'WorkHub Coordination Session creation outcome is unknown',
-            )
-          : failure('persistence_failed', 'WorkHub Coordination Session workspace is unavailable');
+        return failure(
+          'commit_outcome_unknown',
+          'WorkHub Coordination Session creation outcome is unknown',
+        );
       }
     });
   }
+
+  /**
+   * The workspace path is derived from the Host state root, so it moves with the
+   * installation. Identity stays in the id/role pair and the durable path is
+   * repaired in place — rejecting the drift would strand the one Session no
+   * ordinary lifecycle operation is allowed to relocate or retire.
+   */
+  async #alignWorkspace(
+    record: SessionHeaderSnapshot,
+  ): Promise<OperationOutcome<'workhub.coordination.resolve'>> {
+    if (record.header.cwd === this.#coordinationCwd) return success();
+    let repaired: SessionHeaderSnapshot;
+    try {
+      repaired = await this.#stores.updateHeaderVersioned(
+        WORKHUB_COORDINATION_SESSION_ID,
+        { cwd: this.#coordinationCwd },
+        record.revision,
+      );
+    } catch {
+      return failure(
+        'persistence_failed',
+        'WorkHub Coordination Session workspace could not be relocated',
+      );
+    }
+    return validCoordinationHeader(repaired.header) && repaired.header.cwd === this.#coordinationCwd
+      ? success()
+      : identityConflict();
+  }
 }
 
-function validCoordinationHeader(header: SessionHeader, coordinationCwd: string): boolean {
+/** Keeps a model-authority gap distinguishable from a failed authority read. */
+function createTargetFailure(error: unknown): OperationOutcome<'workhub.coordination.resolve'> {
+  if (error instanceof SessionOperationFailure && error.code === 'persistence_failed') {
+    return failure('persistence_failed', error.message);
+  }
+  return failure(
+    'operation_conflict',
+    'WorkHub Coordination Session requires an available default model',
+  );
+}
+
+function validCoordinationHeader(header: SessionHeader): boolean {
   return (
     isWorkHubCoordinationSessionId(header.id) &&
     isWorkHubCoordinationSession(header) &&
-    header.cwd === coordinationCwd &&
     header.projectId === null &&
     !header.isArchived &&
     header.parentSessionId === undefined &&
