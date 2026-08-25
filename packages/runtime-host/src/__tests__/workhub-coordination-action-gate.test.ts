@@ -476,9 +476,7 @@ describe('WorkHub Coordination Action Gate', () => {
     effects.submit = async (input) => {
       effects.submissions.push(input);
       return {
-        turnId: input.sessionId === 'source'
-          ? 'turn-source-renewed'
-          : `turn-${input.sessionId}`,
+        turnId: input.sessionId === 'source' ? 'turn-source-renewed' : `turn-${input.sessionId}`,
       };
     };
 
