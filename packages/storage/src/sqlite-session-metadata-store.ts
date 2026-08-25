@@ -187,7 +187,11 @@ export type SqliteSessionMetadataStoreFailpoint =
   | 'after_agent_graph_operator_provision_write'
   | 'after_sandbox_boundary_write';
 
-type SessionMetadataRoleScope = 'all' | 'ordinary' | 'recoverable';
+/**
+ * Role visibility is stated at every call site on purpose: a default would let
+ * a new reader inherit the widest scope by omission.
+ */
+export type SessionMetadataRoleScope = 'all' | 'ordinary' | 'recoverable';
 
 export interface SqliteSessionMetadataStoreOptions {
   now?: () => number;
@@ -1272,11 +1276,11 @@ export class SqliteSessionMetadataStore {
   }
 
   async list(
-    filter: SessionListFilter = {},
-    roleScope: SessionMetadataRoleScope = 'all',
+    filter: SessionListFilter | undefined,
+    roleScope: SessionMetadataRoleScope,
   ): Promise<SessionMetadataRecord[]> {
     this.assertOpen();
-    const { where, parameters } = buildSessionListPredicate(filter);
+    const { where, parameters } = buildSessionListPredicate(filter ?? {});
     if (roleScope === 'ordinary') {
       const role = sqliteOrdinarySessionRolePredicate();
       where.push(role.sql);

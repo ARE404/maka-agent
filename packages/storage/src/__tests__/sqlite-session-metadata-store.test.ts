@@ -1833,7 +1833,7 @@ describe('SqliteSessionMetadataStore', () => {
         }),
       );
 
-      const listed = await store.list();
+      const listed = await store.list(undefined, 'all');
       assert.deepEqual(
         listed.map((record) => record.header.id),
         ['archived', 'newer', 'older'],
@@ -1929,9 +1929,10 @@ describe('SqliteSessionMetadataStore', () => {
         }),
       );
 
-      const children = await store.list({
-        subagentParentSessionId: subagentParent.parentSessionId,
-      });
+      const children = await store.list(
+        { subagentParentSessionId: subagentParent.parentSessionId },
+        'all',
+      );
       assert.deepEqual(
         children.map((record) => record.header.id),
         ['child-session'],

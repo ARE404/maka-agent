@@ -531,11 +531,10 @@ class SqliteSessionStore implements SessionAuthorityStore {
     initialBoundary?: ExecutionBoundary,
   ): Promise<CreateStableSessionResult> {
     await this.ensureReady();
-    const targetsCoordinationSession = isWorkHubCoordinationSessionId(request.sessionId);
-    const claimsCoordinationRole = request.input.role === WORKHUB_COORDINATION_SESSION_ROLE;
-    if (targetsCoordinationSession !== claimsCoordinationRole) {
-      throw new Error('WorkHub Coordination Session identity and role must be claimed together');
-    }
+    // Asserted here as well as in the header builder so a malformed request is
+    // refused before claimStableSessionCreate() writes a durable claim for the
+    // identity it names.
+    assertCoordinationIdentityPairing(request.sessionId, request.input.role);
     if (
       request.input.conversationCopy &&
       request.input.conversationCopy.requestFingerprint !== request.requestFingerprint
@@ -754,7 +753,7 @@ class SqliteSessionStore implements SessionAuthorityStore {
 
   async listHeaders(): Promise<SessionHeader[]> {
     await this.ensureReady();
-    return (await this.metadata.list({}, 'recoverable'))
+    return (await this.metadata.list(undefined, 'recoverable'))
       .map((record) => record.header)
       .sort((a, b) => a.id.localeCompare(b.id));
   }
@@ -1021,6 +1020,17 @@ class SqliteSessionStore implements SessionAuthorityStore {
   }
 }
 
+/**
+ * The reserved identity and the reserved role are one fact, and the invariant
+ * belongs to every creator that builds a header — subagents and Agent Graph
+ * operators included, whose inputs carry no role today.
+ */
+function assertCoordinationIdentityPairing(sessionId: string, role: SessionRole | undefined): void {
+  if (isWorkHubCoordinationSessionId(sessionId) !== (role === WORKHUB_COORDINATION_SESSION_ROLE)) {
+    throw new Error('WorkHub Coordination Session identity and role must be claimed together');
+  }
+}
+
 function buildSessionHeader(
   workspaceRoot: string,
   input: CreateSessionInput & { readonly role?: SessionRole },
@@ -1036,6 +1046,7 @@ function buildSessionHeader(
   }
   const now = Date.now();
   assertSafeSessionId(sessionId);
+  assertCoordinationIdentityPairing(sessionId, input.role);
   const name =
     input.name === undefined ? DEFAULT_SESSION_NAME : normalizeRequiredSessionName(input.name);
   const header: SessionHeader = {

@@ -64,6 +64,39 @@ describe('SQLite SessionStore', () => {
         /identity and role must be claimed together/,
       );
       assert.deepEqual(await store.listHeaders(), []);
+
+      // The invariant lives in the header builder, so the creators that share
+      // it inherit it even though their inputs carry no role today.
+      await assert.rejects(
+        store.createSubagent({
+          ...makeInput({ cwd: root, name: 'Subagent claiming the role' }),
+          role: WORKHUB_COORDINATION_SESSION_ROLE,
+        } as Parameters<typeof store.createSubagent>[0]),
+        /identity and role must be claimed together/,
+      );
+      await assert.rejects(
+        store.createAgentGraphOperator(
+          {
+            ...makeInput({ cwd: root, name: 'Operator claiming the role' }),
+            role: WORKHUB_COORDINATION_SESSION_ROLE,
+          } as Parameters<typeof store.createAgentGraphOperator>[0],
+          {
+            schemaVersion: 1,
+            provisionId: `graph_provision_${'4'.repeat(32)}`,
+            provisionFingerprint: `sha256:${'5'.repeat(64)}`,
+            graphId: 'graph-1',
+            workId: `graph_work_${'3'.repeat(32)}`,
+            agentId: 'local-read',
+            operatorId: `graph_operator_${'6'.repeat(32)}`,
+            initialTurnId: 'graph-turn',
+            initialRunId: 'graph-run',
+            edges: [],
+          },
+          0,
+        ),
+        /identity and role must be claimed together/,
+      );
+      assert.deepEqual(await store.listHeaders(), []);
     } finally {
       await store.close?.();
       await rm(root, { recursive: true, force: true });
