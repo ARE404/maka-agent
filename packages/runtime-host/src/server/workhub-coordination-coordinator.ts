@@ -37,6 +37,10 @@ import type {
   WorkHubCoordinationAnswerInput,
   WorkHubCoordinationRecordInput,
 } from '../protocol/index.js';
+import {
+  WORKHUB_COORDINATION_SUMMARY_MAX_BYTES,
+  WORKHUB_COORDINATION_TEXT_MAX_BYTES,
+} from '../protocol/index.js';
 import type {
   ConnectionContext,
   WorkHubCoordinationOperationHandlerMap,
@@ -64,6 +68,8 @@ const COORDINATION_ORCHESTRATION_MODE = 'default' as const;
 const COORDINATION_SUMMARY_MESSAGE_KINDS = ['user', 'assistant', 'state'] as const;
 const TURN_IDENTITY_CONFLICT_MESSAGE =
   'WorkHub Coordination Turn identity belongs to a different operation';
+const COORDINATION_SUMMARY_READ_MAX_BYTES =
+  WORKHUB_COORDINATION_TEXT_MAX_BYTES + WORKHUB_COORDINATION_SUMMARY_MAX_BYTES + 16 * 1024;
 
 type CoordinationStores = Pick<
   SessionAuthorityStore,
@@ -394,7 +400,7 @@ export class HostWorkHubCoordinationCoordinator {
         coordinationSummaryMessageId(turnId, kind),
       ),
       throughSequence,
-      maxBytes: 32 * 1024,
+      maxBytes: COORDINATION_SUMMARY_READ_MAX_BYTES,
       maxMessages: COORDINATION_SUMMARY_MESSAGE_KINDS.length,
     });
   }

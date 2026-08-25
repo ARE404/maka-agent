@@ -806,9 +806,23 @@ function createWorkHubControllerImplementation(deps: {
         if (!candidate) {
           throw new Error('WorkHub target Session is unavailable');
         }
-        const replacedCandidate = correction
-          ? candidateBySessionId.get(correction.from.sessionId)
-          : undefined;
+        let replace: { candidateRef: string; expectedTurnId: string } | undefined;
+        if (correction) {
+          if (correction.steered) {
+            throw new Error('WorkHub cannot replace a steered Turn');
+          }
+          if (!correction.turnId) {
+            throw new Error('WorkHub correction requires an exact owned Turn');
+          }
+          const replacedCandidate = candidateBySessionId.get(correction.from.sessionId);
+          if (!replacedCandidate) {
+            throw new Error('WorkHub correction source is outside the admitted candidate set');
+          }
+          replace = {
+            candidateRef: replacedCandidate.candidateRef,
+            expectedTurnId: correction.turnId,
+          };
+        }
         const action: WorkHubCoordinationActInput = {
           actionId: input.requestId,
           userText: input.text,
@@ -816,14 +830,7 @@ function createWorkHubControllerImplementation(deps: {
           proposal: {
             disposition: 'delegate_existing',
             candidateRef: candidate.candidateRef,
-            ...(correction?.turnId && replacedCandidate
-              ? {
-                  replace: {
-                    candidateRef: replacedCandidate.candidateRef,
-                    expectedTurnId: correction.turnId,
-                  },
-                }
-              : {}),
+            ...(replace ? { replace } : {}),
           },
         };
         const admitted = await coordination.act(action);

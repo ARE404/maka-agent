@@ -282,6 +282,83 @@ describe('WorkHub Coordination Action Gate', () => {
     assert.deepEqual(effects.stops, [{ sessionId: 'source', turnId: first.targetTurnId }]);
     assert.equal(effects.submissions.at(-1)?.sessionId, 'target');
   });
+
+  test('serializes replacements from one source and admits only one target', async () => {
+    const effects = fakeEffects([
+      session('source'),
+      session('target-a', { statusUpdatedAt: 2 }),
+      session('target-b', { statusUpdatedAt: 3 }),
+    ]);
+    const gate = new WorkHubCoordinationActionGate(effects);
+    const snapshot = await gate.candidates();
+    const source = snapshot.candidates.find(({ sessionId }) => sessionId === 'source')!;
+    const targetA = snapshot.candidates.find(({ sessionId }) => sessionId === 'target-a')!;
+    const targetB = snapshot.candidates.find(({ sessionId }) => sessionId === 'target-b')!;
+    const admitted = await gate.act(
+      {
+        actionId: 'source-action',
+        userText: 'Start source work',
+        candidateSetId: snapshot.candidateSetId,
+        proposal: { disposition: 'delegate_existing', candidateRef: source.candidateRef },
+      },
+      CONTEXT,
+    );
+    assert.equal(admitted.disposition, 'delegate_existing');
+    if (admitted.disposition !== 'delegate_existing') return;
+
+    let signalStop!: () => void;
+    const stopStarted = new Promise<void>((resolve) => {
+      signalStop = resolve;
+    });
+    let releaseStop!: () => void;
+    const stopBarrier = new Promise<void>((resolve) => {
+      releaseStop = resolve;
+    });
+    effects.stop = async (input) => {
+      effects.stops.push(input);
+      signalStop();
+      await stopBarrier;
+    };
+    const replace = (actionId: string, candidateRef: string) =>
+      gate.act(
+        {
+          actionId,
+          userText: `No, use ${actionId} instead`,
+          candidateSetId: snapshot.candidateSetId,
+          proposal: {
+            disposition: 'delegate_existing',
+            candidateRef,
+            replace: {
+              candidateRef: source.candidateRef,
+              expectedTurnId: admitted.targetTurnId,
+            },
+          },
+        },
+        CONTEXT,
+      );
+
+    const first = replace('target-a-action', targetA.candidateRef);
+    await stopStarted;
+    const second = replace('target-b-action', targetB.candidateRef);
+    await Promise.resolve();
+    assert.equal(effects.stops.length, 1);
+    assert.deepEqual(
+      effects.submissions.map(({ sessionId }) => sessionId),
+      ['source'],
+    );
+
+    releaseStop();
+    assert.equal((await first).disposition, 'delegate_existing');
+    await assert.rejects(
+      second,
+      (error) => error instanceof WorkHubActionGateFailure && error.code === 'stop_not_owned',
+    );
+    assert.deepEqual(effects.stops, [{ sessionId: 'source', turnId: admitted.targetTurnId }]);
+    assert.deepEqual(
+      effects.submissions.map(({ sessionId }) => sessionId),
+      ['source', 'target-a'],
+    );
+  });
 });
 
 function session(

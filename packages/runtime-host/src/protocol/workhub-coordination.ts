@@ -34,8 +34,8 @@ import {
   type WorkspaceTarget,
 } from './workspace.js';
 
-const COORDINATION_TEXT_MAX_BYTES = 48 * 1024;
-const COORDINATION_SUMMARY_MAX_BYTES = 8 * 1024;
+export const WORKHUB_COORDINATION_TEXT_MAX_BYTES = 48 * 1024;
+export const WORKHUB_COORDINATION_SUMMARY_MAX_BYTES = 8 * 1024;
 const COORDINATION_TITLE_MAX_BYTES = 512;
 const CANDIDATE_SET_ID_MAX_BYTES = 96;
 export const WORKHUB_COORDINATION_CANDIDATE_MAX_ITEMS = 32;
@@ -242,7 +242,7 @@ export function decodeWorkHubCoordinationAnswerInput(
     text: requireUtf8String(
       input.text,
       'WorkHub Coordination answer text',
-      COORDINATION_TEXT_MAX_BYTES,
+      WORKHUB_COORDINATION_TEXT_MAX_BYTES,
     ),
   };
 }
@@ -260,12 +260,12 @@ export function decodeWorkHubCoordinationRecordInput(
     userText: requireUtf8String(
       input.userText,
       'WorkHub Coordination user text',
-      COORDINATION_TEXT_MAX_BYTES,
+      WORKHUB_COORDINATION_TEXT_MAX_BYTES,
     ),
     assistantText: requireUtf8String(
       input.assistantText,
       'WorkHub Coordination assistant text',
-      COORDINATION_SUMMARY_MAX_BYTES,
+      WORKHUB_COORDINATION_SUMMARY_MAX_BYTES,
     ),
   };
 }
@@ -316,7 +316,7 @@ export function decodeWorkHubCoordinationActInput(value: unknown): WorkHubCoordi
     userText: requireUtf8String(
       input.userText,
       'WorkHub Coordination action text',
-      COORDINATION_TEXT_MAX_BYTES,
+      WORKHUB_COORDINATION_TEXT_MAX_BYTES,
     ),
     proposal,
   };
@@ -405,7 +405,7 @@ function decodeWorkHubCoordinationProposal(value: unknown): WorkHubCoordinationP
       assistantText: requireUtf8String(
         exact.assistantText,
         'WorkHub clarification text',
-        COORDINATION_SUMMARY_MAX_BYTES,
+        WORKHUB_COORDINATION_SUMMARY_MAX_BYTES,
       ),
     };
   }

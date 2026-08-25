@@ -80,6 +80,17 @@ export function workHubSubmissionClearsDraft(
   return Boolean(result && result.kind !== 'waiting');
 }
 
+export function workHubReplacementText(input: {
+  locale: UiLocale;
+  sourceName: string;
+  targetName: string;
+  originalText: string;
+}): string {
+  return input.locale === 'zh'
+    ? `不是“${input.sourceName}”，改成“${input.targetName}”：${input.originalText}`
+    : `Not “${input.sourceName}”; use “${input.targetName}” instead: ${input.originalText}`;
+}
+
 export function workHubSubmissionCanCorrect(
   result: WorkHubSubmission,
 ): result is Extract<WorkHubSubmission, { kind: 'submitted' }> {
@@ -332,9 +343,17 @@ export function WorkHubSurface(props: {
                       const selected = projection.sessions.find(
                         (session) => session.target.sessionId === target.sessionId,
                       );
+                      const source = projection.sessions.find(
+                        (session) => session.target.sessionId === from.target.sessionId,
+                      );
                       void route({
                         requestId: crypto.randomUUID(),
-                        text: turn.text,
+                        text: workHubReplacementText({
+                          locale: props.locale,
+                          sourceName: source?.sessionName ?? copy.sessionFallback,
+                          targetName: selected?.sessionName ?? copy.sessionFallback,
+                          originalText: turn.text,
+                        }),
                         explicitTarget: target,
                         correction: {
                           from: from.target,

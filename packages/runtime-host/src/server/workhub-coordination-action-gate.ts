@@ -146,6 +146,7 @@ export class WorkHubCoordinationActionGate {
   readonly #effects: WorkHubActionGateEffects;
   readonly #actions = new Map<string, ActionReplay>();
   readonly #ownedRoots = new Map<string, OwnedRoot>();
+  readonly #replacementLanes = new Map<string, Promise<void>>();
 
   constructor(effects: WorkHubActionGateEffects) {
     this.#effects = effects;
@@ -272,17 +273,52 @@ export class WorkHubCoordinationActionGate {
           'WorkHub replacement target did not change',
         );
       }
-      const owned = this.#ownedRoots.get(replaced.sessionId);
-      if (!owned || owned.turnId !== proposal.replace.expectedTurnId) {
-        throw new WorkHubActionGateFailure(
-          'stop_not_owned',
-          'WorkHub cannot stop a Turn it did not admit',
+      const replacement = proposal.replace;
+      return this.#withReplacementLease(replaced.sessionId, async () => {
+        const freshCandidates = await this.candidates();
+        if (freshCandidates.candidateSetId !== input.candidateSetId) {
+          throw new WorkHubActionGateFailure(
+            'candidate_set_stale',
+            'WorkHub Session candidates changed; refresh before delegating',
+          );
+        }
+        const freshTarget = freshCandidates.candidates.find(
+          (candidate) => candidate.candidateRef === proposal.candidateRef,
         );
-      }
-      await this.#effects.stop({ sessionId: replaced.sessionId, turnId: owned.turnId }, context);
-      this.#ownedRoots.delete(replaced.sessionId);
+        const freshSource = freshCandidates.candidates.find(
+          (candidate) => candidate.candidateRef === replacement.candidateRef,
+        );
+        if (!freshTarget || !freshSource) {
+          throw new WorkHubActionGateFailure(
+            'candidate_unavailable',
+            'WorkHub replacement source or target is not in the admitted candidate set',
+          );
+        }
+        this.#assertTarget(freshTarget);
+        const owned = this.#ownedRoots.get(freshSource.sessionId);
+        if (!owned || owned.turnId !== replacement.expectedTurnId) {
+          throw new WorkHubActionGateFailure(
+            'stop_not_owned',
+            'WorkHub cannot stop a Turn it did not admit',
+          );
+        }
+        await this.#effects.stop(
+          { sessionId: freshSource.sessionId, turnId: owned.turnId },
+          context,
+        );
+        this.#ownedRoots.delete(freshSource.sessionId);
+        return this.#submitExisting(input, freshTarget, context);
+      });
     }
 
+    return this.#submitExisting(input, target, context);
+  }
+
+  async #submitExisting(
+    input: WorkHubCoordinationActInput,
+    target: WorkHubCoordinationCandidate,
+    context: ConnectionContext,
+  ): Promise<WorkHubCoordinationActResult> {
     const submitted = await this.#effects.submit(
       {
         sessionId: target.sessionId,
@@ -293,6 +329,25 @@ export class WorkHubCoordinationActionGate {
     );
     this.#rememberRoot(target.sessionId, input.actionId, submitted);
     return executionResult('delegate_existing', target.sessionId, submitted);
+  }
+
+  async #withReplacementLease<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
+    const predecessor = this.#replacementLanes.get(sessionId) ?? Promise.resolve();
+    let release!: () => void;
+    const ownership = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = predecessor.then(() => ownership);
+    this.#replacementLanes.set(sessionId, tail);
+    await predecessor;
+    try {
+      return await action();
+    } finally {
+      release();
+      if (this.#replacementLanes.get(sessionId) === tail) {
+        this.#replacementLanes.delete(sessionId);
+      }
+    }
   }
 
   #assertTarget(target: WorkHubCoordinationCandidate): void {

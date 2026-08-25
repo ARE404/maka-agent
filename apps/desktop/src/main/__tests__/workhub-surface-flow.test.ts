@@ -28,6 +28,7 @@ import {
   WorkHubSurfaceRouteGate,
   submitWorkHubSurfaceInput,
   visibleWorkHubConversation,
+  workHubReplacementText,
   workHubSubmissionCanCorrect,
   workHubSubmissionClearsDraft,
 } from '../../renderer/workhub-surface.js';
@@ -41,6 +42,27 @@ import {
   createDesktopWorkHubSessionPort,
   type WorkHubDesktopSession,
 } from '../../renderer/workhub-session-port.js';
+
+test('correction clicks produce explicit replacement intent in both locales', () => {
+  assert.equal(
+    workHubReplacementText({
+      locale: 'zh',
+      sourceName: '支付',
+      targetName: '登录',
+      originalText: '补上重试逻辑',
+    }),
+    '不是“支付”，改成“登录”：补上重试逻辑',
+  );
+  assert.equal(
+    workHubReplacementText({
+      locale: 'en',
+      sourceName: 'Payments',
+      targetName: 'Login',
+      originalText: 'Add the retry logic',
+    }),
+    'Not “Payments”; use “Login” instead: Add the retry logic',
+  );
+});
 
 test('surface route gate rejects same-frame duplicate operations and reopens after settle', async () => {
   const gate = new WorkHubSurfaceRouteGate();

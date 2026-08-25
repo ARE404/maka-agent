@@ -2469,6 +2469,70 @@ test('production submission delegates only through the Runtime-owned candidate r
   }]);
 });
 
+test('production corrections fail closed instead of dropping an incomplete replacement', async () => {
+  const actions: unknown[] = [];
+  const sessions = port([session('source'), session('target')]);
+  const controller = createGatedWorkHubController({
+    sessions,
+    coordination: {
+      open: async () => ({ close: async () => undefined }),
+      answer: async (input) => ({ turnId: input.turnId }),
+      record: async (input) => ({ turnId: input.turnId }),
+      candidates: async () => ({
+        candidateSetId: `sha256:${'d'.repeat(64)}`,
+        candidates: [
+          {
+            candidateRef: 'candidate-source',
+            sessionId: 'source',
+            sessionName: 'source',
+            workspace: {
+              target: { kind: 'host_path', path: '/workspace/source' },
+              hostCwd: '/workspace/source',
+            },
+            state: 'active',
+            updatedAt: 1,
+          },
+          {
+            candidateRef: 'candidate-target',
+            sessionId: 'target',
+            sessionName: 'target',
+            workspace: {
+              target: { kind: 'host_path', path: '/workspace/target' },
+              hostCwd: '/workspace/target',
+            },
+            state: 'active',
+            updatedAt: 2,
+          },
+        ],
+      }),
+      act: async (input) => {
+        actions.push(input);
+        throw new Error('incomplete correction must not reach the Action Gate');
+      },
+    },
+  });
+
+  await assert.rejects(
+    controller.submit({
+      requestId: 'missing-turn',
+      text: 'No, use target instead',
+      explicitTarget: { sessionId: 'target' },
+      correction: { from: { sessionId: 'source' } },
+    }),
+    /requires an exact owned Turn/u,
+  );
+  await assert.rejects(
+    controller.submit({
+      requestId: 'missing-source',
+      text: 'No, use target instead',
+      explicitTarget: { sessionId: 'target' },
+      correction: { from: { sessionId: 'outside' }, turnId: 'source-turn' },
+    }),
+    /source is outside the admitted candidate set/u,
+  );
+  assert.deepEqual(actions, []);
+});
+
 test('production clarification is persisted through the typed Action Gate disposition', async () => {
   const actions: unknown[] = [];
   const controller = createGatedWorkHubController({
