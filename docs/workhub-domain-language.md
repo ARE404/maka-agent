@@ -64,9 +64,12 @@ delegating; and `clarify` continues in the Coordination Session without guessing
 creating.
 
 **delegation**: A bounded reference from a Coordination Turn to one target ordinary
-Session and Turn, including only its identity, disposition, and status. Delegation
-links the separately authoritative transcripts; it does not copy the target's
-complete execution transcript into WorkHub.
+Session and Turn, including only its identity, disposition, and coordination-owned
+link status (`active` or `superseded`). Delegation links the separately authoritative
+transcripts; it does not copy the target's complete execution transcript into
+WorkHub. Target acceptance, running, waiting, completion, failure, abort, and
+recovery state remain ordinary Session facts and appear in WorkHub only as read-only
+projections.
 
 **Action Gate**: The deterministic Runtime boundary that validates a proposed
 disposition and operation before any write, including target/Host validity,

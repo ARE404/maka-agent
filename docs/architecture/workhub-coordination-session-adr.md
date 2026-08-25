@@ -97,23 +97,41 @@ disposition
 status
 ```
 
+`status` describes only whether the coordination-owned link is `active` or
+`superseded`; it never mirrors the target Turn's execution lifecycle. Target
+acceptance, running, waiting, completion, failure, abort, and recovery state remain
+ordinary Session facts. WorkHub derives those states as read-only projections and
+does not persist them as independent Coordination Session truth.
+
 The ordinary Session records the delegated request, tools, side effects, and
 authoritative result. WorkHub may display a bounded projection or record a
 coordination summary, but it does not copy the ordinary Session's complete
 transcript into the Coordination Session.
 
-## Consequences and deferred decisions
+## Consequences, costs, and reevaluation
 
 - WorkHub gains persistent conversational continuity without adding another
   durable authority, database, event store, lifecycle, or transcript copy.
 - Coordination and execution remain separately authoritative within the shared
   Session substrate.
+- The per-Host boundary fragments WorkHub continuity when a user switches Runtime
+  Hosts: each Host has a separate coordination transcript and cannot coordinate the
+  other Host's Sessions.
+- The special Session role adds provisioning, lookup, recovery, retention, and UI
+  obligations even though it deliberately reuses the existing Session substrate.
 - Whether Work is 1:1 with Session, 1:N over Sessions, or an independent durable
   entity remains unresolved.
 - Cross-Runtime-Host coordination remains deferred.
 - Coordination Session kind/role representation, lazy creation, durable lookup,
   recovery, UI treatment, and routing implementation belong to Slice 2 and later;
   this ADR does not design or implement them.
+
+Reevaluate the per-Host decision if supported workflows require one WorkHub
+conversation to coordinate ordinary Sessions on multiple Runtime Hosts, or if Host
+switching creates user-visible continuity loss that rebuildable projections cannot
+resolve. Reevaluate the special Session role if implementing its lifecycle requires
+a second durable authority or exceptions that the ordinary Session substrate cannot
+enforce safely.
 
 ## Rejected alternatives
 
