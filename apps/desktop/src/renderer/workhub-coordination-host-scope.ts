@@ -23,12 +23,19 @@ import type {
   WorkHubDesktopSessionBridge,
 } from './workhub-session-port.js';
 
+export interface WorkHubCoordinationHostAuthority {
+  readonly sessionId: string | undefined;
+  /** Revokes every operation held by a controller from an older Host generation. */
+  readonly isCurrent: () => boolean;
+}
+
 /** Restricts the transitional WorkHub router to the Coordination Session's Host. */
 export function scopeWorkHubSessionsToCoordinationHost(
   sessions: WorkHubDesktopSessionBridge,
-  coordinationSessionId: string | undefined,
+  coordination: WorkHubCoordinationHostAuthority,
   createOnCoordinationHost: WorkHubCoordinationHostSessionCreator,
 ): WorkHubDesktopSessionBridge {
+  const coordinationSessionId = coordination.sessionId;
   const hostId = (() => {
     if (!coordinationSessionId) return undefined;
     try {
@@ -45,6 +52,7 @@ export function scopeWorkHubSessionsToCoordinationHost(
     }
   };
   const requireHost = (): string => {
+    if (!coordination.isCurrent()) throw new Error('WorkHub Coordination Session scope is revoked');
     if (!hostId) throw new Error('WorkHub Coordination Session is unresolved');
     return hostId;
   };
@@ -55,6 +63,7 @@ export function scopeWorkHubSessionsToCoordinationHost(
   };
   const scoped = {
     async list() {
+      if (!coordination.isCurrent()) return [];
       const expectedHostId = hostId;
       if (!expectedHostId) return [];
       return (await sessions.list()).filter((session) =>
@@ -87,6 +96,7 @@ export function scopeWorkHubSessionsToCoordinationHost(
   return {
     ...scoped,
     async listWithCoverage() {
+      if (!coordination.isCurrent()) return { sessions: [], completeHostIds: [] };
       const expectedHostId = hostId;
       if (!expectedHostId) return { sessions: [], completeHostIds: [] };
       const snapshot = await listWithCoverage();

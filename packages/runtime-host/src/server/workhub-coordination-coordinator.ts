@@ -25,6 +25,7 @@ import {
   WORKHUB_COORDINATION_SESSION_ID,
   WORKHUB_COORDINATION_SESSION_ROLE,
   isWorkHubCoordinationSession,
+  isWorkHubCoordinationSessionId,
   type SessionHeader,
 } from '@maka/core/session';
 import type { SessionAuthorityStore } from '@maka/storage/session-store';
@@ -54,7 +55,7 @@ export interface HostWorkHubCoordinationCoordinatorOptions {
   readonly requestDrain: () => void;
 }
 
-/** Resolves the one durable coordination-role Session owned by this Runtime Host. */
+/** Resolves the one durable Coordination Session owned by this Runtime Host. */
 export class HostWorkHubCoordinationCoordinator {
   readonly handlers: WorkHubCoordinationOperationHandlerMap = {
     'workhub.coordination.resolve': () => this.#resolve(),
@@ -142,7 +143,7 @@ export class HostWorkHubCoordinationCoordinator {
 
 function validCoordinationHeader(header: SessionHeader, coordinationCwd: string): boolean {
   return (
-    header.id === WORKHUB_COORDINATION_SESSION_ID &&
+    isWorkHubCoordinationSessionId(header.id) &&
     isWorkHubCoordinationSession(header) &&
     header.cwd === coordinationCwd &&
     header.projectId === null &&

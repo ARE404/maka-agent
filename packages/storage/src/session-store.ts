@@ -45,6 +45,7 @@ import {
   isSubagentSessionRuntime,
   isSubagentSessionSpawn,
   isSessionStatus,
+  isWorkHubCoordinationSessionId,
   subagentSessionRuntimeSummary,
   WORKHUB_COORDINATION_SESSION_ROLE,
 } from '@maka/core/session';
@@ -530,6 +531,11 @@ class SqliteSessionStore implements SessionAuthorityStore {
     initialBoundary?: ExecutionBoundary,
   ): Promise<CreateStableSessionResult> {
     await this.ensureReady();
+    const targetsCoordinationSession = isWorkHubCoordinationSessionId(request.sessionId);
+    const claimsCoordinationRole = request.input.role === WORKHUB_COORDINATION_SESSION_ROLE;
+    if (targetsCoordinationSession !== claimsCoordinationRole) {
+      throw new Error('WorkHub Coordination Session identity and role must be claimed together');
+    }
     if (
       request.input.conversationCopy &&
       request.input.conversationCopy.requestFingerprint !== request.requestFingerprint
@@ -748,7 +754,7 @@ class SqliteSessionStore implements SessionAuthorityStore {
 
   async listHeaders(): Promise<SessionHeader[]> {
     await this.ensureReady();
-    return (await this.metadata.list({}, 'recognized'))
+    return (await this.metadata.list({}, 'recoverable'))
       .map((record) => record.header)
       .sort((a, b) => a.id.localeCompare(b.id));
   }

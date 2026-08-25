@@ -42,8 +42,8 @@ export function sqliteOrdinarySessionRolePredicate(): SqliteSessionRolePredicate
   };
 }
 
-/** Returns only valid ordinary rows and the one valid reserved Coordination row. */
-export function sqliteRecognizedSessionRolePredicate(): SqliteSessionRolePredicate {
+/** Returns only rows that Runtime recovery may safely rebuild. */
+export function sqliteRecoverableSessionRolePredicate(): SqliteSessionRolePredicate {
   const ordinary = sqliteOrdinarySessionRolePredicate();
   return {
     sql: `(

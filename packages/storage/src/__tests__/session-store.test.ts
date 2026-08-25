@@ -40,6 +40,36 @@ import { OPERATIONAL_STATE_DATABASE_NAME } from '../operational-state-store.js';
 import { createSqliteSessionMetadataStore } from '../sqlite-session-metadata-store.js';
 
 describe('SQLite SessionStore', () => {
+  test('requires the reserved WorkHub Coordination identity and role together', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-workhub-coordination-identity-role-'));
+    const store = createSessionStore(root);
+    try {
+      await assert.rejects(
+        store.createStableSession({
+          sessionId: WORKHUB_COORDINATION_SESSION_ID,
+          requestFingerprint: `sha256:${'a'.repeat(64)}`,
+          input: makeInput({ cwd: root, projectId: null, name: 'Reserved without role' }),
+        }),
+        /identity and role must be claimed together/,
+      );
+      await assert.rejects(
+        store.createStableSession({
+          sessionId: 'ordinary-with-coordination-role',
+          requestFingerprint: `sha256:${'b'.repeat(64)}`,
+          input: {
+            ...makeInput({ cwd: root, projectId: null, name: 'Role without identity' }),
+            role: WORKHUB_COORDINATION_SESSION_ROLE,
+          },
+        }),
+        /identity and role must be claimed together/,
+      );
+      assert.deepEqual(await store.listHeaders(), []);
+    } finally {
+      await store.close?.();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('keeps the WorkHub Coordination Session durable but outside ordinary catalogs and route candidates', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-workhub-coordination-session-'));
     const store = createSessionStore(root);
@@ -120,36 +150,6 @@ describe('SQLite SessionStore', () => {
       assert.equal(
         (await store.readHeaderSnapshot(WORKHUB_COORDINATION_SESSION_ID)).name,
         'WorkHub',
-      );
-    } finally {
-      await store.close?.();
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  test('enforces one WorkHub Coordination Session role per Runtime Host store', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'maka-workhub-coordination-unique-'));
-    const store = createSessionStore(root);
-    try {
-      await store.createStableSession({
-        sessionId: WORKHUB_COORDINATION_SESSION_ID,
-        requestFingerprint: `sha256:${'a'.repeat(64)}`,
-        input: {
-          ...makeInput({ cwd: root, projectId: null, name: 'WorkHub' }),
-          role: WORKHUB_COORDINATION_SESSION_ROLE,
-        },
-      });
-
-      await assert.rejects(
-        store.createStableSession({
-          sessionId: 'second-workhub-coordination-session',
-          requestFingerprint: `sha256:${'b'.repeat(64)}`,
-          input: {
-            ...makeInput({ cwd: root, projectId: null, name: 'WorkHub duplicate' }),
-            role: WORKHUB_COORDINATION_SESSION_ROLE,
-          },
-        }),
-        /unique|constraint/i,
       );
     } finally {
       await store.close?.();

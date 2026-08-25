@@ -23,6 +23,7 @@ import { SIDE_CONVERSATION_SESSION_LABEL } from '@maka/core/side-conversation';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type { CreateSessionInput } from '@maka/core/runtime-inputs';
 import {
+  isWorkHubCoordinationSessionId,
   sessionRevisionFamilyId,
   type SessionConversationCopy,
   type SessionHeader,
@@ -175,6 +176,12 @@ export class HostSessionRevisionCoordinator {
     kind: ConversationCopyKind,
     input: SessionConversationCopyInput,
   ): Promise<ConversationCopyOutcome> {
+    if (isWorkHubCoordinationSessionId(input.targetSessionId)) {
+      return copyFailure(
+        'operation_conflict',
+        'Target Session identity is reserved for WorkHub coordination',
+      );
+    }
     const semanticKind = conversationCopySemanticKind(kind, input);
     const requestFingerprint = conversationCopyFingerprint(semanticKind, input);
     const retry = await this.options.admission.run(input.targetSessionId, async () =>

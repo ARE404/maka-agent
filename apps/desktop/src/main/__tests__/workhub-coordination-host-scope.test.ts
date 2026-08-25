@@ -34,6 +34,7 @@ test('WorkHub candidates follow the resolved Coordination Session Host only', as
   const sessionA = desktopSessionKey({ hostId: 'host-a', sessionId: 'ordinary-a' });
   const sessionB = desktopSessionKey({ hostId: 'host-b', sessionId: 'ordinary-b' });
   let coordinationSessionId: string | undefined;
+  let coordinationGeneration = 0;
   let activeHostId = 'host-a';
   let hostChange: ((event: WorkHubCoordinationHostChange) => void) | undefined;
   const baseSessions: WorkHubDesktopSessionBridge = {
@@ -56,11 +57,18 @@ test('WorkHub candidates follow the resolved Coordination Session Host only', as
     const { hostId } = parseDesktopSessionKey(coordinationId);
     return ordinarySession(hostId === 'host-a' ? sessionA : sessionB);
   };
-  let sessions = scopeWorkHubSessionsToCoordinationHost(
-    baseSessions,
-    coordinationSessionId,
-    createOnCoordinationHost,
-  );
+  const scopeSessions = () => {
+    const generation = coordinationGeneration;
+    return scopeWorkHubSessionsToCoordinationHost(
+      baseSessions,
+      {
+        sessionId: coordinationSessionId,
+        isCurrent: () => generation === coordinationGeneration,
+      },
+      createOnCoordinationHost,
+    );
+  };
+  let sessions = scopeSessions();
   const stop = startWorkHubCoordinationLifecycle({
     resolve: async () =>
       desktopSessionKey({
@@ -71,21 +79,15 @@ test('WorkHub candidates follow the resolved Coordination Session Host only', as
       hostChange = handler;
       return () => undefined;
     },
+    subscribeAvailabilityChanges: () => () => undefined,
     onResolving: () => {
+      coordinationGeneration += 1;
       coordinationSessionId = undefined;
-      sessions = scopeWorkHubSessionsToCoordinationHost(
-        baseSessions,
-        coordinationSessionId,
-        createOnCoordinationHost,
-      );
+      sessions = scopeSessions();
     },
     onResolved: (sessionId) => {
       coordinationSessionId = sessionId;
-      sessions = scopeWorkHubSessionsToCoordinationHost(
-        baseSessions,
-        coordinationSessionId,
-        createOnCoordinationHost,
-      );
+      sessions = scopeSessions();
     },
     reportFailure: (error) => assert.fail(error instanceof Error ? error.message : String(error)),
   });
@@ -111,11 +113,11 @@ test('WorkHub candidates follow the resolved Coordination Session Host only', as
   assert.deepEqual(await sessions.list(), []);
   await Promise.resolve();
   assert.deepEqual((await sessions.list()).map((session) => session.id), [sessionB]);
-  assert.equal((await staleHostAScope.create({ name: 'stale A' })).id, sessionA);
+  await assert.rejects(staleHostAScope.create({ name: 'stale A' }), /scope is revoked/);
   assert.equal((await sessions.create({ name: 'current B' })).id, sessionB);
   assert.deepEqual(
     createdFor.map((sessionId) => parseDesktopSessionKey(sessionId).hostId),
-    ['host-a', 'host-b'],
+    ['host-b'],
   );
   stop();
 });

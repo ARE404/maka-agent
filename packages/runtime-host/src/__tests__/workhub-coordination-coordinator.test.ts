@@ -99,8 +99,21 @@ describe('Host WorkHub Coordination coordinator', () => {
           llmConnectionSlug: 'test-connection',
           model: 'test-model',
           permissionMode: 'ask',
+          role: WORKHUB_COORDINATION_SESSION_ROLE,
         },
       });
+      const database = new DatabaseSync(join(root, OPERATIONAL_STATE_DATABASE_NAME));
+      try {
+        database
+          .prepare(
+            `UPDATE session_metadata
+             SET payload_json = json_remove(payload_json, '$.role')
+             WHERE session_id = ?`,
+          )
+          .run(WORKHUB_COORDINATION_SESSION_ID);
+      } finally {
+        database.close();
+      }
 
       const outcome = await coordinator(root, store).handlers['workhub.coordination.resolve'](
         {},

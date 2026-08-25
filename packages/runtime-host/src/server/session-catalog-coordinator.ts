@@ -33,7 +33,12 @@ import {
   isSessionStartModeLabel as isExecutionSemanticLabel,
   sessionStartModeSpec,
 } from '@maka/core/explore-agent';
-import type { SessionHeader, SessionHeaderPatch } from '@maka/core/session';
+import {
+  isWorkHubCoordinationSessionId,
+  isWorkHubCoordinationSessionTarget,
+  type SessionHeader,
+  type SessionHeaderPatch,
+} from '@maka/core/session';
 import {
   isSessionNotFoundError,
   SessionMetadataConflictError,
@@ -326,6 +331,12 @@ export class HostSessionCatalogCoordinator {
   }
 
   async #create(input: SessionCreateInput): Promise<OperationOutcome<'session.create'>> {
+    if (isWorkHubCoordinationSessionId(input.sessionId)) {
+      return createFailure(
+        'operation_conflict',
+        'Session identity is reserved for WorkHub coordination',
+      );
+    }
     let prepared: PreparedSessionCreate;
     try {
       prepared = await prepareCreate(input);
@@ -409,8 +420,23 @@ export class HostSessionCatalogCoordinator {
   #updateMetadata(
     input: SessionMetadataUpdateInput,
   ): Promise<OperationOutcome<'session.metadata.update'>> {
+    if (isWorkHubCoordinationSessionId(input.sessionId)) {
+      return Promise.resolve(
+        metadataFailure(
+          'operation_unavailable',
+          'WorkHub Coordination Session metadata requires WorkHub authority',
+        ),
+      );
+    }
     return this.#admission.run(input.sessionId, async (lease) => {
       try {
+        const current = await this.#stores.readHeaderRecordSnapshot(input.sessionId);
+        if (isWorkHubCoordinationSessionTarget(current.header)) {
+          throw new SessionOperationFailure(
+            'operation_unavailable',
+            'WorkHub Coordination Session metadata requires WorkHub authority',
+          );
+        }
         const labels =
           input.patch.labels === undefined
             ? undefined
@@ -442,6 +468,12 @@ export class HostSessionCatalogCoordinator {
     requestedLabels: readonly string[],
   ): Promise<string[]> {
     const current = await this.#stores.readHeaderRecordSnapshot(sessionId);
+    if (isWorkHubCoordinationSessionTarget(current.header)) {
+      throw new SessionOperationFailure(
+        'operation_unavailable',
+        'WorkHub Coordination Session metadata requires WorkHub authority',
+      );
+    }
     if (current.revision !== expectedRevision) {
       throw new SessionMetadataVersionConflictError(sessionId, expectedRevision, current.revision);
     }
@@ -451,10 +483,22 @@ export class HostSessionCatalogCoordinator {
   async #updateConfiguration(
     input: SessionConfigurationUpdateInput,
   ): Promise<OperationOutcome<'session.configuration.update'>> {
+    if (isWorkHubCoordinationSessionId(input.sessionId)) {
+      return configurationFailure(
+        'operation_conflict',
+        'WorkHub Coordination Session configuration requires WorkHub authority',
+      );
+    }
     return this.#admission.run(input.sessionId, async (lease) => {
       let commitAttempted = false;
       try {
         const current = await this.#stores.readHeaderRecordSnapshot(input.sessionId);
+        if (isWorkHubCoordinationSessionTarget(current.header)) {
+          return configurationFailure(
+            'operation_conflict',
+            'WorkHub Coordination Session configuration requires WorkHub authority',
+          );
+        }
         if (current.revision !== input.expectedRevision) {
           return configurationSuccess(revisionConflict(input.expectedRevision, current.revision));
         }
@@ -524,10 +568,22 @@ export class HostSessionCatalogCoordinator {
   async #relocateWorkspace(
     input: SessionWorkspaceRelocateInput,
   ): Promise<OperationOutcome<'session.workspace.relocate'>> {
+    if (isWorkHubCoordinationSessionId(input.sessionId)) {
+      return workspaceFailure(
+        'operation_conflict',
+        'WorkHub Coordination Session workspace requires WorkHub authority',
+      );
+    }
     return this.#admission.run(input.sessionId, async (lease) => {
       let commitAttempted = false;
       try {
         const current = await this.#stores.readHeaderRecordSnapshot(input.sessionId);
+        if (isWorkHubCoordinationSessionTarget(current.header)) {
+          return workspaceFailure(
+            'operation_conflict',
+            'WorkHub Coordination Session workspace requires WorkHub authority',
+          );
+        }
         if (current.revision !== input.expectedRevision) {
           return workspaceSuccess(revisionConflict(input.expectedRevision, current.revision));
         }
@@ -572,6 +628,13 @@ export class HostSessionCatalogCoordinator {
   ): Promise<OperationOutcome<'session.read_marker.set'>> {
     return this.#admission.run(input.sessionId, async (lease) => {
       try {
+        const current = await this.#stores.readHeaderRecordSnapshot(input.sessionId);
+        if (isWorkHubCoordinationSessionTarget(current.header)) {
+          return readMarkerFailure(
+            'operation_conflict',
+            'WorkHub Coordination Session read state requires WorkHub authority',
+          );
+        }
         await this.#stores.markSessionReadThroughMessage(
           input.sessionId,
           input.readThroughMessageId,
@@ -624,7 +687,10 @@ export class HostSessionCatalogCoordinator {
       return updateSuccess(revisionConflict(input.expectedRevision, error.actualVersion));
     }
     if (error instanceof SessionOperationFailure) {
-      return metadataFailure('invalid_request', error.message);
+      return metadataFailure(
+        error.code === 'operation_unavailable' ? 'operation_unavailable' : 'invalid_request',
+        error.message,
+      );
     }
     if (error instanceof SessionMetadataConflictError) {
       return metadataFailure('invalid_request', error.message);

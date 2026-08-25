@@ -142,7 +142,7 @@ import {
 } from './sqlite-session-catalog-query.js';
 import {
   sqliteOrdinarySessionRolePredicate,
-  sqliteRecognizedSessionRolePredicate,
+  sqliteRecoverableSessionRolePredicate,
 } from './sqlite-session-role-scope.js';
 
 export { SQLITE_SESSION_METADATA_SCHEMA_VERSION } from './sqlite-session-metadata-schema.js';
@@ -187,7 +187,7 @@ export type SqliteSessionMetadataStoreFailpoint =
   | 'after_agent_graph_operator_provision_write'
   | 'after_sandbox_boundary_write';
 
-type SessionMetadataRoleScope = 'all' | 'ordinary' | 'recognized';
+type SessionMetadataRoleScope = 'all' | 'ordinary' | 'recoverable';
 
 export interface SqliteSessionMetadataStoreOptions {
   now?: () => number;
@@ -1281,8 +1281,8 @@ export class SqliteSessionMetadataStore {
       const role = sqliteOrdinarySessionRolePredicate();
       where.push(role.sql);
       parameters.push(...role.parameters);
-    } else if (roleScope === 'recognized') {
-      const role = sqliteRecognizedSessionRolePredicate();
+    } else if (roleScope === 'recoverable') {
+      const role = sqliteRecoverableSessionRolePredicate();
       where.push(role.sql);
       parameters.push(...role.parameters);
     }

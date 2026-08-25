@@ -78,6 +78,11 @@ export const WORKHUB_COORDINATION_SESSION_ROLE = 'workhub_coordination' as const
 export const WORKHUB_COORDINATION_SESSION_ID = 'maka_workhub_coordination' as const;
 export type SessionRole = typeof WORKHUB_COORDINATION_SESSION_ROLE;
 
+/** Whether an identifier targets the reserved WorkHub Coordination Session. */
+export function isWorkHubCoordinationSessionId(sessionId: string): boolean {
+  return sessionId === WORKHUB_COORDINATION_SESSION_ID;
+}
+
 export const TURN_STATUSES = ['running', 'completed', 'aborted', 'failed'] as const;
 
 export type TurnStatus = (typeof TURN_STATUSES)[number];
@@ -297,6 +302,13 @@ export type SessionHeaderPatch = Partial<Omit<SessionHeader, 'isArchived' | 'rol
 
 export function isWorkHubCoordinationSession(session: Pick<SessionHeader, 'role'>): boolean {
   return session.role === WORKHUB_COORDINATION_SESSION_ROLE;
+}
+
+/** Whether durable state claims either half of the reserved Coordination identity/role pair. */
+export function isWorkHubCoordinationSessionTarget(
+  session: Pick<SessionHeader, 'id' | 'role'>,
+): boolean {
+  return isWorkHubCoordinationSessionId(session.id) || isWorkHubCoordinationSession(session);
 }
 
 /**

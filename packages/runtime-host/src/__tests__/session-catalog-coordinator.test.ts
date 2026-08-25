@@ -26,7 +26,11 @@ import { createDefaultRuntimePolicy } from '@maka/core/runtime-policy';
 import { createGenesisExecutionBoundary } from '@maka/core/sandbox-boundary';
 import { DEEP_RESEARCH_SESSION_LABEL, DEEP_RESEARCH_SESSION_NAME } from '@maka/core/explore-agent';
 import { type RelayModelProfile } from '@maka/core/model-thinking';
-import type { SessionHeader } from '@maka/core/session';
+import {
+  WORKHUB_COORDINATION_SESSION_ID,
+  WORKHUB_COORDINATION_SESSION_ROLE,
+  type SessionHeader,
+} from '@maka/core/session';
 import {
   SessionConfigurationTransitionError,
   headerToSummary,
@@ -440,6 +444,113 @@ test('creation rejects reserved execution labels before claiming a Session ident
     },
   });
   assert.equal(createAttempts, 0);
+  assert.equal(fixture.drainRequests(), 0);
+});
+
+test('ordinary creation rejects the reserved WorkHub Coordination Session identity', async () => {
+  let probeAttempts = 0;
+  const fixture = createFixture({
+    stores: {
+      probeStableSessionCreate: async () => {
+        probeAttempts += 1;
+        assert.fail('Reserved identity must be rejected before persistence admission');
+      },
+    },
+  });
+
+  const outcome = await fixture.coordinator.handlers['session.create'](
+    {
+      sessionId: WORKHUB_COORDINATION_SESSION_ID,
+      workspace: { kind: 'host_path', path: process.cwd() },
+      modelTarget: { kind: 'default' },
+    },
+    context,
+  );
+
+  assert.deepEqual(outcome, {
+    ok: false,
+    error: {
+      code: 'operation_conflict',
+      message: 'Session identity is reserved for WorkHub coordination',
+    },
+  });
+  assert.equal(probeAttempts, 0);
+  assert.equal(fixture.drainRequests(), 0);
+});
+
+test('ordinary configuration rejects the WorkHub Coordination Session identity', async () => {
+  let reads = 0;
+  const fixture = createFixture({
+    stores: {
+      readHeaderRecordSnapshot: async () => {
+        reads += 1;
+        assert.fail('Reserved identity must be rejected before configuration admission');
+      },
+    },
+  });
+
+  const outcome = await fixture.coordinator.handlers['session.configuration.update'](
+    configurationInput(WORKHUB_COORDINATION_SESSION_ID, fixture.revision()),
+    context,
+  );
+
+  assert.deepEqual(outcome, {
+    ok: false,
+    error: {
+      code: 'operation_conflict',
+      message: 'WorkHub Coordination Session configuration requires WorkHub authority',
+    },
+  });
+  assert.equal(reads, 0);
+  assert.equal(fixture.drainRequests(), 0);
+});
+
+test('ordinary metadata and configuration reject a corrupt Coordination role on another identity', async () => {
+  const corrupt = {
+    ...sessionHeader('session-1', ['user-label']),
+    role: WORKHUB_COORDINATION_SESSION_ROLE,
+  };
+  const fixture = createFixture({
+    stores: {
+      readHeaderRecordSnapshot: async () => headerSnapshot(corrupt, 3),
+      updateHeaderVersioned: async () => assert.fail('Corrupt role must not reach metadata writes'),
+    },
+    manager: {
+      transitionSessionConfiguration: async () =>
+        assert.fail('Corrupt role must not reach configuration writes'),
+    },
+  });
+
+  assert.deepEqual(
+    await fixture.coordinator.handlers['session.metadata.update'](
+      {
+        sessionId: fixture.sessionId,
+        expectedRevision: fixture.revision(),
+        patch: { name: 'Not allowed' },
+      },
+      context,
+    ),
+    {
+      ok: false,
+      error: {
+        code: 'operation_unavailable',
+        message: 'WorkHub Coordination Session metadata requires WorkHub authority',
+      },
+    },
+  );
+  assert.deepEqual(
+    await fixture.coordinator.handlers['session.configuration.update'](
+      configurationInput(fixture.sessionId, fixture.revision()),
+      context,
+    ),
+    {
+      ok: false,
+      error: {
+        code: 'operation_conflict',
+        message: 'WorkHub Coordination Session configuration requires WorkHub authority',
+      },
+    },
+  );
   assert.equal(fixture.drainRequests(), 0);
 });
 

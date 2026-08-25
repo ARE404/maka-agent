@@ -45,7 +45,7 @@ test('binds the WorkHub controller to one Coordination identity rather than proj
   assert.doesNotMatch(source, /workHubControllerRef\s*=\s*useRef/u);
   assert.match(
     source,
-    /const workHubController\s*=\s*useMemo\([\s\S]*?\[workHubCoordinationSessionId\],\s*\)/u,
+    /const workHubController\s*=\s*useMemo\([\s\S]*?\[workHubCoordinationGeneration, workHubCoordinationSessionId\],\s*\)/u,
   );
   assert.match(source, /workHubProjectsRef\.current\s*=\s*projects/u);
   assert.doesNotMatch(

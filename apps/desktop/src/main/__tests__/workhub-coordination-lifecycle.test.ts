@@ -26,6 +26,7 @@ import {
 
 test('WorkHub resolves on open and ready Host changes, then stops on feature disable', () => {
   let hostChange: ((event: WorkHubCoordinationHostChange) => void) | undefined;
+  let availabilityChange: (() => void) | undefined;
   const calls: string[] = [];
   const stop = startWorkHubCoordinationLifecycle({
     resolve: () => {
@@ -34,7 +35,11 @@ test('WorkHub resolves on open and ready Host changes, then stops on feature dis
     },
     subscribeHostChanges(handler) {
       hostChange = handler;
-      return () => calls.push('unsubscribe');
+      return () => calls.push('unsubscribe-hosts');
+    },
+    subscribeAvailabilityChanges(handler) {
+      availabilityChange = handler;
+      return () => calls.push('unsubscribe-availability');
     },
     onResolving: () => calls.push('resolving'),
     onResolved: (sessionId) => calls.push(`resolved:${sessionId}`),
@@ -44,40 +49,76 @@ test('WorkHub resolves on open and ready Host changes, then stops on feature dis
   assert.deepEqual(calls, ['resolving', 'resolve']);
   hostChange?.({ isDefault: false, readiness: 'ready' });
   hostChange?.({ isDefault: true, readiness: 'reconnecting' });
-  assert.deepEqual(calls, ['resolving', 'resolve']);
+  assert.deepEqual(calls, ['resolving', 'resolve', 'resolving']);
+
+  availabilityChange?.();
+  assert.deepEqual(calls, ['resolving', 'resolve', 'resolving']);
 
   hostChange?.({ isDefault: true, readiness: 'ready' });
-  assert.deepEqual(calls, ['resolving', 'resolve', 'resolving', 'resolve']);
+  assert.deepEqual(calls, ['resolving', 'resolve', 'resolving', 'resolving', 'resolve']);
 
   stop();
-  assert.deepEqual(calls, ['resolving', 'resolve', 'resolving', 'resolve', 'unsubscribe']);
+  assert.deepEqual(calls, [
+    'resolving',
+    'resolve',
+    'resolving',
+    'resolving',
+    'resolve',
+    'unsubscribe-hosts',
+    'unsubscribe-availability',
+  ]);
   hostChange?.({ isDefault: true, readiness: 'ready' });
-  assert.deepEqual(calls, ['resolving', 'resolve', 'resolving', 'resolve', 'unsubscribe']);
+  availabilityChange?.();
+  assert.equal(calls.at(-1), 'unsubscribe-availability');
 });
 
-test('WorkHub reports resolver failures without stopping later Host changes', async () => {
+test('WorkHub exposes a retry and automatically retries when model availability changes', async () => {
   let hostChange: ((event: WorkHubCoordinationHostChange) => void) | undefined;
+  let availabilityChange: (() => void) | undefined;
   const failures: unknown[] = [];
+  let manualRetry: (() => void) | undefined;
+  let resolveAttempts = 0;
   const failure = new Error('offline');
   const stop = startWorkHubCoordinationLifecycle({
-    resolve: () => Promise.reject(failure),
+    resolve: () => {
+      resolveAttempts += 1;
+      return resolveAttempts < 3
+        ? Promise.reject(failure)
+        : Promise.resolve('coordination-session');
+    },
     subscribeHostChanges(handler) {
       hostChange = handler;
       return () => undefined;
     },
+    subscribeAvailabilityChanges(handler) {
+      availabilityChange = handler;
+      return () => undefined;
+    },
     onResolving: () => undefined,
-    onResolved: () => undefined,
-    reportFailure: (error) => failures.push(error),
+    onResolved: (sessionId) => failures.push(sessionId),
+    reportFailure: (error, retry) => {
+      failures.push(error);
+      manualRetry = retry;
+    },
   });
 
   await Promise.resolve();
   await Promise.resolve();
   assert.deepEqual(failures, [failure]);
 
-  hostChange?.({ isDefault: true, readiness: 'ready' });
+  manualRetry?.();
   await Promise.resolve();
   await Promise.resolve();
   assert.deepEqual(failures, [failure, failure]);
+
+  availabilityChange?.();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(failures, [failure, failure, 'coordination-session']);
+
+  availabilityChange?.();
+  hostChange?.({ isDefault: false, readiness: 'ready' });
+  assert.equal(resolveAttempts, 3);
   stop();
 });
 
@@ -91,6 +132,7 @@ test('WorkHub ignores a stale Host resolution that settles after a newer Host', 
       hostChange = handler;
       return () => undefined;
     },
+    subscribeAvailabilityChanges: () => () => undefined,
     onResolving: () => undefined,
     onResolved: (sessionId) => resolved.push(sessionId),
     reportFailure: (error) => assert.fail(error instanceof Error ? error.message : String(error)),
@@ -103,5 +145,29 @@ test('WorkHub ignores a stale Host resolution that settles after a newer Host', 
   await Promise.resolve();
 
   assert.deepEqual(resolved, ['host-b-coordination']);
+  stop();
+});
+
+test('selecting an unready default Host revokes the old scope and invalidates its resolve', async () => {
+  let hostChange: ((event: WorkHubCoordinationHostChange) => void) | undefined;
+  const pending: Array<(sessionId: string) => void> = [];
+  const calls: string[] = [];
+  const stop = startWorkHubCoordinationLifecycle({
+    resolve: () => new Promise<string>((resolve) => pending.push(resolve)),
+    subscribeHostChanges(handler) {
+      hostChange = handler;
+      return () => undefined;
+    },
+    subscribeAvailabilityChanges: () => () => undefined,
+    onResolving: () => calls.push('revoked'),
+    onResolved: (sessionId) => calls.push(`resolved:${sessionId}`),
+    reportFailure: (error) => assert.fail(error instanceof Error ? error.message : String(error)),
+  });
+
+  hostChange?.({ isDefault: true, readiness: 'reconnecting' });
+  pending[0]?.('old-host-coordination');
+  await Promise.resolve();
+
+  assert.deepEqual(calls, ['revoked', 'revoked']);
   stop();
 });

@@ -30,30 +30,52 @@ export function startWorkHubCoordinationLifecycle(input: {
   readonly subscribeHostChanges: (
     handler: (event: WorkHubCoordinationHostChange) => void,
   ) => () => void;
+  readonly subscribeAvailabilityChanges: (handler: () => void) => () => void;
   readonly onResolving: () => void;
   readonly onResolved: (sessionId: string) => void;
-  readonly reportFailure: (error: unknown) => void;
+  readonly reportFailure: (error: unknown, retry: () => void) => void;
 }): () => void {
   let stopped = false;
   let generation = 0;
-  const resolve = () => {
+  let failedGeneration: number | undefined;
+
+  const revoke = () => {
     const currentGeneration = ++generation;
+    failedGeneration = undefined;
     input.onResolving();
+    return currentGeneration;
+  };
+  const resolveGeneration = (currentGeneration: number) => {
     void input.resolve()
       .then((sessionId) => {
-        if (!stopped && currentGeneration === generation) input.onResolved(sessionId);
+        if (stopped || currentGeneration !== generation) return;
+        failedGeneration = undefined;
+        input.onResolved(sessionId);
       })
       .catch((error) => {
-        if (!stopped && currentGeneration === generation) input.reportFailure(error);
+        if (stopped || currentGeneration !== generation) return;
+        failedGeneration = currentGeneration;
+        input.reportFailure(error, () => {
+          if (!stopped && failedGeneration === currentGeneration) beginResolve();
+        });
       });
   };
-  const unsubscribe = input.subscribeHostChanges((event) => {
-    if (!stopped && event.isDefault && event.readiness === 'ready') resolve();
+  const beginResolve = () => resolveGeneration(revoke());
+
+  const unsubscribeHosts = input.subscribeHostChanges((event) => {
+    if (stopped || !event.isDefault) return;
+    const currentGeneration = revoke();
+    if (event.readiness === 'ready') resolveGeneration(currentGeneration);
   });
-  resolve();
+  const unsubscribeAvailability = input.subscribeAvailabilityChanges(() => {
+    if (!stopped && failedGeneration === generation) beginResolve();
+  });
+  beginResolve();
   return () => {
     stopped = true;
     generation += 1;
-    unsubscribe();
+    failedGeneration = undefined;
+    unsubscribeHosts();
+    unsubscribeAvailability();
   };
 }
