@@ -23,6 +23,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, test } from 'node:test';
+import type { MessageContent } from '@maka/core/events';
 import {
   WORKHUB_COORDINATION_SESSION_ID,
   WORKHUB_COORDINATION_SESSION_ROLE,
@@ -385,22 +386,10 @@ describe('Host WorkHub Coordination coordinator', () => {
   test('answers through the dedicated Coordination root without creating an ordinary Session', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-workhub-answer-'));
     const store = createSessionStore(root);
-    const starts: Parameters<RootTurnCoordinator['startWorkHubCoordinationMessage']>[0][] = [];
+    const admission = new SessionAdmissionGate();
+    const { executions, starts, prepared } = coordinationExecutions(admission);
     try {
-      const workhub = coordinator(root, store, () => undefined, undefined, {
-        startWorkHubCoordinationMessage: async (request) => {
-          starts.push(request);
-          return {
-            ok: true,
-            result: {
-              sessionId: request.sessionId,
-              turnId: request.turnId,
-              runId: 'workhub-run',
-              status: 'running',
-            },
-          };
-        },
-      });
+      const workhub = coordinator(root, store, () => undefined, undefined, executions, admission);
       assert.equal((await workhub.handlers['workhub.coordination.resolve']({}, CONTEXT)).ok, true);
       assert.deepEqual(
         await workhub.handlers['workhub.coordination.answer'](
@@ -412,7 +401,7 @@ describe('Host WorkHub Coordination coordinator', () => {
       assert.equal(starts.length, 1);
       assert.equal(starts[0]?.sessionId, WORKHUB_COORDINATION_SESSION_ID);
       assert.equal(starts[0]?.execution.kind, 'workhub_coordination');
-      assert.deepEqual(starts[0]?.content, { text: 'What should we do next?' });
+      assert.deepEqual(prepared, [{ text: 'What should we do next?' }]);
       assert.deepEqual(
         (await store.listHeaders()).map(({ id, role }) => ({ id, role })),
         [{ id: WORKHUB_COORDINATION_SESSION_ID, role: WORKHUB_COORDINATION_SESSION_ROLE }],
@@ -470,14 +459,131 @@ describe('Host WorkHub Coordination coordinator', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  test('refuses to merge a Turn identity shared across answer and record', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-workhub-turn-identity-'));
+    const store = createSessionStore(root);
+    const admission = new SessionAdmissionGate();
+    const { executions } = coordinationExecutions(admission);
+    try {
+      const workhub = coordinator(root, store, () => undefined, undefined, executions, admission);
+      assert.equal((await workhub.handlers['workhub.coordination.resolve']({}, CONTEXT)).ok, true);
+
+      // An answered Turn is owned by the root admission ledger.
+      assert.equal(
+        (
+          await workhub.handlers['workhub.coordination.answer'](
+            { turnId: 'shared-turn', text: 'What is left on payments?' },
+            CONTEXT,
+          )
+        ).ok,
+        true,
+      );
+      const recordAfterAnswer = await workhub.handlers['workhub.coordination.record'](
+        { turnId: 'shared-turn', userText: 'Continue payments', assistantText: 'Sent to Payments' },
+        CONTEXT,
+      );
+      assert.deepEqual(recordAfterAnswer, {
+        ok: false,
+        error: {
+          code: 'operation_conflict',
+          message: 'WorkHub Coordination Turn identity belongs to a different operation',
+        },
+      });
+      assert.deepEqual(await store.readMessagesSnapshot(WORKHUB_COORDINATION_SESSION_ID), []);
+
+      // A recorded Turn is owned by the durable summary triplet.
+      assert.equal(
+        (
+          await workhub.handlers['workhub.coordination.record'](
+            {
+              turnId: 'recorded-turn',
+              userText: 'Continue payments',
+              assistantText: 'Sent to Payments',
+            },
+            CONTEXT,
+          )
+        ).ok,
+        true,
+      );
+      const answerAfterRecord = await workhub.handlers['workhub.coordination.answer'](
+        { turnId: 'recorded-turn', text: 'What is left on payments?' },
+        CONTEXT,
+      );
+      assert.deepEqual(answerAfterRecord, {
+        ok: false,
+        error: {
+          code: 'operation_conflict',
+          message: 'WorkHub Coordination Turn identity belongs to a different operation',
+        },
+      });
+      assert.deepEqual(
+        (await store.readMessagesSnapshot(WORKHUB_COORDINATION_SESSION_ID)).map(
+          ({ type, turnId }) => ({ type, turnId }),
+        ),
+        [
+          { type: 'user', turnId: 'recorded-turn' },
+          { type: 'assistant', turnId: 'recorded-turn' },
+          { type: 'turn_state', turnId: 'recorded-turn' },
+        ],
+      );
+      assert.deepEqual(
+        (await store.listTurnsSnapshot(WORKHUB_COORDINATION_SESSION_ID)).map(
+          ({ turnId }) => turnId,
+        ),
+        ['recorded-turn'],
+      );
+    } finally {
+      await store.close?.();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
+
+type CoordinationExecutions = Pick<
+  RootTurnCoordinator,
+  'startWorkHubCoordinationMessage' | 'hasRootTurnAdmission'
+>;
+
+/**
+ * Stands in for the root admission ledger: answers claim their Turn identity
+ * under the same Session admission the coordinator uses, so the fake can
+ * reproduce the ordering the real ledger enforces.
+ */
+function coordinationExecutions(admission: SessionAdmissionGate) {
+  const admitted = new Set<string>();
+  const starts: Parameters<RootTurnCoordinator['startWorkHubCoordinationMessage']>[0][] = [];
+  const prepared: MessageContent[] = [];
+  const executions: CoordinationExecutions = {
+    startWorkHubCoordinationMessage: async (request) => {
+      starts.push(request);
+      return admission.run(WORKHUB_COORDINATION_SESSION_ID, async (lease) => {
+        const content = await request.prepareFreshContent(lease);
+        if (content.kind === 'rejected') return content.outcome;
+        prepared.push(content.content);
+        admitted.add(request.turnId);
+        return {
+          ok: true,
+          result: {
+            sessionId: request.sessionId,
+            turnId: request.turnId,
+            runId: `workhub-run-${request.turnId}`,
+            status: 'running',
+          },
+        };
+      });
+    },
+    hasRootTurnAdmission: async (_sessionId, turnId) => admitted.has(turnId),
+  };
+  return { executions, starts, prepared };
+}
 
 function coordinator(
   root: string,
   store: SessionAuthorityStore,
   requestDrain: () => void = () => undefined,
   resolveCreateTarget: (() => Promise<CoordinationCreateTarget>) | undefined = undefined,
-  executions: Pick<RootTurnCoordinator, 'startWorkHubCoordinationMessage'> = {
+  executions: CoordinationExecutions = {
     startWorkHubCoordinationMessage: async () => ({
       ok: false,
       error: {
@@ -485,12 +591,14 @@ function coordinator(
         message: 'WorkHub test execution is not configured',
       },
     }),
+    hasRootTurnAdmission: async () => false,
   },
+  admission: SessionAdmissionGate = new SessionAdmissionGate(),
 ) {
   return new HostWorkHubCoordinationCoordinator({
     stateRoot: root,
     stores: store,
-    admission: new SessionAdmissionGate(),
+    admission,
     continuity: { refreshCanonical: async () => undefined },
     executions,
     resolveCreateTarget:

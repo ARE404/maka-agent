@@ -197,8 +197,8 @@ export type RootMessageStartRequest =
     })
   | (RootMessageStartRequestBase & {
       readonly execution: Extract<RootMessageExecution, { kind: 'workhub_coordination' }>;
-      readonly content: MessageContent;
       readonly turnOrchestration?: undefined;
+      prepareFreshContent(lease: SessionAdmissionLease): Promise<RootMessageContentPreparation>;
     });
 
 export type RootMessageContentPreparation =
@@ -1363,6 +1363,15 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
       );
     }
     return this.startRootMessage(request, context);
+  }
+
+  /**
+   * Whether a durable root Turn already owns this identity. WorkHub also writes
+   * Coordination Turns outside this coordinator, and must not append a second
+   * triplet into a Turn this admission ledger already owns.
+   */
+  async hasRootTurnAdmission(sessionId: string, turnId: string): Promise<boolean> {
+    return (await this.stores.agentRunStore.readRootTurnAdmission(sessionId, turnId)) !== undefined;
   }
 
   private startRootMessage(
