@@ -437,8 +437,11 @@ describe('Host WorkHub Coordination coordinator', () => {
       });
       const maximumInput = {
         turnId: 'maximum-summary-turn',
-        userText: 'u'.repeat(WORKHUB_COORDINATION_TEXT_MAX_BYTES),
-        assistantText: 'a'.repeat(WORKHUB_COORDINATION_SUMMARY_MAX_BYTES),
+        // Each NUL is one UTF-8 input byte but six bytes once JSON-escaped in
+        // the durable transcript record. Retry lookup must budget for that
+        // worst case, not only the decoded text sizes.
+        userText: '\0'.repeat(WORKHUB_COORDINATION_TEXT_MAX_BYTES),
+        assistantText: '\0'.repeat(WORKHUB_COORDINATION_SUMMARY_MAX_BYTES),
       };
       assert.deepEqual(
         await workhub.handlers['workhub.coordination.record'](maximumInput, CONTEXT),

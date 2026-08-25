@@ -68,8 +68,12 @@ const COORDINATION_ORCHESTRATION_MODE = 'default' as const;
 const COORDINATION_SUMMARY_MESSAGE_KINDS = ['user', 'assistant', 'state'] as const;
 const TURN_IDENTITY_CONFLICT_MESSAGE =
   'WorkHub Coordination Turn identity belongs to a different operation';
+// A one-byte control character can occupy six bytes as a JSON `\u0000` escape.
+const JSON_ESCAPE_MAX_BYTES_PER_INPUT_BYTE = 6;
 const COORDINATION_SUMMARY_READ_MAX_BYTES =
-  WORKHUB_COORDINATION_TEXT_MAX_BYTES + WORKHUB_COORDINATION_SUMMARY_MAX_BYTES + 16 * 1024;
+  JSON_ESCAPE_MAX_BYTES_PER_INPUT_BYTE *
+    (WORKHUB_COORDINATION_TEXT_MAX_BYTES + WORKHUB_COORDINATION_SUMMARY_MAX_BYTES) +
+  16 * 1024;
 
 type CoordinationStores = Pick<
   SessionAuthorityStore,

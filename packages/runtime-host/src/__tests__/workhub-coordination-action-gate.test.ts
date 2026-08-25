@@ -360,6 +360,67 @@ describe('WorkHub Coordination Action Gate', () => {
     assert.equal(effects.submissions.at(-1)?.sessionId, 'target');
   });
 
+  test('retries target submission without stopping the source twice after an unknown outcome', async () => {
+    const effects = fakeEffects([session('source'), session('target', { statusUpdatedAt: 2 })]);
+    const gate = new WorkHubCoordinationActionGate(effects);
+    const snapshot = await gate.candidates();
+    const source = snapshot.candidates.find(({ sessionId }) => sessionId === 'source')!;
+    const target = snapshot.candidates.find(({ sessionId }) => sessionId === 'target')!;
+    const admitted = await gate.act(
+      {
+        actionId: 'source-action-before-unknown-submit',
+        userText: 'Start source work',
+        candidateSetId: snapshot.candidateSetId,
+        proposal: { disposition: 'delegate_existing', candidateRef: source.candidateRef },
+      },
+      CONTEXT,
+    );
+    assert.equal(admitted.disposition, 'delegate_existing');
+    if (admitted.disposition !== 'delegate_existing') return;
+
+    let targetAttempts = 0;
+    effects.submit = async (input) => {
+      effects.submissions.push(input);
+      if (input.sessionId === 'target' && targetAttempts++ === 0) {
+        throw new WorkHubActionEffectFailure(
+          'commit_outcome_unknown',
+          'Target submission may have committed',
+        );
+      }
+      return { turnId: `turn-${input.sessionId}` };
+    };
+    const replacement = {
+      actionId: 'replacement-with-unknown-submit',
+      userText: 'No, use target instead',
+      candidateSetId: snapshot.candidateSetId,
+      proposal: {
+        disposition: 'delegate_existing' as const,
+        candidateRef: target.candidateRef,
+        replace: {
+          candidateRef: source.candidateRef,
+          expectedTurnId: admitted.targetTurnId,
+        },
+      },
+    };
+
+    await assert.rejects(
+      gate.act(replacement, CONTEXT),
+      (error) =>
+        error instanceof WorkHubActionEffectFailure && error.code === 'commit_outcome_unknown',
+    );
+    await assert.rejects(
+      gate.act({ ...replacement, userText: 'No, use a different target instead' }, CONTEXT),
+      (error) => error instanceof WorkHubActionGateFailure && error.code === 'action_conflict',
+    );
+    const retried = await gate.act(replacement, CONTEXT);
+
+    assert.equal(retried.disposition, 'delegate_existing');
+    assert.deepEqual(effects.stops, [{ sessionId: 'source', turnId: admitted.targetTurnId }]);
+    const targetSubmissions = effects.submissions.filter(({ sessionId }) => sessionId === 'target');
+    assert.equal(targetSubmissions.length, 2);
+    assert.equal(targetSubmissions[0]?.messageId, targetSubmissions[1]?.messageId);
+  });
+
   test('serializes replacements from one source and admits only one target', async () => {
     const effects = fakeEffects([
       session('source'),

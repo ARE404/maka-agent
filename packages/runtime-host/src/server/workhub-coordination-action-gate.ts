@@ -36,6 +36,7 @@ import type { ConnectionContext } from './operation-dispatcher.js';
 
 const SIDE_CONVERSATION_LABEL = 'mode:side_conversation';
 const ACTION_REPLAY_MAX_ITEMS = 256;
+const REPLACEMENT_RECOVERY_MAX_ITEMS = ACTION_REPLAY_MAX_ITEMS;
 
 export type WorkHubActionGateSession = Pick<
   SessionHeader,
@@ -135,6 +136,14 @@ interface OwnedRoot {
   readonly actionId: string;
 }
 
+/** Host-lifetime checkpoint for the non-atomic Stop-then-submit boundary. */
+interface ReplacementRecovery {
+  readonly fingerprint: string;
+  readonly sourceSessionId: string;
+  readonly targetSessionId: string;
+  stopped: boolean;
+}
+
 /**
  * The sole admission module between a WorkHub strategy proposal and Session effects.
  *
@@ -146,6 +155,7 @@ export class WorkHubCoordinationActionGate {
   readonly #effects: WorkHubActionGateEffects;
   readonly #actions = new Map<string, ActionReplay>();
   readonly #ownedRoots = new Map<string, OwnedRoot>();
+  readonly #replacementRecoveries = new Map<string, ReplacementRecovery>();
   readonly #replacementLanes = new Map<string, Promise<void>>();
 
   constructor(effects: WorkHubActionGateEffects) {
@@ -161,6 +171,15 @@ export class WorkHubCoordinationActionGate {
     context: ConnectionContext,
   ): Promise<WorkHubCoordinationActResult> {
     const fingerprint = digest(input);
+    const recovery = this.#replacementRecoveries.get(input.actionId);
+    if (recovery && recovery.fingerprint !== fingerprint) {
+      return Promise.reject(
+        new WorkHubActionGateFailure(
+          'action_conflict',
+          'WorkHub action identity belongs to a different proposal',
+        ),
+      );
+    }
     const replay = this.#actions.get(input.actionId);
     if (replay) {
       if (replay.fingerprint !== fingerprint) {
@@ -174,7 +193,7 @@ export class WorkHubCoordinationActionGate {
       return replay.result;
     }
 
-    const result = this.#act(input, context);
+    const result = this.#act(input, context, fingerprint);
     const action = { fingerprint, result };
     this.#actions.set(input.actionId, action);
     // Successful actions remain replayable. A rejected admission does not own
@@ -192,7 +211,23 @@ export class WorkHubCoordinationActionGate {
   async #act(
     input: WorkHubCoordinationActInput,
     context: ConnectionContext,
+    fingerprint: string,
   ): Promise<WorkHubCoordinationActResult> {
+    const recovery = this.#replacementRecoveries.get(input.actionId);
+    if (recovery) {
+      if (!recovery.stopped) {
+        throw new WorkHubActionEffectFailure(
+          'host_not_ready',
+          'WorkHub replacement Stop is still settling',
+        );
+      }
+      // The destructive half already committed. Reconcile only the exact
+      // idempotent target submission; a fresh candidate snapshot must not turn
+      // a lost reply into a second Stop or strand the replacement permanently.
+      return this.#withReplacementLease(recovery.sourceSessionId, () =>
+        this.#resumeReplacement(input, recovery, context),
+      );
+    }
     const proposal = input.proposal;
     if (proposal.disposition === 'answer_here') {
       const turnId = coordinationTurnId(input.actionId, 'answer');
@@ -302,14 +337,35 @@ export class WorkHubCoordinationActionGate {
             'WorkHub cannot stop a Turn it did not admit',
           );
         }
-        await this.#effects.stop(
-          { sessionId: freshSource.sessionId, turnId: owned.turnId },
-          context,
-        );
+        if (this.#replacementRecoveries.size >= REPLACEMENT_RECOVERY_MAX_ITEMS) {
+          throw new WorkHubActionEffectFailure(
+            'host_not_ready',
+            'WorkHub replacement recovery capacity is unavailable',
+          );
+        }
+        const recovery: ReplacementRecovery = {
+          fingerprint,
+          sourceSessionId: freshSource.sessionId,
+          targetSessionId: freshTarget.sessionId,
+          stopped: false,
+        };
+        this.#replacementRecoveries.set(input.actionId, recovery);
+        try {
+          await this.#effects.stop(
+            { sessionId: freshSource.sessionId, turnId: owned.turnId },
+            context,
+          );
+          recovery.stopped = true;
+        } catch (error) {
+          if (this.#replacementRecoveries.get(input.actionId) === recovery) {
+            this.#replacementRecoveries.delete(input.actionId);
+          }
+          throw error;
+        }
         if (this.#ownedRoots.get(freshSource.sessionId) === owned) {
           this.#ownedRoots.delete(freshSource.sessionId);
         }
-        return this.#submitExisting(input, freshTarget, context);
+        return this.#resumeReplacement(input, recovery, context);
       });
     }
 
@@ -321,16 +377,36 @@ export class WorkHubCoordinationActionGate {
     target: WorkHubCoordinationCandidate,
     context: ConnectionContext,
   ): Promise<WorkHubCoordinationActResult> {
+    return this.#submitExistingSession(input, target.sessionId, context);
+  }
+
+  async #submitExistingSession(
+    input: WorkHubCoordinationActInput,
+    sessionId: string,
+    context: ConnectionContext,
+  ): Promise<WorkHubCoordinationActResult> {
     const submitted = await this.#effects.submit(
       {
-        sessionId: target.sessionId,
+        sessionId,
         messageId: actionMessageId(input.actionId),
         text: input.userText,
       },
       context,
     );
-    this.#rememberRoot(target.sessionId, input.actionId, submitted);
-    return executionResult('delegate_existing', target.sessionId, submitted);
+    this.#rememberRoot(sessionId, input.actionId, submitted);
+    return executionResult('delegate_existing', sessionId, submitted);
+  }
+
+  async #resumeReplacement(
+    input: WorkHubCoordinationActInput,
+    recovery: ReplacementRecovery,
+    context: ConnectionContext,
+  ): Promise<WorkHubCoordinationActResult> {
+    const result = await this.#submitExistingSession(input, recovery.targetSessionId, context);
+    if (this.#replacementRecoveries.get(input.actionId) === recovery) {
+      this.#replacementRecoveries.delete(input.actionId);
+    }
+    return result;
   }
 
   async #withReplacementLease<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
