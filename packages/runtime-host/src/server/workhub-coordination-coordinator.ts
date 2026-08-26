@@ -100,7 +100,7 @@ export interface HostWorkHubCoordinationCoordinatorOptions {
   readonly admission: SessionAdmissionGate;
   readonly continuity: Pick<SessionContinuityCoordinator, 'refreshCanonical'>;
   readonly executions: CoordinationExecutions;
-  readonly sessionActions: Pick<WorkHubActionGateEffects, 'create' | 'submit' | 'stop'>;
+  readonly sessionActions: Pick<WorkHubActionGateEffects, 'create' | 'submit'>;
   readonly resolveCreateTarget: () => Promise<CoordinationCreateTarget>;
   readonly requestDrain: () => void;
 }
@@ -152,7 +152,6 @@ export class HostWorkHubCoordinationCoordinator {
       },
       create: options.sessionActions.create,
       submit: options.sessionActions.submit,
-      stop: options.sessionActions.stop,
     });
   }
 

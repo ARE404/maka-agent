@@ -202,6 +202,23 @@ test('WorkHub Coordination action input is a closed disposition union', () => {
       }),
     (error) => error instanceof RuntimeHostProtocolError,
   );
+  assert.throws(
+    () =>
+      decodeWorkHubCoordinationActInput({
+        actionId: 'action-replace',
+        userText: 'No, use login instead',
+        candidateSetId: `sha256:${'e'.repeat(64)}`,
+        proposal: {
+          disposition: 'delegate_existing',
+          candidateRef: 'candidate_login',
+          replace: {
+            candidateRef: 'candidate_payments',
+            expectedTurnId: 'turn-payments',
+          },
+        },
+      }),
+    (error) => error instanceof RuntimeHostProtocolError,
+  );
   assert.equal(HOST_OPERATION_SPECS['workhub.coordination.act'].mode, 'command');
   assert.equal(REMOTE_OWNER_OPERATION_GRANTS.includes('workhub.coordination.act'), true);
 });

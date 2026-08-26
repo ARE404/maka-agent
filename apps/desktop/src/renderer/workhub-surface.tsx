@@ -46,8 +46,7 @@ export interface WorkHubConversationTurn {
 
 export type WorkHubSurfaceFailure =
   | 'candidates_changed'
-  | 'correction_expired'
-  | 'confirmation_required'
+  | 'linked_correction_unavailable'
   | 'target_waiting'
   | 'action_changed'
   | 'delivery_failed';
@@ -89,17 +88,6 @@ export function workHubSubmissionClearsDraft(
   return Boolean(result && result.kind !== 'waiting');
 }
 
-export function workHubReplacementText(input: {
-  locale: UiLocale;
-  sourceName: string;
-  targetName: string;
-  originalText: string;
-}): string {
-  return input.locale === 'zh'
-    ? `不是原目标，改成“${input.targetName}”：${input.originalText}（原目标：“${input.sourceName}”）`
-    : `Not the previous target; use “${input.targetName}” instead: ${input.originalText} (previous target: “${input.sourceName}”)`;
-}
-
 export function workHubSurfaceFailure(error: unknown): WorkHubSurfaceFailure {
   const message = error instanceof Error ? error.message : '';
   if (
@@ -109,23 +97,14 @@ export function workHubSurfaceFailure(error: unknown): WorkHubSurfaceFailure {
   ) {
     return 'candidates_changed';
   }
-  if (/cannot stop a Turn it did not admit|source is outside/iu.test(message)) {
-    return 'correction_expired';
-  }
-  if (/explicit user correction|requires an exact owned Turn/iu.test(message)) {
-    return 'confirmation_required';
+  if (/linked correction requires persistent delegation support/iu.test(message)) {
+    return 'linked_correction_unavailable';
   }
   if (/waiting for user input/iu.test(message)) return 'target_waiting';
-  if (/identity belongs to a different proposal|replacement target did not change/iu.test(message)) {
+  if (/identity belongs to a different proposal/iu.test(message)) {
     return 'action_changed';
   }
   return 'delivery_failed';
-}
-
-export function workHubSubmissionCanCorrect(
-  result: WorkHubSubmission,
-): result is Extract<WorkHubSubmission, { kind: 'submitted' }> {
-  return result.kind === 'submitted' && !result.steered;
 }
 
 export function visibleWorkHubConversation(
@@ -375,29 +354,6 @@ export function WorkHubSurface(props: {
                           : {}),
                       }, turn.requestId, copy.choseWork(selected?.sessionName ?? copy.sessionFallback));
                     }}
-                    onCorrect={(from, target) => {
-                      const selected = projection.sessions.find(
-                        (session) => session.target.sessionId === target.sessionId,
-                      );
-                      const source = projection.sessions.find(
-                        (session) => session.target.sessionId === from.target.sessionId,
-                      );
-                      void route({
-                        requestId: crypto.randomUUID(),
-                        text: workHubReplacementText({
-                          locale: props.locale,
-                          sourceName: source?.sessionName ?? copy.sessionFallback,
-                          targetName: selected?.sessionName ?? copy.sessionFallback,
-                          originalText: turn.text,
-                        }),
-                        explicitTarget: target,
-                        correction: {
-                          from: from.target,
-                          turnId: from.turnId,
-                          ...(from.steered ? { steered: true } : {}),
-                        },
-                      }, turn.requestId, copy.correctedWork(selected?.sessionName ?? copy.sessionFallback));
-                    }}
                     onOpenSession={props.onOpenSession}
                   />
                 ))}
@@ -540,10 +496,6 @@ function WorkHubTurnView(props: {
   copy: ReturnType<typeof workHubCopy>;
   pending: boolean;
   onChoose(target: { sessionId: string }): void;
-  onCorrect(
-    from: Extract<WorkHubSubmission, { kind: 'submitted' }>,
-    target: { sessionId: string },
-  ): void;
   onOpenSession(sessionId: string): void;
 }) {
   const { turn, copy } = props;
@@ -593,12 +545,6 @@ function WorkHubTurnView(props: {
           ) : submitted ? (
             <SubmittedWorkView
               session={target}
-              correctedFrom={submitted.correctedFrom
-                ? props.projection.sessions.find(
-                    (session) =>
-                      session.target.sessionId === submitted.correctedFrom?.sessionId,
-                  )
-                : undefined}
               targetSessionId={submitted.target.sessionId}
               heading={copy.sentTo}
               state={target
@@ -606,15 +552,6 @@ function WorkHubTurnView(props: {
                 : copy.accepted}
               result={target?.latestResult}
               copy={copy}
-              correctionOptions={workHubSubmissionCanCorrect(submitted)
-                ? props.projection.sessions.filter(
-                    (session) =>
-                      !session.archived &&
-                      session.target.sessionId !== submitted.target.sessionId,
-                  )
-                : []}
-              pending={props.pending}
-              onCorrect={(target) => props.onCorrect(submitted, target)}
               onOpenSession={props.onOpenSession}
             />
           ) : null}
@@ -649,15 +586,11 @@ function WorkHubMessageFrame(props: {
 
 function SubmittedWorkView(props: {
   session: WorkHubSessionSummary | undefined;
-  correctedFrom: WorkHubSessionSummary | undefined;
   targetSessionId: string;
   heading: string;
   state: string;
   result: string | undefined;
   copy: ReturnType<typeof workHubCopy>;
-  correctionOptions: WorkHubSessionSummary[];
-  pending: boolean;
-  onCorrect?(target: { sessionId: string }): void;
   onOpenSession(sessionId: string): void;
 }) {
   const { session, copy } = props;
@@ -675,33 +608,7 @@ function SubmittedWorkView(props: {
           {session?.projectName ? <small>{session.projectName}</small> : null}
         </span>
       </Button>
-      {props.correctedFrom ? (
-        <small className="workhub-correction-note">
-          {copy.correctedFrom(props.correctedFrom.sessionName)}
-        </small>
-      ) : null}
       {props.result ? <p className="workhub-result">{props.result}</p> : null}
-      {props.correctionOptions.length > 0 ? (
-        <details className="workhub-correction">
-          <summary>{copy.correctTarget}</summary>
-          <div>
-            {props.correctionOptions.map((option) => (
-              <Button
-                key={option.target.sessionId}
-                label={`${option.sessionName}, ${option.projectName}`}
-                variant="ghost"
-                width="100%"
-                isDisabled={props.pending}
-                onClick={() => props.onCorrect?.(option.target)}
-                endContent={
-                  <small className="workhub-option-project">{option.projectName}</small>
-                }>
-                <strong>{option.sessionName}</strong>
-              </Button>
-            ))}
-          </div>
-        </details>
-      ) : null}
     </div>
   );
 }
@@ -721,10 +628,7 @@ function workHubCopy(locale: UiLocale) {
       discussionHint: '提出明确的执行目标后，我会把它交给对应的 Session。',
       answering: '正在回答…',
       choseWork: (name: string) => `选择“${name}”`,
-      correctedWork: (name: string) => `更正目标为“${name}”`,
       sentTo: '已交给：', accepted: '已接收', sessionFallback: '普通 Session',
-      correctTarget: '更正目标',
-      correctedFrom: (name: string) => `已从“${name}”更正`,
       waitingForDecision: '这项工作正在等待你的决定。',
       requestNotSent: '新请求尚未发送；处理原 Session 中的交互后可以再次发送。',
       routing: '正在判断应该交给哪个 Session…', loadFailed: '无法读取已有工作。',
@@ -735,8 +639,7 @@ function workHubCopy(locale: UiLocale) {
       retry: '重试',
       submitFailures: {
         candidates_changed: '工作列表已变化，请重新发送以使用最新目标。',
-        correction_expired: '原目标已无法安全更正，请重新选择目标后发送。',
-        confirmation_required: '请明确说明停止原目标并改交给哪个 Session。',
+        linked_correction_unavailable: '跨 Session 更正将在持久委托关联完成后开放；请先打开原 Session 停止当前工作。',
         target_waiting: '目标 Session 正在等待你的处理；请先打开并完成该交互。',
         action_changed: '这次操作已发生变化，请重新发送。',
         delivery_failed: '输入未能送达，请重试。',
@@ -758,10 +661,7 @@ function workHubCopy(locale: UiLocale) {
     discussionHint: 'State an executable goal and I will hand it to the owning Session.',
     answering: 'Answering…',
     choseWork: (name: string) => `Choose “${name}”`,
-    correctedWork: (name: string) => `Correct the target to “${name}”`,
     sentTo: 'Sent to:', accepted: 'Accepted', sessionFallback: 'Ordinary Session',
-    correctTarget: 'Correct target',
-    correctedFrom: (name: string) => `Corrected from “${name}”`,
     waitingForDecision: 'This work is waiting for your decision.',
     requestNotSent: 'The new request was not sent. Resolve the interaction in its Session, then send again.',
     routing: 'Choosing the right Session…', loadFailed: 'Could not read existing work.',
@@ -772,8 +672,7 @@ function workHubCopy(locale: UiLocale) {
     retry: 'Retry',
     submitFailures: {
       candidates_changed: 'The work list changed. Send again to use the latest targets.',
-      correction_expired: 'The previous target can no longer be corrected safely. Choose a target again.',
-      confirmation_required: 'Explicitly say to stop the previous target and name its replacement.',
+      linked_correction_unavailable: 'Cross-Session correction will be available with persistent delegation. Open the original Session to stop its current work first.',
       target_waiting: 'The target Session needs your input. Open it and resolve that interaction first.',
       action_changed: 'This action changed. Send it again.',
       delivery_failed: 'The input could not be delivered. Try again.',

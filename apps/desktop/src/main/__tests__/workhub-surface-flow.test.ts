@@ -28,9 +28,7 @@ import {
   WorkHubSurfaceRouteGate,
   submitWorkHubSurfaceInput,
   visibleWorkHubConversation,
-  workHubReplacementText,
   workHubSurfaceFailure,
-  workHubSubmissionCanCorrect,
   workHubSubmissionClearsDraft,
 } from '../../renderer/workhub-surface.js';
 import {
@@ -44,40 +42,6 @@ import {
   type WorkHubDesktopSession,
 } from '../../renderer/workhub-session-port.js';
 
-test('correction clicks produce explicit replacement intent in both locales', () => {
-  assert.equal(
-    workHubReplacementText({
-      locale: 'zh',
-      sourceName: '支付',
-      targetName: '登录',
-      originalText: '补上重试逻辑',
-    }),
-    '不是原目标，改成“登录”：补上重试逻辑（原目标：“支付”）',
-  );
-  assert.equal(
-    workHubReplacementText({
-      locale: 'en',
-      sourceName: 'Payments',
-      targetName: 'Login',
-      originalText: 'Add the retry logic',
-    }),
-    'Not the previous target; use “Login” instead: Add the retry logic (previous target: “Payments”)',
-  );
-});
-
-test('replacement intent keywords stay adjacent when a Session name is long', () => {
-  const sourceName = 'Source'.repeat(100);
-  const text = workHubReplacementText({
-    locale: 'en',
-    sourceName,
-    targetName: 'Login',
-    originalText: 'Add the retry logic',
-  });
-
-  assert.match(text, /^Not the previous target; use /u);
-  assert.match(text, new RegExp(sourceName, 'u'));
-});
-
 test('surface turns Action Gate rejections into safe actionable failures', () => {
   assert.equal(
     workHubSurfaceFailure(
@@ -86,14 +50,10 @@ test('surface turns Action Gate rejections into safe actionable failures', () =>
     'candidates_changed',
   );
   assert.equal(
-    workHubSurfaceFailure(new Error('WorkHub cannot stop a Turn it did not admit')),
-    'correction_expired',
-  );
-  assert.equal(
     workHubSurfaceFailure(
-      new Error('Stopping and rerouting work requires an explicit user correction'),
+      new Error('WorkHub linked correction requires persistent delegation support'),
     ),
-    'confirmation_required',
+    'linked_correction_unavailable',
   );
   assert.equal(
     workHubSurfaceFailure(new Error('Target Session is waiting for user input')),
@@ -169,20 +129,6 @@ test('surface keeps the Composer draft when routing fails or the target is waiti
     requestId: 'discussion',
     text: '先讨论方向',
   }), true);
-});
-
-test('surface disables correction after a request was steered into existing work', () => {
-  const submission = {
-    kind: 'submitted' as const,
-    strategyId: WORKHUB_ROUTING_STRATEGY_ID,
-    requestId: 'steered',
-    target: { sessionId: 'payment' },
-    turnId: 'turn-existing',
-    evidence: 'explicit_target' as const,
-  };
-
-  assert.equal(workHubSubmissionCanCorrect(submission), true);
-  assert.equal(workHubSubmissionCanCorrect({ ...submission, steered: true }), false);
 });
 
 test('surface replaces a local discussion placeholder with its durable model answer', () => {

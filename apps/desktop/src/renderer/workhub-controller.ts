@@ -275,10 +275,6 @@ function createWorkHubControllerImplementation(deps: {
   const confirmedOwnershipBySessionId = new Map<string, WorkHubRootOwnership>();
   const pendingAdmissionsBySessionId = new Map<string, WorkHubPendingAdmission[]>();
   const ownershipTombstoneBySessionId = new Map<string, WorkHubOwnershipTombstone>();
-  // This is a bounded, non-authoritative receipt used only to name the Turn
-  // in a later natural-language correction. Runtime Host remains authoritative
-  // and revalidates the exact root before Stop.
-  const gatedRootReceiptBySessionId = new Map<string, WorkHubRootOwnership>();
   const stopAttemptByTurn = new Map<string, Promise<void>>();
   const stopOperationCountBySessionId = new Map<string, number>();
   let ownershipRevision = 0;
@@ -292,44 +288,14 @@ function createWorkHubControllerImplementation(deps: {
       .map((session) => session.target));
   };
   const correctionFor = (from: WorkHubSessionTarget): WorkHubCorrectionContext => {
-    const gated = deps.coordination
-      ? gatedRootReceiptBySessionId.get(from.sessionId)
-      : undefined;
     const confirmed = confirmedOwnershipBySessionId.get(from.sessionId);
     const pending = pendingAdmissionsBySessionId.get(from.sessionId);
-    const turnId = gated?.turnId ?? confirmed?.turnId ?? pending?.at(-1)?.turnId;
+    const turnId = confirmed?.turnId ?? pending?.at(-1)?.turnId;
     if (!turnId) return { from };
     return {
       from,
       turnId,
     };
-  };
-  const rememberGatedAdmission = (
-    target: WorkHubSessionTarget,
-    admitted: { turnId: string; steered?: true },
-    order: number,
-    correction?: WorkHubCorrectionContext,
-  ) => {
-    if (correction) {
-      const sourceReceipt = gatedRootReceiptBySessionId.get(correction.from.sessionId);
-      if (sourceReceipt?.turnId === correction.turnId) {
-        gatedRootReceiptBySessionId.delete(correction.from.sessionId);
-      }
-    }
-    // Steering joins an already-running root. The Action Gate deliberately
-    // preserves any earlier root it admitted for that Session, so the
-    // renderer's bounded correction receipt must do the same.
-    if (admitted.steered) return;
-    gatedRootReceiptBySessionId.set(target.sessionId, {
-      order,
-      turnId: admitted.turnId,
-    });
-    while (gatedRootReceiptBySessionId.size > MAX_TRACKED_WORKHUB_ROOTS) {
-      const oldest = [...gatedRootReceiptBySessionId.entries()]
-        .sort((left, right) => left[1].order - right[1].order)[0];
-      if (!oldest) return;
-      gatedRootReceiptBySessionId.delete(oldest[0]);
-    }
   };
   const pendingAdmissions = (sessionId: string): WorkHubPendingAdmission[] =>
     pendingAdmissionsBySessionId.get(sessionId) ?? [];
@@ -707,6 +673,11 @@ function createWorkHubControllerImplementation(deps: {
       // learned only after successful delivery, but their precedence follows
       // user submission order rather than network completion order.
       const submissionOrder = submissionPolicy.reserveSubmissionOrder();
+      if (deps.coordination && input.correction) {
+        throw new Error(
+          'WorkHub linked correction requires persistent delegation support',
+        );
+      }
       const { catalog, allowAuthoritativePruning } =
         await readCatalog();
       reconcileConfirmedOwnership(catalog, allowAuthoritativePruning);
@@ -744,6 +715,11 @@ function createWorkHubControllerImplementation(deps: {
         ...(input.explicitTarget ? { explicitTarget: input.explicitTarget } : {}),
       });
       if (decision.kind === 'clarification') {
+        if (deps.coordination && decision.correctedFrom) {
+          throw new Error(
+            'WorkHub linked correction requires persistent delegation support',
+          );
+        }
         const correction = decision.correctedFrom
           ? correctionFor(decision.correctedFrom)
           : undefined;
@@ -785,6 +761,11 @@ function createWorkHubControllerImplementation(deps: {
       const correction = input.correction ?? (decision.kind === 'target' && decision.correctedFrom
         ? correctionFor(decision.correctedFrom)
         : undefined);
+      if (deps.coordination && correction) {
+        throw new Error(
+          'WorkHub linked correction requires persistent delegation support',
+        );
+      }
       if (candidateSet && decision.kind === 'new_session') {
         const admitted = await coordination.act({
           actionId: input.requestId,
@@ -798,11 +779,6 @@ function createWorkHubControllerImplementation(deps: {
           throw new Error('WorkHub Action Gate returned an unexpected disposition');
         }
         target = { sessionId: admitted.targetSessionId };
-        rememberGatedAdmission(
-          target,
-          { turnId: admitted.targetTurnId, ...(admitted.steered ? { steered: true } : {}) },
-          submissionOrder,
-        );
         submissionPolicy.rememberTarget(target);
         return {
           kind: 'submitted',
@@ -845,23 +821,6 @@ function createWorkHubControllerImplementation(deps: {
         if (!candidate) {
           throw new Error('WorkHub target Session is unavailable');
         }
-        let replace: { candidateRef: string; expectedTurnId: string } | undefined;
-        if (correction) {
-          if (correction.steered) {
-            throw new Error('WorkHub cannot replace a steered Turn');
-          }
-          if (!correction.turnId) {
-            throw new Error('WorkHub correction requires an exact owned Turn');
-          }
-          const replacedCandidate = candidateBySessionId.get(correction.from.sessionId);
-          if (!replacedCandidate) {
-            throw new Error('WorkHub correction source is outside the admitted candidate set');
-          }
-          replace = {
-            candidateRef: replacedCandidate.candidateRef,
-            expectedTurnId: correction.turnId,
-          };
-        }
         const action: WorkHubCoordinationActInput = {
           actionId: input.requestId,
           userText: input.text,
@@ -869,7 +828,6 @@ function createWorkHubControllerImplementation(deps: {
           proposal: {
             disposition: 'delegate_existing',
             candidateRef: candidate.candidateRef,
-            ...(replace ? { replace } : {}),
           },
         };
         const admitted = await coordination.act(action);
@@ -877,16 +835,7 @@ function createWorkHubControllerImplementation(deps: {
           throw new Error('WorkHub Action Gate returned an unexpected disposition');
         }
         target = { sessionId: admitted.targetSessionId };
-        rememberGatedAdmission(
-          target,
-          { turnId: admitted.targetTurnId, ...(admitted.steered ? { steered: true } : {}) },
-          submissionOrder,
-          correction,
-        );
         submissionPolicy.rememberTarget(target);
-        if (correction) {
-          submissionPolicy.rememberCorrection(input.text, target, submissionOrder);
-        }
         return {
           kind: 'submitted',
           strategyId: WORKHUB_ROUTING_STRATEGY_ID,
@@ -895,7 +844,6 @@ function createWorkHubControllerImplementation(deps: {
           turnId: admitted.targetTurnId,
           ...(admitted.steered ? { steered: true as const } : {}),
           evidence,
-          ...(correction ? { correctedFrom: correction.from } : {}),
         };
       }
       if (correction) {

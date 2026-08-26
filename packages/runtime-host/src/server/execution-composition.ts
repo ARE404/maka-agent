@@ -1268,23 +1268,6 @@ export async function createExecutionRuntimeHostComposition(
             ? { turnId: outcome.result.turnId }
             : { turnId: input.messageId, steered: true as const };
         },
-        stop: async (input, connection) => {
-          const observed = await turnControl.handlers['turn.query'](input, connection);
-          if (!observed.ok) {
-            throw new WorkHubActionEffectFailure(observed.error.code, observed.error.message);
-          }
-          const stopped = await turnControl.handlers['turn.stop'](
-            {
-              sessionId: input.sessionId,
-              turnId: input.turnId,
-              runId: observed.result.runId,
-            },
-            connection,
-          );
-          if (!stopped.ok) {
-            throw new WorkHubActionEffectFailure(stopped.error.code, stopped.error.message);
-          }
-        },
       },
       resolveCreateTarget: async () => {
         const { projectId: _projectId, ...target } =

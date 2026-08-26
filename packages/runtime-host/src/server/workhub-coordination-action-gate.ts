@@ -36,8 +36,6 @@ import type { ConnectionContext } from './operation-dispatcher.js';
 
 const SIDE_CONVERSATION_LABEL = 'mode:side_conversation';
 const ACTION_REPLAY_MAX_ITEMS = 256;
-const REPLACEMENT_RECOVERY_MAX_ITEMS = ACTION_REPLAY_MAX_ITEMS;
-const REPLACEMENT_RECOVERY_TTL_MS = 5 * 60 * 1000;
 
 export type WorkHubActionGateSession = Pick<
   SessionHeader,
@@ -79,10 +77,6 @@ export interface WorkHubActionGateEffects {
     },
     context: ConnectionContext,
   ): Promise<{ readonly turnId: string; readonly steered?: true }>;
-  stop(
-    input: { readonly sessionId: string; readonly turnId: string },
-    context: ConnectionContext,
-  ): Promise<void>;
 }
 
 export type WorkHubActionEffectFailureCode =
@@ -113,8 +107,6 @@ export type WorkHubActionGateFailureCode =
   | 'candidate_unavailable'
   | 'target_waiting_for_user'
   | 'self_route'
-  | 'confirmation_required'
-  | 'stop_not_owned'
   | 'action_conflict';
 
 export class WorkHubActionGateFailure extends Error {
@@ -132,20 +124,6 @@ interface ActionReplay {
   readonly result: Promise<WorkHubCoordinationActResult>;
 }
 
-interface OwnedRoot {
-  readonly turnId: string;
-  readonly actionId: string;
-}
-
-/** Host-lifetime checkpoint for the non-atomic Stop-then-submit boundary. */
-interface ReplacementRecovery {
-  readonly fingerprint: string;
-  readonly sourceSessionId: string;
-  readonly targetSessionId: string;
-  state: 'stopping' | 'submitting' | 'uncertain';
-  expiresAt: number;
-}
-
 /**
  * The sole admission module between a WorkHub strategy proposal and Session effects.
  *
@@ -155,15 +133,10 @@ interface ReplacementRecovery {
  */
 export class WorkHubCoordinationActionGate {
   readonly #effects: WorkHubActionGateEffects;
-  readonly #now: () => number;
   readonly #actions = new Map<string, ActionReplay>();
-  readonly #ownedRoots = new Map<string, OwnedRoot>();
-  readonly #replacementRecoveries = new Map<string, ReplacementRecovery>();
-  readonly #replacementLanes = new Map<string, Promise<void>>();
 
-  constructor(effects: WorkHubActionGateEffects, options: { readonly now?: () => number } = {}) {
+  constructor(effects: WorkHubActionGateEffects) {
     this.#effects = effects;
-    this.#now = options.now ?? Date.now;
   }
 
   async candidates(): Promise<WorkHubCoordinationCandidatesResult> {
@@ -174,17 +147,7 @@ export class WorkHubCoordinationActionGate {
     input: WorkHubCoordinationActInput,
     context: ConnectionContext,
   ): Promise<WorkHubCoordinationActResult> {
-    this.#pruneExpiredRecoveries();
     const fingerprint = digest(input);
-    const recovery = this.#replacementRecoveries.get(input.actionId);
-    if (recovery && recovery.fingerprint !== fingerprint) {
-      return Promise.reject(
-        new WorkHubActionGateFailure(
-          'action_conflict',
-          'WorkHub action identity belongs to a different proposal',
-        ),
-      );
-    }
     const replay = this.#actions.get(input.actionId);
     if (replay) {
       if (replay.fingerprint !== fingerprint) {
@@ -198,7 +161,7 @@ export class WorkHubCoordinationActionGate {
       return replay.result;
     }
 
-    const result = this.#act(input, context, fingerprint);
+    const result = this.#act(input, context);
     const action = { fingerprint, result };
     this.#actions.set(input.actionId, action);
     // Successful actions remain replayable. A rejected admission does not own
@@ -216,23 +179,7 @@ export class WorkHubCoordinationActionGate {
   async #act(
     input: WorkHubCoordinationActInput,
     context: ConnectionContext,
-    fingerprint: string,
   ): Promise<WorkHubCoordinationActResult> {
-    const recovery = this.#replacementRecoveries.get(input.actionId);
-    if (recovery) {
-      if (recovery.state !== 'uncertain') {
-        throw new WorkHubActionEffectFailure(
-          'host_not_ready',
-          'WorkHub replacement is still settling',
-        );
-      }
-      // The destructive half already committed. Reconcile only the exact
-      // idempotent target submission; a fresh candidate snapshot must not turn
-      // a lost reply into a second Stop or strand the replacement permanently.
-      return this.#withReplacementLease(recovery.sourceSessionId, () =>
-        this.#resumeReplacement(input, recovery, context),
-      );
-    }
     const proposal = input.proposal;
     if (proposal.disposition === 'answer_here') {
       const turnId = coordinationTurnId(input.actionId, 'answer');
@@ -269,7 +216,6 @@ export class WorkHubCoordinationActionGate {
         },
         context,
       );
-      this.#rememberRoot(sessionId, input.actionId, submitted);
       return executionResult('create_new', sessionId, submitted);
     }
 
@@ -291,90 +237,6 @@ export class WorkHubCoordinationActionGate {
     }
     this.#assertTarget(target);
 
-    if (proposal.replace) {
-      if (!hasExplicitReplacementIntent(input.userText)) {
-        throw new WorkHubActionGateFailure(
-          'confirmation_required',
-          'Stopping and rerouting work requires an explicit user correction naming the replacement',
-        );
-      }
-      const replaced = candidates.candidates.find(
-        (candidate) => candidate.candidateRef === proposal.replace?.candidateRef,
-      );
-      if (!replaced) {
-        throw new WorkHubActionGateFailure(
-          'candidate_unavailable',
-          'WorkHub replacement source is not in the admitted candidate set',
-        );
-      }
-      if (replaced.sessionId === target.sessionId) {
-        throw new WorkHubActionGateFailure(
-          'action_conflict',
-          'WorkHub replacement target did not change',
-        );
-      }
-      const replacement = proposal.replace;
-      return this.#withReplacementLease(replaced.sessionId, async () => {
-        const freshCandidates = await this.candidates();
-        if (freshCandidates.candidateSetId !== input.candidateSetId) {
-          throw new WorkHubActionGateFailure(
-            'candidate_set_stale',
-            'WorkHub Session candidates changed; refresh before delegating',
-          );
-        }
-        const freshTarget = freshCandidates.candidates.find(
-          (candidate) => candidate.candidateRef === proposal.candidateRef,
-        );
-        const freshSource = freshCandidates.candidates.find(
-          (candidate) => candidate.candidateRef === replacement.candidateRef,
-        );
-        if (!freshTarget || !freshSource) {
-          throw new WorkHubActionGateFailure(
-            'candidate_unavailable',
-            'WorkHub replacement source or target is not in the admitted candidate set',
-          );
-        }
-        this.#assertTarget(freshTarget);
-        const owned = this.#ownedRoots.get(freshSource.sessionId);
-        if (!owned || owned.turnId !== replacement.expectedTurnId) {
-          throw new WorkHubActionGateFailure(
-            'stop_not_owned',
-            'WorkHub cannot stop a Turn it did not admit',
-          );
-        }
-        this.#pruneExpiredRecoveries();
-        if (this.#replacementRecoveries.size >= REPLACEMENT_RECOVERY_MAX_ITEMS) {
-          throw new WorkHubActionEffectFailure(
-            'host_not_ready',
-            'WorkHub replacement recovery capacity is unavailable',
-          );
-        }
-        const recovery: ReplacementRecovery = {
-          fingerprint,
-          sourceSessionId: freshSource.sessionId,
-          targetSessionId: freshTarget.sessionId,
-          state: 'stopping',
-          expiresAt: 0,
-        };
-        this.#replacementRecoveries.set(input.actionId, recovery);
-        try {
-          await this.#effects.stop(
-            { sessionId: freshSource.sessionId, turnId: owned.turnId },
-            context,
-          );
-        } catch (error) {
-          if (this.#replacementRecoveries.get(input.actionId) === recovery) {
-            this.#replacementRecoveries.delete(input.actionId);
-          }
-          throw error;
-        }
-        if (this.#ownedRoots.get(freshSource.sessionId) === owned) {
-          this.#ownedRoots.delete(freshSource.sessionId);
-        }
-        return this.#resumeReplacement(input, recovery, context);
-      });
-    }
-
     return this.#submitExisting(input, target, context);
   }
 
@@ -383,80 +245,15 @@ export class WorkHubCoordinationActionGate {
     target: WorkHubCoordinationCandidate,
     context: ConnectionContext,
   ): Promise<WorkHubCoordinationActResult> {
-    return this.#submitExistingSession(input, target.sessionId, context);
-  }
-
-  async #submitExistingSession(
-    input: WorkHubCoordinationActInput,
-    sessionId: string,
-    context: ConnectionContext,
-  ): Promise<WorkHubCoordinationActResult> {
     const submitted = await this.#effects.submit(
       {
-        sessionId,
+        sessionId: target.sessionId,
         messageId: actionMessageId(input.actionId),
         text: input.userText,
       },
       context,
     );
-    this.#rememberRoot(sessionId, input.actionId, submitted);
-    return executionResult('delegate_existing', sessionId, submitted);
-  }
-
-  async #resumeReplacement(
-    input: WorkHubCoordinationActInput,
-    recovery: ReplacementRecovery,
-    context: ConnectionContext,
-  ): Promise<WorkHubCoordinationActResult> {
-    recovery.state = 'submitting';
-    try {
-      const result = await this.#submitExistingSession(input, recovery.targetSessionId, context);
-      if (this.#replacementRecoveries.get(input.actionId) === recovery) {
-        this.#replacementRecoveries.delete(input.actionId);
-      }
-      return result;
-    } catch (error) {
-      if (this.#replacementRecoveries.get(input.actionId) === recovery) {
-        if (
-          error instanceof WorkHubActionEffectFailure &&
-          error.code === 'commit_outcome_unknown'
-        ) {
-          recovery.state = 'uncertain';
-          recovery.expiresAt = this.#now() + REPLACEMENT_RECOVERY_TTL_MS;
-        } else {
-          this.#replacementRecoveries.delete(input.actionId);
-        }
-      }
-      throw error;
-    }
-  }
-
-  #pruneExpiredRecoveries(): void {
-    const now = this.#now();
-    for (const [actionId, recovery] of this.#replacementRecoveries) {
-      if (recovery.state === 'uncertain' && recovery.expiresAt <= now) {
-        this.#replacementRecoveries.delete(actionId);
-      }
-    }
-  }
-
-  async #withReplacementLease<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
-    const predecessor = this.#replacementLanes.get(sessionId) ?? Promise.resolve();
-    let release!: () => void;
-    const ownership = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const tail = predecessor.then(() => ownership);
-    this.#replacementLanes.set(sessionId, tail);
-    await predecessor;
-    try {
-      return await action();
-    } finally {
-      release();
-      if (this.#replacementLanes.get(sessionId) === tail) {
-        this.#replacementLanes.delete(sessionId);
-      }
-    }
+    return executionResult('delegate_existing', target.sessionId, submitted);
   }
 
   #assertTarget(target: WorkHubCoordinationCandidate): void {
@@ -469,15 +266,6 @@ export class WorkHubCoordinationActionGate {
         'Target Session is waiting for user input',
       );
     }
-  }
-
-  #rememberRoot(
-    sessionId: string,
-    actionId: string,
-    submitted: { readonly turnId: string; readonly steered?: true },
-  ): void {
-    if (submitted.steered) return;
-    this.#ownedRoots.set(sessionId, { turnId: submitted.turnId, actionId });
   }
 
   #boundReplays(): void {
@@ -538,29 +326,6 @@ function coordinationTurnId(actionId: string, kind: 'answer' | 'clarify'): strin
 
 function actionMessageId(actionId: string): string {
   return `whm_${hash(actionId).slice(0, 48)}`;
-}
-
-/**
- * Replacement is the only Slice 4 coordination action that interrupts an
- * admitted effect. Confirmation therefore comes from the exact user message,
- * never from strategy output: the message must both reject/stop the old route
- * and explicitly direct work toward a replacement.
- */
-function hasExplicitReplacementIntent(userText: string): boolean {
-  const chineseCorrection =
-    /(?:不是|不对|搞错了?|弄错了?|错了|不要再继续)[^\n]{0,96}(?:而是|改成|改为|换成|换到|切到|转到|改派|改交|交给|用)/iu;
-  const chineseStopAndReroute =
-    /(?:停止|停掉|中止|取消)[^\n]{0,96}(?:改成|改为|换成|换到|切到|转到|改派|改交|交给|用)/iu;
-  const englishCorrection =
-    /\b(?:no|not|wrong|mistake)\b[^\n]{0,96}\b(?:instead|use|switch\s+to|change\s+to|move\s+to|route\s+to|send\s+to)\b/iu;
-  const englishStopAndReroute =
-    /\b(?:stop|cancel|abort)\b[^\n]{0,96}\b(?:use|switch\s+to|change\s+to|move\s+to|delegate\s+to|route\s+to|send\s+to)\b/iu;
-  return (
-    chineseCorrection.test(userText) ||
-    chineseStopAndReroute.test(userText) ||
-    englishCorrection.test(userText) ||
-    englishStopAndReroute.test(userText)
-  );
 }
 
 function workHubCreatedSessionId(actionId: string): string {

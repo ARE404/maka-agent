@@ -123,10 +123,6 @@ export type WorkHubCoordinationProposal =
   | {
       readonly disposition: 'delegate_existing';
       readonly candidateRef: string;
-      readonly replace?: {
-        readonly candidateRef: string;
-        readonly expectedTurnId: string;
-      };
     }
   | { readonly disposition: 'create_new'; readonly title: string };
 
@@ -410,16 +406,13 @@ function decodeWorkHubCoordinationProposal(value: unknown): WorkHubCoordinationP
     };
   }
   if (proposal.disposition === 'delegate_existing') {
-    const exact = requireShapedRecord(
-      proposal,
-      'WorkHub delegation proposal',
-      ['disposition', 'candidateRef'],
-      ['replace'],
-    );
+    const exact = requireExactRecord(proposal, 'WorkHub delegation proposal', [
+      'disposition',
+      'candidateRef',
+    ]);
     return {
       disposition: 'delegate_existing',
       candidateRef: requireEntityId(exact.candidateRef, 'WorkHub candidate ref'),
-      ...(exact.replace === undefined ? {} : { replace: decodeWorkHubReplacement(exact.replace) }),
     };
   }
   if (proposal.disposition === 'create_new') {
@@ -433,20 +426,6 @@ function decodeWorkHubCoordinationProposal(value: unknown): WorkHubCoordinationP
     };
   }
   throw invalidProtocolFrame('Invalid WorkHub Coordination proposal disposition');
-}
-
-function decodeWorkHubReplacement(value: unknown): {
-  readonly candidateRef: string;
-  readonly expectedTurnId: string;
-} {
-  const replace = requireExactRecord(value, 'WorkHub replacement', [
-    'candidateRef',
-    'expectedTurnId',
-  ]);
-  return {
-    candidateRef: requireEntityId(replace.candidateRef, 'WorkHub replacement candidate ref'),
-    expectedTurnId: requireEntityId(replace.expectedTurnId, 'WorkHub expected Turn id'),
-  };
 }
 
 function decodeWorkHubCoordinationCreateContext(value: unknown): WorkHubCoordinationCreateContext {

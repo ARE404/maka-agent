@@ -20,7 +20,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
-import type { WorkHubCoordinationActInput } from '@maka/runtime-host/protocol';
 import {
   createLegacyWorkHubControllerForTests as createWorkHubController,
   createWorkHubController as createGatedWorkHubController,
@@ -2470,7 +2469,7 @@ test('production submission delegates only through the Runtime-owned candidate r
   }]);
 });
 
-test('production corrections fail closed instead of dropping an incomplete replacement', async () => {
+test('production defers destructive correction until persistent delegation exists', async () => {
   const actions: unknown[] = [];
   const sessions = port([session('source'), session('target')]);
   const controller = createGatedWorkHubController({
@@ -2515,27 +2514,18 @@ test('production corrections fail closed instead of dropping an incomplete repla
 
   await assert.rejects(
     controller.submit({
-      requestId: 'missing-turn',
+      requestId: 'deferred-correction',
       text: 'No, use target instead',
       explicitTarget: { sessionId: 'target' },
-      correction: { from: { sessionId: 'source' } },
+      correction: { from: { sessionId: 'source' }, turnId: 'source-turn' },
     }),
-    /requires an exact owned Turn/u,
-  );
-  await assert.rejects(
-    controller.submit({
-      requestId: 'missing-source',
-      text: 'No, use target instead',
-      explicitTarget: { sessionId: 'target' },
-      correction: { from: { sessionId: 'outside' }, turnId: 'source-turn' },
-    }),
-    /source is outside the admitted candidate set/u,
+    /linked correction requires persistent delegation support/u,
   );
   assert.deepEqual(actions, []);
 });
 
-test('production natural-language correction carries the Runtime-admitted source Turn', async () => {
-  const actions: WorkHubCoordinationActInput[] = [];
+test('production natural-language correction fails closed before a second delegation', async () => {
+  const actions: unknown[] = [];
   const sessions = port([
     session('login', {
       sessionName: '登录稳定性',
@@ -2601,25 +2591,23 @@ test('production natural-language correction carries the Runtime-admitted source
     text: '继续这个工作，补充验收项',
   });
 
-  const corrected = await controller.submit({
-    requestId: 'production-natural-correction',
-    text: '不是这个，换成登录那个，补充刷新令牌失败判定',
-  });
+  await assert.rejects(
+    controller.submit({
+      requestId: 'production-natural-correction',
+      text: '不是这个，换成登录那个，补充刷新令牌失败判定',
+    }),
+    /linked correction requires persistent delegation support/u,
+  );
 
-  assert.equal(corrected.kind, 'submitted');
-  assert.deepEqual(actions[1], {
-    actionId: 'production-natural-correction',
-    userText: '不是这个，换成登录那个，补充刷新令牌失败判定',
+  assert.deepEqual(actions, [{
+    actionId: 'production-wrong-payment',
+    userText: '继续这个工作，补充验收项',
     candidateSetId,
     proposal: {
       disposition: 'delegate_existing',
-      candidateRef: 'candidate-login',
-      replace: {
-        candidateRef: 'candidate-payment',
-        expectedTurnId: 'runtime-payment-turn',
-      },
+      candidateRef: 'candidate-payment',
     },
-  });
+  }]);
 });
 
 test('production clarification is persisted through the typed Action Gate disposition', async () => {

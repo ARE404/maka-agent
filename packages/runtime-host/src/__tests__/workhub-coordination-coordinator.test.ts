@@ -624,7 +624,6 @@ function coordinator(
     sessionActions: {
       create: async () => undefined,
       submit: async ({ sessionId }) => ({ turnId: `turn-${sessionId}` }),
-      stop: async () => undefined,
     },
     resolveCreateTarget:
       resolveCreateTarget ??
