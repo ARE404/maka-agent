@@ -37,6 +37,7 @@ import type { ConnectionContext } from './operation-dispatcher.js';
 const SIDE_CONVERSATION_LABEL = 'mode:side_conversation';
 const ACTION_REPLAY_MAX_ITEMS = 256;
 const REPLACEMENT_RECOVERY_MAX_ITEMS = ACTION_REPLAY_MAX_ITEMS;
+const REPLACEMENT_RECOVERY_TTL_MS = 5 * 60 * 1000;
 
 export type WorkHubActionGateSession = Pick<
   SessionHeader,
@@ -141,7 +142,8 @@ interface ReplacementRecovery {
   readonly fingerprint: string;
   readonly sourceSessionId: string;
   readonly targetSessionId: string;
-  stopped: boolean;
+  state: 'stopping' | 'submitting' | 'uncertain';
+  expiresAt: number;
 }
 
 /**
@@ -153,13 +155,15 @@ interface ReplacementRecovery {
  */
 export class WorkHubCoordinationActionGate {
   readonly #effects: WorkHubActionGateEffects;
+  readonly #now: () => number;
   readonly #actions = new Map<string, ActionReplay>();
   readonly #ownedRoots = new Map<string, OwnedRoot>();
   readonly #replacementRecoveries = new Map<string, ReplacementRecovery>();
   readonly #replacementLanes = new Map<string, Promise<void>>();
 
-  constructor(effects: WorkHubActionGateEffects) {
+  constructor(effects: WorkHubActionGateEffects, options: { readonly now?: () => number } = {}) {
     this.#effects = effects;
+    this.#now = options.now ?? Date.now;
   }
 
   async candidates(): Promise<WorkHubCoordinationCandidatesResult> {
@@ -170,6 +174,7 @@ export class WorkHubCoordinationActionGate {
     input: WorkHubCoordinationActInput,
     context: ConnectionContext,
   ): Promise<WorkHubCoordinationActResult> {
+    this.#pruneExpiredRecoveries();
     const fingerprint = digest(input);
     const recovery = this.#replacementRecoveries.get(input.actionId);
     if (recovery && recovery.fingerprint !== fingerprint) {
@@ -215,10 +220,10 @@ export class WorkHubCoordinationActionGate {
   ): Promise<WorkHubCoordinationActResult> {
     const recovery = this.#replacementRecoveries.get(input.actionId);
     if (recovery) {
-      if (!recovery.stopped) {
+      if (recovery.state !== 'uncertain') {
         throw new WorkHubActionEffectFailure(
           'host_not_ready',
-          'WorkHub replacement Stop is still settling',
+          'WorkHub replacement is still settling',
         );
       }
       // The destructive half already committed. Reconcile only the exact
@@ -337,6 +342,7 @@ export class WorkHubCoordinationActionGate {
             'WorkHub cannot stop a Turn it did not admit',
           );
         }
+        this.#pruneExpiredRecoveries();
         if (this.#replacementRecoveries.size >= REPLACEMENT_RECOVERY_MAX_ITEMS) {
           throw new WorkHubActionEffectFailure(
             'host_not_ready',
@@ -347,7 +353,8 @@ export class WorkHubCoordinationActionGate {
           fingerprint,
           sourceSessionId: freshSource.sessionId,
           targetSessionId: freshTarget.sessionId,
-          stopped: false,
+          state: 'stopping',
+          expiresAt: 0,
         };
         this.#replacementRecoveries.set(input.actionId, recovery);
         try {
@@ -355,7 +362,6 @@ export class WorkHubCoordinationActionGate {
             { sessionId: freshSource.sessionId, turnId: owned.turnId },
             context,
           );
-          recovery.stopped = true;
         } catch (error) {
           if (this.#replacementRecoveries.get(input.actionId) === recovery) {
             this.#replacementRecoveries.delete(input.actionId);
@@ -402,11 +408,36 @@ export class WorkHubCoordinationActionGate {
     recovery: ReplacementRecovery,
     context: ConnectionContext,
   ): Promise<WorkHubCoordinationActResult> {
-    const result = await this.#submitExistingSession(input, recovery.targetSessionId, context);
-    if (this.#replacementRecoveries.get(input.actionId) === recovery) {
-      this.#replacementRecoveries.delete(input.actionId);
+    recovery.state = 'submitting';
+    try {
+      const result = await this.#submitExistingSession(input, recovery.targetSessionId, context);
+      if (this.#replacementRecoveries.get(input.actionId) === recovery) {
+        this.#replacementRecoveries.delete(input.actionId);
+      }
+      return result;
+    } catch (error) {
+      if (this.#replacementRecoveries.get(input.actionId) === recovery) {
+        if (
+          error instanceof WorkHubActionEffectFailure &&
+          error.code === 'commit_outcome_unknown'
+        ) {
+          recovery.state = 'uncertain';
+          recovery.expiresAt = this.#now() + REPLACEMENT_RECOVERY_TTL_MS;
+        } else {
+          this.#replacementRecoveries.delete(input.actionId);
+        }
+      }
+      throw error;
     }
-    return result;
+  }
+
+  #pruneExpiredRecoveries(): void {
+    const now = this.#now();
+    for (const [actionId, recovery] of this.#replacementRecoveries) {
+      if (recovery.state === 'uncertain' && recovery.expiresAt <= now) {
+        this.#replacementRecoveries.delete(actionId);
+      }
+    }
   }
 
   async #withReplacementLease<T>(sessionId: string, action: () => Promise<T>): Promise<T> {

@@ -421,6 +421,136 @@ describe('WorkHub Coordination Action Gate', () => {
     assert.equal(targetSubmissions[0]?.messageId, targetSubmissions[1]?.messageId);
   });
 
+  test('definitive target failures release replacement recovery capacity', async () => {
+    const effects = fakeEffects([session('source'), session('target', { statusUpdatedAt: 2 })]);
+    const gate = new WorkHubCoordinationActionGate(effects);
+    const snapshot = await gate.candidates();
+    const source = snapshot.candidates.find(({ sessionId }) => sessionId === 'source')!;
+    const target = snapshot.candidates.find(({ sessionId }) => sessionId === 'target')!;
+    effects.submit = async (input) => {
+      effects.submissions.push(input);
+      if (input.sessionId === 'target') {
+        throw new WorkHubActionEffectFailure('session_busy', 'Target cannot accept this message');
+      }
+      return { turnId: `turn-source-${input.messageId}` };
+    };
+
+    // One more than the recovery bound proves permanent failures cannot
+    // accumulate until every replacement is rejected Host-wide.
+    for (let index = 0; index <= 256; index += 1) {
+      const admitted = await gate.act(
+        {
+          actionId: `source-before-definitive-failure-${index}`,
+          userText: 'Start source work',
+          candidateSetId: snapshot.candidateSetId,
+          proposal: { disposition: 'delegate_existing', candidateRef: source.candidateRef },
+        },
+        CONTEXT,
+      );
+      assert.equal(admitted.disposition, 'delegate_existing');
+      if (admitted.disposition !== 'delegate_existing') return;
+      await assert.rejects(
+        gate.act(
+          {
+            actionId: `definitive-target-failure-${index}`,
+            userText: 'No, use target instead',
+            candidateSetId: snapshot.candidateSetId,
+            proposal: {
+              disposition: 'delegate_existing',
+              candidateRef: target.candidateRef,
+              replace: {
+                candidateRef: source.candidateRef,
+                expectedTurnId: admitted.targetTurnId,
+              },
+            },
+          },
+          CONTEXT,
+        ),
+        (error) => error instanceof WorkHubActionEffectFailure && error.code === 'session_busy',
+      );
+    }
+
+    assert.equal(effects.stops.length, 257);
+  });
+
+  test('unknown replacement outcomes expire instead of exhausting the Host until restart', async () => {
+    const effects = fakeEffects([session('source'), session('target', { statusUpdatedAt: 2 })]);
+    let now = 0;
+    const gate = new WorkHubCoordinationActionGate(effects, { now: () => now });
+    const snapshot = await gate.candidates();
+    const source = snapshot.candidates.find(({ sessionId }) => sessionId === 'source')!;
+    const target = snapshot.candidates.find(({ sessionId }) => sessionId === 'target')!;
+    effects.submit = async (input) => {
+      effects.submissions.push(input);
+      if (input.sessionId === 'target') {
+        throw new WorkHubActionEffectFailure(
+          'commit_outcome_unknown',
+          'Target submission may have committed',
+        );
+      }
+      return { turnId: `turn-source-${input.messageId}` };
+    };
+
+    for (let index = 0; index < 256; index += 1) {
+      const admitted = await gate.act(
+        {
+          actionId: `source-before-unknown-expiry-${index}`,
+          userText: 'Start source work',
+          candidateSetId: snapshot.candidateSetId,
+          proposal: { disposition: 'delegate_existing', candidateRef: source.candidateRef },
+        },
+        CONTEXT,
+      );
+      assert.equal(admitted.disposition, 'delegate_existing');
+      if (admitted.disposition !== 'delegate_existing') return;
+      await assert.rejects(
+        gate.act(
+          replacementInput(
+            `unknown-target-outcome-${index}`,
+            snapshot.candidateSetId,
+            source.candidateRef,
+            target.candidateRef,
+            admitted.targetTurnId,
+          ),
+          CONTEXT,
+        ),
+        (error) =>
+          error instanceof WorkHubActionEffectFailure && error.code === 'commit_outcome_unknown',
+      );
+    }
+
+    const nextSource = await gate.act(
+      {
+        actionId: 'source-before-capacity-recovery',
+        userText: 'Start source work',
+        candidateSetId: snapshot.candidateSetId,
+        proposal: { disposition: 'delegate_existing', candidateRef: source.candidateRef },
+      },
+      CONTEXT,
+    );
+    assert.equal(nextSource.disposition, 'delegate_existing');
+    if (nextSource.disposition !== 'delegate_existing') return;
+    const afterCapacity = replacementInput(
+      'replacement-after-capacity-recovery',
+      snapshot.candidateSetId,
+      source.candidateRef,
+      target.candidateRef,
+      nextSource.targetTurnId,
+    );
+    await assert.rejects(
+      gate.act(afterCapacity, CONTEXT),
+      (error) => error instanceof WorkHubActionEffectFailure && error.code === 'host_not_ready',
+    );
+
+    now += 24 * 60 * 60 * 1000;
+    await assert.rejects(
+      gate.act(afterCapacity, CONTEXT),
+      (error) =>
+        error instanceof WorkHubActionEffectFailure && error.code === 'commit_outcome_unknown',
+    );
+    assert.equal(effects.stops.length, 257);
+  });
+
   test('serializes replacements from one source and admits only one target', async () => {
     const effects = fakeEffects([
       session('source'),
@@ -594,6 +724,25 @@ describe('WorkHub Coordination Action Gate', () => {
     ]);
   });
 });
+
+function replacementInput(
+  actionId: string,
+  candidateSetId: string,
+  sourceCandidateRef: string,
+  targetCandidateRef: string,
+  expectedTurnId: string,
+) {
+  return {
+    actionId,
+    userText: 'No, use target instead',
+    candidateSetId,
+    proposal: {
+      disposition: 'delegate_existing' as const,
+      candidateRef: targetCandidateRef,
+      replace: { candidateRef: sourceCandidateRef, expectedTurnId },
+    },
+  };
+}
 
 function session(
   id: string,
