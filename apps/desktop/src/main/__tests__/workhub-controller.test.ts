@@ -2599,6 +2599,16 @@ test('production natural-language correction fails closed before a second delega
     /linked correction requires persistent delegation support/u,
   );
 
+  for (const [requestId, text] of [
+    ['production-correction-with-create-en', 'No, create a new session called Login instead'],
+    ['production-correction-with-create-zh', '不是这个，创建一个新会话叫登录稳定性'],
+  ] as const) {
+    await assert.rejects(
+      controller.submit({ requestId, text }),
+      /linked correction requires persistent delegation support/u,
+    );
+  }
+
   assert.deepEqual(actions, [{
     actionId: 'production-wrong-payment',
     userText: '继续这个工作，补充验收项',
