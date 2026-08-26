@@ -2524,6 +2524,21 @@ test('production defers destructive correction until persistent delegation exist
   assert.deepEqual(actions, []);
 });
 
+const PRODUCTION_CORRECTION_CREATION_CASES = [
+  ['production-correction-with-create-en', 'No, create a new session called Login instead'],
+  [
+    'production-correction-with-polite-create-en',
+    'No, please create a new session called Login instead',
+  ],
+  [
+    'production-correction-with-em-dash-en',
+    'No — create a new session called Login instead',
+  ],
+  ['production-correction-with-create-zh', '不是这个，创建一个新会话叫登录稳定性'],
+  ['production-correction-with-polite-create-zh', '不是这个，请创建一个新会话叫Login'],
+  ['production-correction-with-alternate-cue-zh', '不对，创建一个新会话叫Login'],
+] as const;
+
 test('production natural-language correction fails closed before a second delegation', async () => {
   const actions: unknown[] = [];
   const sessions = port([
@@ -2599,10 +2614,7 @@ test('production natural-language correction fails closed before a second delega
     /linked correction requires persistent delegation support/u,
   );
 
-  for (const [requestId, text] of [
-    ['production-correction-with-create-en', 'No, create a new session called Login instead'],
-    ['production-correction-with-create-zh', '不是这个，创建一个新会话叫登录稳定性'],
-  ] as const) {
+  for (const [requestId, text] of PRODUCTION_CORRECTION_CREATION_CASES) {
     await assert.rejects(
       controller.submit({ requestId, text }),
       /linked correction requires persistent delegation support/u,
@@ -2618,6 +2630,38 @@ test('production natural-language correction fails closed before a second delega
       candidateRef: 'candidate-payment',
     },
   }]);
+});
+
+test('production correction-shaped creation stays create_new without an existing focus', async () => {
+  const dispositions: string[] = [];
+  const controller = createGatedWorkHubController({
+    sessions: port([]),
+    coordination: {
+      open: async () => ({ close: async () => undefined }),
+      answer: async (input) => ({ turnId: input.turnId }),
+      record: async (input) => ({ turnId: input.turnId }),
+      candidates: async () => ({
+        candidateSetId: `sha256:${'c'.repeat(64)}`,
+        candidates: [],
+      }),
+      act: async (input) => {
+        dispositions.push(input.proposal.disposition);
+        return {
+          disposition: 'create_new',
+          targetSessionId: `runtime-created-${dispositions.length}`,
+          targetTurnId: `runtime-turn-${dispositions.length}`,
+        };
+      },
+    },
+  });
+
+  for (const [requestId, text] of PRODUCTION_CORRECTION_CREATION_CASES) {
+    const result = await controller.submit({ requestId: `without-focus-${requestId}`, text });
+    assert.equal(result.kind, 'submitted');
+  }
+
+  assert.deepEqual(dispositions, Array(PRODUCTION_CORRECTION_CREATION_CASES.length)
+    .fill('create_new'));
 });
 
 test('production clarification is persisted through the typed Action Gate disposition', async () => {
