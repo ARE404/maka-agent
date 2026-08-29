@@ -95,6 +95,14 @@ trusted user text, claims the source delegation in Coordination transcript order
 and rejects any later competing replacement intent. Neither a model nor a routing
 policy can directly authorize a write, Stop, or expansion of execution authority.
 
+Routing experiments use a versioned strategy interface in front of this unchanged
+gate. R2.4, R3-A (model disposition plus one bounded candidate), and R3-B (model
+disposition plus R2.4 target resolution for delegation only) receive the same
+request text, bounded candidate snapshot, summaries, and routing evidence. Model
+adapters own structured-output parsing and call telemetry; strategies validate the
+closed disposition and candidate namespaces and fail closed. R3-B never promotes
+an R2.4 `create_new` result from its delegation-only target-resolution branch.
+
 ## Delegation links rather than copies transcripts
 
 A delegation persists only a bounded link between the coordination and execution

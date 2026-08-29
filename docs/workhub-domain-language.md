@@ -197,5 +197,13 @@ it is not the final architecture or authority boundary of WorkHub.
 | Action Gate | [`workhub-coordination-action-gate.ts`](../packages/runtime-host/src/server/workhub-coordination-action-gate.ts) |
 | Projection | Coordination: [`workhub-coordination-port.ts`](../apps/desktop/src/renderer/workhub-coordination-port.ts); ordinary Sessions: [`workhub-session-port.ts`](../apps/desktop/src/renderer/workhub-session-port.ts) |
 
+**Routing strategy**: A versioned, replaceable proposal module behind one shared
+interface and the same Action Gate. `R3-A` lets a model select a disposition and,
+for `delegate_existing`, exactly one opaque candidate reference. `R3-B` lets a
+model select only the disposition and invokes R2.4 only to resolve an existing
+target after `delegate_existing`; an R2.4 `create_new` result is not executable in
+that branch. Every model request is bounded, every returned candidate is validated
+against the issued set, and failures resolve to clarification or local discussion.
+
 _Avoid_: copied execution transcripts, self-routing, a second Session/WorkHub
 storage substrate, or treating model/routing output as execution authority.

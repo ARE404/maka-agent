@@ -43,7 +43,8 @@ export type WorkHubRouteEvidence =
   | 'exact_session_name'
   | 'route_correction'
   | 'core_entity'
-  | 'recent_focus';
+  | 'recent_focus'
+  | 'model_candidate';
 
 export type WorkHubRouteDecision =
   | {
@@ -103,6 +104,11 @@ export interface WorkHubRoutePolicy {
     explicitTarget?: WorkHubRouteTarget;
   }): WorkHubRouteDecision;
   initializeFocus(targets: readonly WorkHubRouteTarget[]): void;
+  focusSnapshot(): {
+    readonly current?: WorkHubRouteTarget;
+    readonly previous?: WorkHubRouteTarget;
+  };
+  snapshot(): WorkHubRoutePolicy;
   newVisit(): WorkHubRoutePolicy;
   rememberTarget(target: WorkHubRouteTarget): void;
 }
@@ -121,6 +127,14 @@ export function workHubNewSessionName(
   );
   const firstClause = withoutCreationPrefix.split(/[，。；;\n]/u)[0]?.trim();
   return firstClause?.slice(0, 48) || '新工作';
+}
+
+export function boundedWorkHubText(value: string, maxChars: number): string {
+  const text = value.trim();
+  const chars = Array.from(text);
+  return chars.length <= maxChars
+    ? text
+    : `${chars.slice(0, maxChars - 1).join('')}…`;
 }
 
 const MIN_EXACT_SESSION_NAME_LENGTH = 2;
@@ -146,9 +160,13 @@ export function createWorkHubRoutePolicy(
 
 function createWorkHubRoutePolicyVisit(
   sessionResolver: WorkHubSessionResolver,
+  initial?: {
+    readonly current?: WorkHubRouteTarget;
+    readonly previous?: WorkHubRouteTarget;
+  },
 ): WorkHubRoutePolicy {
-  let currentFocus: WorkHubRouteTarget | undefined;
-  let previousFocus: WorkHubRouteTarget | undefined;
+  let currentFocus = initial?.current;
+  let previousFocus = initial?.previous;
 
   return {
     // The stop Action Policy. Action Intent says only that the user issued a
@@ -367,6 +385,18 @@ function createWorkHubRoutePolicyVisit(
       if (!previousFocus || !available.has(previousFocus.sessionId)) {
         previousFocus = ordered.find((target) => target.sessionId !== currentFocus?.sessionId);
       }
+    },
+    focusSnapshot() {
+      return {
+        ...(currentFocus ? { current: currentFocus } : {}),
+        ...(previousFocus ? { previous: previousFocus } : {}),
+      };
+    },
+    snapshot() {
+      return createWorkHubRoutePolicyVisit(sessionResolver, {
+        ...(currentFocus ? { current: currentFocus } : {}),
+        ...(previousFocus ? { previous: previousFocus } : {}),
+      });
     },
     newVisit() {
       return createWorkHubRoutePolicyVisit(sessionResolver);
