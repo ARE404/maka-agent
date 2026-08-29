@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ChatMessage,
   ChatMessageBubble,
@@ -41,6 +41,11 @@ import {
   type WorkHubSendAttempt,
 } from './workhub-send-lease.js';
 import { WorkHubCoordinationFailure } from './workhub-coordination-port.js';
+import {
+  deriveWorkHubAnchors,
+  matchesWorkHubFilter,
+  type WorkHubWorkFilter,
+} from './workhub-anchor-rail.js';
 
 export interface WorkHubConversationTurn {
   requestId: string;
@@ -239,6 +244,7 @@ export function WorkHubSurface(props: {
   const sendLease = useRef(new WorkHubSendLease({ scope: props.leaseScope })).current;
   const [loadError, setLoadError] = useState(false);
   const [conversationError, setConversationError] = useState(false);
+  const [workFilter, setWorkFilter] = useState<WorkHubWorkFilter>('all');
   const refresh = useCallback(async (focusSessionId?: string) => {
     const isLatest = refreshGate.begin();
     try {
@@ -367,6 +373,21 @@ export function WorkHubSurface(props: {
   const visible = visibleWorkHubConversation(coordinationTurns, turns);
   const visibleCoordinationTurns = visible.coordination;
   const visibleLocalTurns = visible.local;
+  const delegatedSessionIds = useMemo(() => [
+    ...[...coordinationTurns].reverse().flatMap((turn) =>
+      turn.assignment ? [turn.assignment.targetSessionId] : []),
+    ...[...turns].reverse().flatMap((turn) =>
+      turn.outcome?.kind === 'submitted' ? [turn.outcome.target.sessionId] : []),
+  ], [coordinationTurns, turns]);
+  const anchorFocusSessionId = delegatedSessionIds[0] ?? props.initialFocusSessionId;
+  const anchors = useMemo(() => deriveWorkHubAnchors({
+    sessions: projection.sessions,
+    focusSessionId: anchorFocusSessionId,
+    delegatedSessionIds,
+    filter: workFilter,
+  }), [anchorFocusSessionId, delegatedSessionIds, projection.sessions, workFilter]);
+  const filteredWorkCount = useMemo(() => projection.sessions.filter((session) =>
+    matchesWorkHubFilter(session, workFilter)).length, [projection.sessions, workFilter]);
   const conversationEmpty = visibleCoordinationTurns.length === 0 && visibleLocalTurns.length === 0;
   const surfaceReady = initialLoadSettled && conversationReady;
 
@@ -395,13 +416,60 @@ export function WorkHubSurface(props: {
             : copy.loading}</span>
         </header>
 
-        <div className="maka-chat-shell">
-          <ChatMessageList
-            className="maka-chat-message-list maka-chatContent workhub-message-list"
-            density="compact"
-            gap={4}
-            isStreaming={pending}
-          >
+        <div className="workhub-body">
+          <aside className="workhub-anchor-rail" aria-label={copy.workNavigation}>
+            <div className="workhub-anchor-heading">
+              <strong>{copy.work}</strong>
+              <span>{copy.filteredWorkCount(filteredWorkCount, projection.sessions.length)}</span>
+            </div>
+            <div className="workhub-filters" role="toolbar" aria-label={copy.filterWork}>
+              {copy.filters.map((filter) => (
+                <button
+                  key={filter.id}
+                  type="button"
+                  aria-pressed={workFilter === filter.id}
+                  onClick={() => setWorkFilter(filter.id)}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+            <nav className="workhub-anchors" aria-label={copy.workNavigation}>
+              {anchors.length > 0 ? anchors.map((anchor) => {
+                const state = anchor.session.archived
+                  ? copy.archived
+                  : copy.states[anchor.session.state];
+                return (
+                  <button
+                    key={anchor.session.target.sessionId}
+                    type="button"
+                    aria-current={anchor.reason === 'focus' ? 'page' : undefined}
+                    data-state={anchor.session.archived ? 'archived' : anchor.session.state}
+                    onClick={() => props.onOpenSession(anchor.session.target.sessionId)}
+                  >
+                    <span className="workhub-anchor-title">
+                      <span className="workhub-anchor-state" aria-hidden="true" />
+                      <strong>{anchor.session.sessionName}</strong>
+                    </span>
+                    <small>
+                      {anchor.reason === 'focus' ? copy.focused : anchor.session.projectName}
+                      {' · '}{state}
+                    </small>
+                  </button>
+                );
+              }) : (
+                <p className="workhub-anchor-empty">{copy.noFilteredWork}</p>
+              )}
+            </nav>
+          </aside>
+
+          <div className="maka-chat-shell workhub-conversation-shell">
+            <ChatMessageList
+              className="maka-chat-message-list maka-chatContent workhub-message-list"
+              density="compact"
+              gap={4}
+              isStreaming={pending}
+            >
             {!surfaceReady ? (
               <WorkHubLoadingState label={copy.loading} />
             ) : conversationEmpty && !loadError && !conversationError ? (
@@ -456,7 +524,8 @@ export function WorkHubSurface(props: {
                 ))}
               </div>
             )}
-          </ChatMessageList>
+            </ChatMessageList>
+          </div>
         </div>
       </section>
     </ChatSurfaceLayout>
@@ -833,6 +902,15 @@ function workHubCopy(locale: UiLocale) {
     return {
       locale,
       subtitle: '在一个入口里继续、创建和查看普通 Session',
+      work: '工作', workNavigation: '工作导航', filterWork: '筛选工作', focused: '当前',
+      filteredWorkCount: (visible: number, total: number) => `${visible}/${total}`,
+      noFilteredWork: '此筛选下没有工作',
+      filters: [
+        { id: 'all' as const, label: '全部' },
+        { id: 'active' as const, label: '进行中' },
+        { id: 'attention' as const, label: '待处理' },
+        { id: 'stopped' as const, label: '已停止' },
+      ],
       emptyTitle: '从这里继续所有工作',
       emptyBody: (count: number) => count > 0
         ? `WorkHub 会根据已有 ${count} 个 Session 判断目标；不确定时会先询问你。`
@@ -955,6 +1033,15 @@ function workHubCopy(locale: UiLocale) {
   return {
     locale,
     subtitle: 'Continue, create, and review ordinary Sessions from one place',
+    work: 'Work', workNavigation: 'Work navigation', filterWork: 'Filter work', focused: 'Focused',
+    filteredWorkCount: (visible: number, total: number) => `${visible}/${total}`,
+    noFilteredWork: 'No work matches this filter',
+    filters: [
+      { id: 'all' as const, label: 'All' },
+      { id: 'active' as const, label: 'Active' },
+      { id: 'attention' as const, label: 'Needs you' },
+      { id: 'stopped' as const, label: 'Stopped' },
+    ],
     emptyTitle: 'Continue all work from here',
     emptyBody: (count: number) => count > 0
       ? `WorkHub routes against ${count} existing Session${count === 1 ? '' : 's'} and asks when the target is unclear.`
