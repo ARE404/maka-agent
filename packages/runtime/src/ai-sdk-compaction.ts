@@ -29,6 +29,7 @@
  */
 
 import type { RuntimeEvent } from '@maka/core/runtime-event';
+import type { AgentRunHeader } from '@maka/core/agent-run';
 import type {
   BackendCompactHistoryInput,
   BackendCompactHistoryResult,
@@ -90,6 +91,7 @@ import type { MakaTool } from './tool-runtime.js';
 import {
   buildRuntimeEventModelReplayPlan,
   collectToolActivityTurnIds,
+  compatibleProviderReasoningReplayEventIds,
   type RuntimeEventModelReplayPlan,
 } from './model-history.js';
 import { toolSchemaCharsForDiagnostics } from './request-shape.js';
@@ -152,6 +154,8 @@ export interface AutomaticMemoryCompactionDecision {
 export interface AiSdkCompactionDeps {
   input: AiSdkCompactionCapabilities;
   sessionId: string;
+  targetConnectionId: string | undefined;
+  targetProviderStateIdentity: `sha256:${string}` | undefined;
   now: () => number;
   modelAdapter: ModelAdapter;
   /**
@@ -174,7 +178,8 @@ export interface AiSdkCompactionDeps {
   materializeRuntimeReplayPlan: (
     plan: RuntimeEventModelReplayPlan,
     imageBudget: ProviderImageBudget,
-    checkpoint?: HistoryCompactCheckpoint,
+    checkpoint: HistoryCompactCheckpoint | undefined,
+    providerReasoningReplayEventIds: ReadonlySet<string>,
   ) => Promise<ModelMessage[]>;
   canReplayProviderNative: (plan: RuntimeEventModelReplayPlan) => boolean;
 }
@@ -182,6 +187,8 @@ export interface AiSdkCompactionDeps {
 export class AiSdkCompaction {
   private readonly input: AiSdkCompactionCapabilities;
   private readonly sessionId: string;
+  private readonly targetConnectionId: string | undefined;
+  private readonly targetProviderStateIdentity: `sha256:${string}` | undefined;
   private readonly now: () => number;
   private readonly modelAdapter: ModelAdapter;
   private readonly createProviderRequestTracker: (input: {
@@ -194,7 +201,8 @@ export class AiSdkCompaction {
   private readonly materializeRuntimeReplayPlan: (
     plan: RuntimeEventModelReplayPlan,
     imageBudget: ProviderImageBudget,
-    checkpoint?: HistoryCompactCheckpoint,
+    checkpoint: HistoryCompactCheckpoint | undefined,
+    providerReasoningReplayEventIds: ReadonlySet<string>,
   ) => Promise<ModelMessage[]>;
   private readonly canReplayProviderNative: (plan: RuntimeEventModelReplayPlan) => boolean;
   private historyCompactAbortController: AbortController | null = null;
@@ -211,6 +219,8 @@ export class AiSdkCompaction {
   constructor(deps: AiSdkCompactionDeps) {
     this.input = deps.input;
     this.sessionId = deps.sessionId;
+    this.targetConnectionId = deps.targetConnectionId;
+    this.targetProviderStateIdentity = deps.targetProviderStateIdentity;
     this.now = deps.now;
     this.modelAdapter = deps.modelAdapter;
     this.createProviderRequestTracker = deps.createProviderRequestTracker;
@@ -256,6 +266,7 @@ export class AiSdkCompaction {
           canContinueHistoryCompactCheckpointForModel(
             loaded,
             this.input.connection,
+            this.targetConnectionId,
             this.input.modelId,
           )
         ) {
@@ -327,7 +338,13 @@ export class AiSdkCompaction {
           await this.summarizeWithFailureCircuit(summarizer, {
             sessionId: this.sessionId,
             turnId: input.turnId,
-            source: { foldedRuntimeEvents: [...coveredRuntimeEvents] },
+            runId: input.runId,
+            source: {
+              foldedRuntimeEvents: [...coveredRuntimeEvents],
+              ...(input.runtimeContextRunHeaders
+                ? { runHeaders: input.runtimeContextRunHeaders }
+                : {}),
+            },
             newlyFoldedRuntimeEvents: [...newlyFoldedRuntimeEvents],
             ...(previousCheckpoint ? { previousCheckpoint } : {}),
             inputBudget: {
@@ -441,15 +458,30 @@ export class AiSdkCompaction {
     summarizer: HistoryCompactSummarizer,
     input: HistoryCompactSummaryInput,
   ): Promise<string | HistoryCompactProviderState | undefined> {
+    const foldedRunIds = new Set(input.source.foldedRuntimeEvents.map((event) => event.runId));
+    const sourceRunRoutes = input.source.runHeaders
+      ?.filter((run) => foldedRunIds.has(run.runId))
+      .map((run) => ({
+        runId: run.runId,
+        connectionId: run.llmConnectionId,
+        modelId: run.modelId,
+      }))
+      .sort((left, right) => left.runId.localeCompare(right.runId));
     const fingerprint = sha256(
       stableStringifyForSignature({
-        version: 1,
+        version: 2,
         connection: this.input.connection,
         modelId: this.input.modelId,
         historyCompactRoute: this.input.historyCompactRoute,
         contextBudget: this.input.contextBudget,
         inputBudget: input.inputBudget,
         previousCheckpoint: input.previousCheckpoint,
+        currentRunEventIds: input.runId
+          ? input.source.foldedRuntimeEvents
+              .filter((event) => event.runId === input.runId)
+              .map((event) => event.id)
+          : [],
+        sourceRunRoutes,
         foldedRuntimeEvents: input.source.foldedRuntimeEvents,
         newlyFoldedRuntimeEvents: input.newlyFoldedRuntimeEvents,
       }),
@@ -543,6 +575,7 @@ export class AiSdkCompaction {
       canReplayHistoryCompactCheckpointForModel(
         loadedCheckpoint,
         this.input.connection,
+        this.targetConnectionId,
         this.input.modelId,
       )
     ) {
@@ -646,7 +679,12 @@ export class AiSdkCompaction {
     const priorContentEvents = (input.runtimeContext ?? [])
       .filter((event) => event.turnId !== input.turnId)
       .filter(isHistoryCompactContentEvent);
-    return new MidTurnCapacityCompactState(headAnchor, priorContentEvents, capacity);
+    return new MidTurnCapacityCompactState(
+      headAnchor,
+      priorContentEvents,
+      input.runtimeContextRunHeaders ?? [],
+      capacity,
+    );
   }
 
   /**
@@ -987,7 +1025,11 @@ export class AiSdkCompaction {
         return await this.summarizeWithFailureCircuit(summarizer, {
           sessionId: this.sessionId,
           turnId,
-          source: { foldedRuntimeEvents: [...coveredRuntimeEvents] },
+          ...(input.origin.runId ? { runId: input.origin.runId } : {}),
+          source: {
+            foldedRuntimeEvents: [...coveredRuntimeEvents],
+            runHeaders: state.priorRunHeaders,
+          },
           ...(previousCheckpoint ? { previousCheckpoint } : {}),
           newlyFoldedRuntimeEvents: [...newlyFoldedRuntimeEvents],
           inputBudget: {
@@ -1038,6 +1080,13 @@ export class AiSdkCompaction {
       replayPlan,
       input.origin.imageBudget,
       plan.checkpoint,
+      compatibleProviderReasoningReplayEventIds(
+        plan.replacementEvents,
+        state.priorRunHeaders,
+        this.targetProviderStateIdentity,
+        this.input.modelId,
+        input.origin.runId,
+      ),
     );
     // Apply the shape only when it actually shrinks the request versus the
     // reference payload (the incoming request for the proactive hook, the
@@ -1562,6 +1611,7 @@ export class MidTurnCapacityCompactState {
   constructor(
     readonly headAnchor: RuntimeEvent,
     readonly priorContentEvents: readonly RuntimeEvent[],
+    readonly priorRunHeaders: readonly AgentRunHeader[],
     readonly capacity: ContextBudgetCapacity,
   ) {}
 }

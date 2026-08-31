@@ -198,6 +198,7 @@ export interface AgentRunBeginResult {
 export interface AgentRunOperationBeginResult {
   backend: AgentBackend;
   runtimeContext: RuntimeEvent[];
+  runtimeContextRunHeaders: AgentRunHeader[];
   startedAt: number;
 }
 
@@ -246,6 +247,7 @@ export class AgentRun {
   private finalized = false;
   private terminalRunHeaderCommitted = false;
   private continuationActive = false;
+  private providerStateIdentity: `sha256:${string}` | undefined;
   private terminalClaim:
     | {
         owner: 'event' | 'stop';
@@ -321,6 +323,19 @@ export class AgentRun {
 
   isStopped(): boolean {
     return this.stopped;
+  }
+
+  headerSnapshot(): SessionHeader {
+    return this.header;
+  }
+
+  bindProviderStateIdentity(identity: `sha256:${string}` | undefined): void {
+    const claimed = this.input.claimedRunHeader?.providerStateIdentity;
+    const expected = claimed ?? this.providerStateIdentity;
+    if (expected !== undefined && expected !== identity) {
+      throw new Error('Prepared backend provider state does not match the AgentRun admission');
+    }
+    this.providerStateIdentity = identity;
   }
 
   isSessionInline(): boolean {
@@ -655,7 +670,12 @@ export class AgentRun {
           : {}),
         ...(this.input.userInput.quotes ? { quotes: this.input.userInput.quotes } : {}),
         context: projectionContext,
-        ...(priorRuntimeContext ? { runtimeContext: priorRuntimeContext.events } : {}),
+        ...(priorRuntimeContext
+          ? {
+              runtimeContext: priorRuntimeContext.events,
+              runtimeContextRunHeaders: priorRuntimeContext.runs,
+            }
+          : {}),
       }),
       initialRuntimeEvent,
     };
@@ -680,6 +700,7 @@ export class AgentRun {
     return {
       backend: this.active.backend,
       runtimeContext: priorRuntimeContext?.events ?? [],
+      runtimeContextRunHeaders: priorRuntimeContext?.runs ?? [],
       startedAt,
     };
   }
@@ -1045,6 +1066,9 @@ export class AgentRun {
       continuation && this.input.claimedRunHeader
         ? this.input.claimedRunHeader.createdAt
         : this.input.now();
+    const providerStateIdentity =
+      this.input.claimedRunHeader?.providerStateIdentity ?? this.providerStateIdentity;
+    this.providerStateIdentity = providerStateIdentity;
     const computedHeader: AgentRunHeader = {
       runId: this.runId,
       invocationId: this.invocationId,
@@ -1055,6 +1079,7 @@ export class AgentRun {
       ...(this.header.llmConnectionId === undefined
         ? {}
         : { llmConnectionId: this.header.llmConnectionId }),
+      ...(providerStateIdentity ? { providerStateIdentity } : {}),
       llmConnectionSlug: this.header.llmConnectionSlug,
       modelId: this.header.model,
       cwd: this.header.cwd,

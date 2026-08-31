@@ -3996,6 +3996,7 @@ describe('AiSdkBackend model history', () => {
 
     const emitted: SessionEvent[] = [];
     for await (const event of backend.send({
+      runId: 'run-1',
       turnId: 'turn-1',
       text: 'run both tools',
       context: [],
@@ -5237,7 +5238,7 @@ describe('AiSdkBackend model history', () => {
     });
   });
 
-  test('does not redispatch an unchanged malformed compaction input', async () => {
+  test('does not redispatch unchanged compaction content for unrelated run provenance', async () => {
     let calls = 0;
     const backend = createTestAiSdkBackend({
       sessionId: 'session-1',
@@ -5280,16 +5281,31 @@ describe('AiSdkBackend model history', () => {
         text: 'recent',
       }),
     ];
+    const sourceRunHeader = priorModelRunHeader({
+      connectionId: 'test-connection-id',
+      modelId: 'mock-model-id',
+    });
+    const priorCompactionRunHeader: AgentRunHeader = {
+      ...priorModelRunHeader({
+        connectionId: 'test-connection-id',
+        modelId: 'mock-model-id',
+        runId: 'run-1',
+      }),
+      turnId: 'turn-compact-1',
+      rootExecutionKind: 'context_compact',
+    };
 
     const first = await backend.compactHistory({
       turnId: 'turn-compact-1',
       runId: 'run-1',
       runtimeContext: history,
+      runtimeContextRunHeaders: [sourceRunHeader],
     });
     const repeated = await backend.compactHistory({
       turnId: 'turn-compact-2',
       runId: 'run-2',
       runtimeContext: history,
+      runtimeContextRunHeaders: [sourceRunHeader, priorCompactionRunHeader],
     });
 
     assert.equal(calls, 1);
@@ -5312,6 +5328,7 @@ describe('AiSdkBackend model history', () => {
           text: 'new source history',
         }),
       ],
+      runtimeContextRunHeaders: [sourceRunHeader, priorCompactionRunHeader],
     });
     assert.equal(calls, 2, 'changed source fingerprint is eligible again');
   });
@@ -6114,7 +6131,7 @@ describe('AiSdkBackend model history', () => {
       coveredRuntimeEvents: covered,
       providerState: {
         kind: 'openai_codex_remote_v2',
-        connectionSlug: codexConnection.slug,
+        connectionId: 'test-connection-id',
         modelId: 'mock-model-id',
         itemId: 'cmp_replay',
         encryptedContent: 'CODEX_ENCRYPTED_REPLAY_STATE',
@@ -6183,7 +6200,7 @@ describe('AiSdkBackend model history', () => {
       coveredRuntimeEvents: covered,
       providerState: {
         kind: 'openai_codex_remote_v2',
-        connectionSlug: codexConnection.slug,
+        connectionId: 'test-connection-id',
         modelId: 'mock-model-id',
         itemId: 'cmp_full_replay',
         encryptedContent: 'CODEX_FULL_ENCRYPTED_STATE',
@@ -6276,7 +6293,7 @@ describe('AiSdkBackend model history', () => {
       coveredRuntimeEvents: covered,
       providerState: {
         kind: 'openai_codex_remote_v2',
-        connectionSlug: codexConnection.slug,
+        connectionId: 'test-connection-id',
         modelId: 'mock-model-id',
         itemId: 'cmp_model_switch',
         encryptedContent: 'CODEX_MODEL_SWITCH_ENCRYPTED_STATE',
@@ -6370,7 +6387,7 @@ describe('AiSdkBackend model history', () => {
       coveredRuntimeEvents: covered,
       providerState: {
         kind: 'openai_codex_remote_v2',
-        connectionSlug: codexConnection.slug,
+        connectionId: 'test-connection-id',
         modelId: 'different-model',
         itemId: 'cmp_wrong_model',
         encryptedContent: 'CODEX_WRONG_MODEL_STATE',
@@ -6606,6 +6623,351 @@ describe('AiSdkBackend model history', () => {
       { role: 'user', content: [{ type: 'text', text: 'current user' }] },
     ]);
     assert.equal(promptJson.includes('private chain of thought'), false);
+  });
+
+  test('drops cross-model Anthropic reasoning while preserving text and tool history', async () => {
+    const model = completionModel();
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: { ...header(), llmConnectionId: 'connection-a', model: 'claude-b' },
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'claude-b',
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [],
+        runtimeContextRunHeaders: [
+          priorModelRunHeader({ connectionId: 'connection-a', modelId: 'claude-a' }),
+        ],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'rt-u',
+            turnId: 'turn-prev',
+            role: 'user',
+            author: 'user',
+            text: 'inspect the file',
+          }),
+          runtimeEvent({
+            id: 'rt-thinking',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'thinking', text: 'provider reasoning', signature: 'signature-a' },
+            refs: { stepId: 'step-1' },
+          }),
+          runtimeEvent({
+            id: 'rt-call',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'function_call',
+              id: 'tool-1',
+              name: 'Read',
+              args: { path: 'package.json' },
+            },
+            refs: { stepId: 'step-1' },
+          }),
+          runtimeEvent({
+            id: 'rt-result',
+            turnId: 'turn-prev',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'tool-1',
+              name: 'Read',
+              result: 'file contents',
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-a',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'text', text: 'inspection complete' },
+            refs: { stepId: 'step-1' },
+          }),
+        ],
+      }),
+    );
+
+    const promptJson = JSON.stringify(compactPrompt(model));
+    assert.equal(promptJson.includes('provider reasoning'), false);
+    assert.equal(promptJson.includes('signature-a'), false);
+    assert.match(promptJson, /inspection complete/);
+    assert.match(promptJson, /"toolCallId":"tool-1"/);
+    assert.match(promptJson, /file contents/);
+  });
+
+  test('drops Anthropic reasoning after provider state changes under the same route id', async () => {
+    const model = completionModel();
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: { ...header(), llmConnectionId: 'connection-a', model: 'claude-a' },
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'claude-a',
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      providerStateIdentity: `sha256:${'b'.repeat(64)}`,
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [],
+        runtimeContextRunHeaders: [
+          priorModelRunHeader({
+            connectionId: 'connection-a',
+            modelId: 'claude-a',
+            providerStateIdentity: `sha256:${'a'.repeat(64)}`,
+          }),
+        ],
+        runtimeContext: [
+          runtimeEvent({
+            id: 'rt-thinking',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'thinking', text: 'old account reasoning', signature: 'old-sig' },
+          }),
+          runtimeTextEvent({
+            id: 'rt-a',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            text: 'portable answer',
+          }),
+        ],
+      }),
+    );
+
+    const promptJson = JSON.stringify(compactPrompt(model));
+    assert.equal(promptJson.includes('old account reasoning'), false);
+    assert.equal(promptJson.includes('old-sig'), false);
+    assert.match(promptJson, /portable answer/);
+  });
+
+  test('fails closed for provider reasoning with no source run provenance', async () => {
+    const model = completionModel();
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: { ...header(), llmConnectionId: 'connection-a', model: 'claude-a' },
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'claude-a',
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [],
+        runtimeContext: [
+          runtimeEvent({
+            id: 'rt-thinking',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'thinking',
+              text: 'legacy signed reasoning',
+              signature: 'legacy-signature',
+            },
+          }),
+          runtimeTextEvent({
+            id: 'rt-a',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            text: 'legacy visible answer',
+          }),
+        ],
+      }),
+    );
+
+    const promptJson = JSON.stringify(compactPrompt(model));
+    assert.equal(promptJson.includes('legacy signed reasoning'), false);
+    assert.equal(promptJson.includes('legacy-signature'), false);
+    assert.match(promptJson, /legacy visible answer/);
+  });
+
+  test('drops cross-model Copilot reasoning while preserving text and tools', async () => {
+    const model = completionModel();
+    const copilotConnection: LlmConnection = {
+      ...connection(),
+      slug: 'github-copilot',
+      providerType: 'github-copilot',
+      defaultModel: 'gpt-5.4',
+      models: [{ id: 'gpt-5.4', apiProtocol: 'openai-chat' }],
+    };
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: {
+        ...header(),
+        llmConnectionId: 'connection-copilot',
+        llmConnectionSlug: 'github-copilot',
+        model: 'gpt-5.4',
+      },
+      appendMessage: async () => {},
+      connection: copilotConnection,
+      apiKey: 'sk-test',
+      modelId: 'gpt-5.4',
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [],
+        runtimeContextRunHeaders: [
+          priorModelRunHeader({
+            connectionId: 'connection-copilot',
+            connectionSlug: 'github-copilot',
+            modelId: 'gpt-5.5',
+          }),
+        ],
+        runtimeContext: [
+          runtimeEvent({
+            id: 'rt-thinking',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'thinking',
+              text: 'copilot provider reasoning',
+              providerOptions: {
+                maka: { openAiChatReasoningField: 'reasoning_content' },
+              },
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-call',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'function_call',
+              id: 'tool-1',
+              name: 'Read',
+              args: { path: 'package.json' },
+            },
+          }),
+          runtimeEvent({
+            id: 'rt-result',
+            turnId: 'turn-prev',
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'tool-1',
+              name: 'Read',
+              result: 'copilot file contents',
+            },
+          }),
+          runtimeTextEvent({
+            id: 'rt-a',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            text: 'copilot visible answer',
+          }),
+        ],
+      }),
+    );
+
+    const promptJson = JSON.stringify(compactPrompt(model));
+    assert.equal(promptJson.includes('copilot provider reasoning'), false);
+    assert.match(promptJson, /copilot visible answer/);
+    assert.match(promptJson, /"toolCallId":"tool-1"/);
+    assert.match(promptJson, /copilot file contents/);
+  });
+
+  test('keeps same-route OpenAI Responses reasoning replay', async () => {
+    const model = completionModel();
+    const openAiConnection: LlmConnection = {
+      ...connection(),
+      slug: 'openai-main',
+      providerType: 'openai',
+      defaultModel: 'gpt-5.4',
+    };
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: {
+        ...header(),
+        llmConnectionId: 'connection-openai',
+        llmConnectionSlug: 'openai-main',
+        model: 'gpt-5.4',
+      },
+      appendMessage: async () => {},
+      connection: openAiConnection,
+      apiKey: 'sk-test',
+      modelId: 'gpt-5.4',
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [],
+        runtimeContextRunHeaders: [
+          priorModelRunHeader({
+            connectionId: 'connection-openai',
+            connectionSlug: 'openai-main',
+            modelId: 'gpt-5.4',
+          }),
+        ],
+        runtimeContext: [
+          runtimeEvent({
+            id: 'rt-thinking',
+            turnId: 'turn-prev',
+            role: 'model',
+            author: 'agent',
+            content: {
+              kind: 'thinking',
+              text: 'responses reasoning',
+              providerOptions: {
+                openai: {
+                  itemId: 'reasoning-item-1',
+                  reasoningEncryptedContent: 'encrypted-reasoning',
+                },
+              },
+            },
+          }),
+        ],
+      }),
+    );
+
+    const promptJson = JSON.stringify(compactPrompt(model));
+    assert.match(promptJson, /reasoning-item-1/);
+    assert.match(promptJson, /encrypted-reasoning/);
   });
 
   test('skips unsupported unsigned thinking without dropping native tool replay', async () => {
@@ -11764,6 +12126,7 @@ describe('AiSdkBackend thinking persistence', () => {
         turnId: 'turn-current',
         text: 'follow up',
         context: [],
+        ...sameRouteReplayProvenance('claude-opus-4-8'),
         runtimeContext,
       }),
     );
@@ -11864,6 +12227,7 @@ describe('AiSdkBackend thinking persistence', () => {
         turnId: 'turn-current',
         text: 'follow up',
         context: [],
+        ...sameRouteReplayProvenance('mock-model-id'),
         runtimeContext,
       }),
     );
@@ -11987,6 +12351,7 @@ describe('AiSdkBackend thinking persistence', () => {
             turnId: 'turn-current',
             text: 'follow up',
             context: [],
+            ...sameRouteReplayProvenance('gpt-5.5'),
             runtimeContext,
           }),
         );
@@ -12138,6 +12503,7 @@ describe('AiSdkBackend thinking persistence', () => {
         turnId: 'turn-current',
         text: 'follow up',
         context: [],
+        ...sameRouteReplayProvenance('ark-code-latest'),
         runtimeContext,
       }),
     );
@@ -12248,6 +12614,7 @@ describe('AiSdkBackend thinking persistence', () => {
         turnId: 'turn-current',
         text: 'follow up',
         context: [],
+        ...sameRouteReplayProvenance('deepseek-v4-flash'),
         runtimeContext,
       }),
     );
@@ -12463,6 +12830,7 @@ describe('AiSdkBackend thinking persistence', () => {
         turnId: 'turn-current',
         text: 'follow up',
         context: [],
+        ...sameRouteReplayProvenance('qwen3.8-max'),
         runtimeContext,
       }),
     );
@@ -12601,6 +12969,7 @@ describe('AiSdkBackend thinking persistence', () => {
         turnId: 'turn-2',
         text: 'recover',
         context: [],
+        ...sameRouteReplayProvenance('qwen3.8-max'),
         runtimeContext,
       }),
     );
@@ -12807,6 +13176,7 @@ describe('AiSdkBackend thinking persistence', () => {
         turnId: 'turn-2',
         text: 'recover',
         context: [],
+        ...sameRouteReplayProvenance('qwen3.8-max', 'run-1'),
         runtimeContext,
       }),
     );
@@ -12951,6 +13321,7 @@ describe('AiSdkBackend thinking persistence', () => {
         turnId: 'turn-2',
         text: 'follow up',
         context: [],
+        ...sameRouteReplayProvenance('qwen3.8-max', 'run-1'),
         runtimeContext,
       }),
     );
@@ -13045,6 +13416,7 @@ describe('AiSdkBackend thinking persistence', () => {
         turnId: 'turn-current',
         text: 'follow up',
         context: [],
+        ...sameRouteReplayProvenance('qwen3.8-max'),
         runtimeContext,
       }),
     );
@@ -13106,6 +13478,7 @@ describe('AiSdkBackend thinking persistence', () => {
           turnId: 'turn-current',
           text: 'follow up',
           context: [],
+          ...sameRouteReplayProvenance('qwen3.8-max'),
           runtimeContext,
         }),
       ),
@@ -13349,6 +13722,7 @@ describe('AiSdkBackend thinking persistence', () => {
         turnId: 'turn-current',
         text: 'follow up',
         context: [],
+        ...sameRouteReplayProvenance('ark-code-latest'),
         runtimeContext,
       }),
     );
@@ -13456,6 +13830,7 @@ describe('AiSdkBackend thinking persistence', () => {
         turnId: 'turn-current',
         text: 'follow up',
         context: [],
+        ...sameRouteReplayProvenance('mock-model-id'),
         runtimeContext,
       }),
     );
@@ -13566,6 +13941,7 @@ describe('AiSdkBackend thinking persistence', () => {
         turnId: 'turn-current',
         text: 'follow up',
         context: [],
+        ...sameRouteReplayProvenance('mock-model-id'),
         runtimeContext,
       }),
     );
@@ -13685,6 +14061,7 @@ describe('AiSdkBackend thinking persistence', () => {
         turnId: 'turn-current',
         text: 'follow up',
         context: [],
+        ...sameRouteReplayProvenance('mock-model-id'),
         runtimeContext,
       }),
     );
@@ -15691,11 +16068,48 @@ function header(permissionMode: SessionHeader['permissionMode'] = 'ask'): Sessio
     statusUpdatedAt: 1,
     hasUnread: false,
     backend: 'ai-sdk',
+    llmConnectionId: 'test-connection-id',
     llmConnectionSlug: 'anthropic-main',
     connectionLocked: true,
     model: 'claude-sonnet-4-5-20250929',
     permissionMode,
     schemaVersion: 1,
+  };
+}
+
+function priorModelRunHeader(input: {
+  connectionId?: string;
+  modelId: string;
+  connectionSlug?: string;
+  runId?: string;
+  providerStateIdentity?: `sha256:${string}`;
+}): AgentRunHeader {
+  return {
+    runId: input.runId ?? 'run-prev',
+    sessionId: 'session-1',
+    turnId: 'turn-prev',
+    status: 'completed',
+    backendKind: 'ai-sdk',
+    ...(input.connectionId ? { llmConnectionId: input.connectionId } : {}),
+    providerStateIdentity: input.providerStateIdentity ?? `sha256:${'1'.repeat(64)}`,
+    llmConnectionSlug: input.connectionSlug ?? 'anthropic-main',
+    modelId: input.modelId,
+    cwd: '/tmp/maka',
+    permissionMode: 'ask',
+    createdAt: 1,
+    updatedAt: 2,
+    completedAt: 2,
+  };
+}
+
+function sameRouteReplayProvenance(
+  modelId: string,
+  runId = 'run-prev',
+): Pick<BackendSendInput, 'runtimeContextRunHeaders'> {
+  return {
+    runtimeContextRunHeaders: [
+      priorModelRunHeader({ connectionId: 'test-connection-id', modelId, runId }),
+    ],
   };
 }
 
