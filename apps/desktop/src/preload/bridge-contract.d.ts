@@ -135,6 +135,10 @@ import type { ContextDiagnosticsResult } from '@maka/runtime-host/protocol';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { ExternalSessionImportIpcResult } from './external-session-import-result.js';
 import type { DesktopSessionSummary } from '../shared/desktop-session-projection.js';
+import type {
+  SessionCollaborationImportResult,
+  SessionCollaborationMountSummary,
+} from '../shared/session-collaboration.js';
 /**
  * Outcome of importing artwork. `cancelled` is the user closing the dialog and
  * is not an error; the rest name why the file could not become an icon, so the
@@ -200,6 +204,7 @@ import type { OnboardingMilestone, OnboardingMilestoneId, OnboardingState } from
 import type {
   PersistedRuntimeHostProfile,
   RuntimeHostProfile,
+  RuntimeHostProfileAccess,
 } from '@maka/runtime-host/client';
 export interface OnboardingSnapshot {
   state: OnboardingState;
@@ -325,18 +330,9 @@ export interface DesktopRuntimeHostProfileSnapshot {
   readonly pairingRecoveryPending?: true;
 }
 
-export type DesktopSessionCollaborationImportResult =
-  | { readonly kind: 'connected' }
-  | { readonly kind: 'pairing_pending'; readonly profileId: string }
-  | {
-      readonly kind: 'error';
-      readonly reason:
-        | 'invalid_code'
-        | 'insecure_confirmation_required'
-        | 'peer_path_unavailable'
-        | 'connection_failed';
-      readonly message?: string;
-    };
+export type DesktopSessionCollaborationImportResult = SessionCollaborationImportResult;
+
+export type DesktopGuestSessionMountSummary = SessionCollaborationMountSummary;
 
 export type DesktopSessionCollaborationPrepareResult =
   | {
@@ -409,10 +405,19 @@ export interface DesktopRuntimeHostProfileChangedEvent {
   readonly profileId: string;
   readonly profileName: string;
   readonly profileKind: RuntimeHostProfileKind;
+  readonly profileAccess: RuntimeHostProfileAccess;
   readonly readiness: 'connecting' | 'ready' | 'reconnecting' | 'unavailable';
   readonly hostId?: string;
   readonly isDefault: boolean;
   readonly removed?: boolean;
+}
+
+export interface DesktopRuntimeHostIdentity extends DesktopRuntimeHostRef {
+  readonly targetEpoch: string;
+  readonly profileName: string;
+  readonly profileKind: RuntimeHostProfileKind;
+  readonly profileAccess: RuntimeHostProfileAccess;
+  readonly readiness: 'ready' | 'reconnecting';
 }
 
 export type DesktopLocalRuntimeHostRemoteAccessSnapshot =
@@ -701,6 +706,8 @@ export interface MakaBridge {
       readonly code: string;
       readonly allowInsecure?: boolean;
     }): Promise<DesktopSessionCollaborationImportResult>;
+    listMounts(): Promise<readonly DesktopGuestSessionMountSummary[]>;
+    removeMount(mountId: string): Promise<void>;
     requestTurn(
       sessionId: string,
       input: { readonly turnId: string; readonly text: string },

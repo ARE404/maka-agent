@@ -20,6 +20,7 @@
 import { randomUUID } from 'node:crypto';
 import type { BotIncomingMessage } from '@maka/runtime/bots';
 import {
+  abortable,
   RuntimeHostOperationError,
   RuntimeHostPermanentReconnectError,
   RuntimeHostRequestInterruptedError,
@@ -66,6 +67,12 @@ export interface RuntimeHostDesktopManager {
   enable(
     profileTarget: DesktopRuntimeHostCandidateStartInput['profileTarget'],
   ): Promise<void>;
+  mountGuest(
+    profileTarget: NonNullable<DesktopRuntimeHostCandidateStartInput['profileTarget']>,
+    signal?: AbortSignal,
+  ): Promise<void>;
+  finalizeGuestAccess(mountId: string, signal?: AbortSignal): Promise<void>;
+  unmountGuest(mountId: string): Promise<void>;
   disable(profileId: string): Promise<void>;
   waitUntilReady(
     profileId: string,
@@ -338,10 +345,14 @@ class RuntimeHostDesktopManagerImpl implements RuntimeHostDesktopManager {
   }
 
   finalizePairing(profileId: string): Promise<void> {
-    return this.#mutateTarget(profileId, () => this.#finalizePairing(profileId));
+    return this.#mutateTarget(profileId, () => this.#finalizeAccessCredential(profileId));
   }
 
-  async #finalizePairing(profileId: string): Promise<void> {
+  finalizeGuestAccess(mountId: string, signal?: AbortSignal): Promise<void> {
+    return this.#mutateTarget(mountId, () => this.#finalizeAccessCredential(mountId, signal));
+  }
+
+  async #finalizeAccessCredential(profileId: string, externalSignal?: AbortSignal): Promise<void> {
     const target = this.#requireTarget(profileId);
     if (target.target.profile.kind !== 'remote') {
       throw new Error('Only remote Runtime Host profiles can finalize pairing');
@@ -356,6 +367,7 @@ class RuntimeHostDesktopManagerImpl implements RuntimeHostDesktopManager {
     const signal = AbortSignal.any([
       this.#pairingFinalizationShutdown.signal,
       timeout.signal,
+      ...(externalSignal ? [externalSignal] : []),
     ]);
     try {
       let candidate = await this.#waitForReadyCandidate(lifecycle, undefined, signal);
@@ -367,11 +379,15 @@ class RuntimeHostDesktopManagerImpl implements RuntimeHostDesktopManager {
         try {
           const remainingMs = deadline - Date.now();
           if (remainingMs <= 0) throw new RuntimeHostPairingFinalizationInterruptedError();
-          const finalized = await candidate.client.finalizeAccessCredential(remainingMs);
+          const finalized = await abortable(
+            () => candidate.client.finalizeAccessCredential(remainingMs),
+            signal,
+          );
           if (finalized.reconnectRequired) {
             await candidate.close();
             await this.#waitForReadyCandidate(lifecycle, candidate, signal);
           }
+          signal.throwIfAborted();
           return;
         } catch (error) {
           if (pairingFinalizeTimedOut(error)) {
@@ -473,12 +489,32 @@ class RuntimeHostDesktopManagerImpl implements RuntimeHostDesktopManager {
     profileTarget: DesktopRuntimeHostCandidateStartInput['profileTarget'],
   ): Promise<void> {
     if (!profileTarget) throw new Error('A non-local Runtime Host profile is required');
-    return this.#mutateTarget(profileTarget.profile.id, () => this.#enable(profileTarget));
+    if (isSessionGuestProfile(profileTarget.profile)) {
+      throw new Error('Session Guest targets must be mounted instead of enabled as profiles');
+    }
+    return this.#mutateTarget(profileTarget.profile.id, () =>
+      this.#enable(profileTarget, false),
+    );
+  }
+
+  mountGuest(
+    profileTarget: NonNullable<DesktopRuntimeHostCandidateStartInput['profileTarget']>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (!isSessionGuestProfile(profileTarget.profile)) {
+      return Promise.reject(new Error('A Session Guest target is required'));
+    }
+    return this.#mutateTarget(profileTarget.profile.id, () =>
+      this.#enable(profileTarget, true, signal),
+    );
   }
 
   async #enable(
     profileTarget: NonNullable<DesktopRuntimeHostCandidateStartInput['profileTarget']>,
+    allowSameRoot: boolean,
+    signal?: AbortSignal,
   ): Promise<void> {
+    signal?.throwIfAborted();
     if (this.#closed) throw new Error('Desktop Runtime Host manager is closed');
     const profileId = profileTarget.profile.id;
     if (profileId === LOCAL_RUNTIME_HOST_PROFILE.id) {
@@ -491,10 +527,8 @@ class RuntimeHostDesktopManagerImpl implements RuntimeHostDesktopManager {
         : target.hostId;
       if (
         rootId === profileTarget.profile.rootId &&
-        !(
-          isSessionGuestProfile(target.target.profile) &&
-          isSessionGuestProfile(profileTarget.profile)
-        )
+        !allowSameRoot &&
+        !isSessionGuestProfile(target.target.profile)
       ) {
         throw new Error(`Runtime Host ${profileTarget.profile.rootId} is already enabled`);
       }
@@ -514,7 +548,7 @@ class RuntimeHostDesktopManagerImpl implements RuntimeHostDesktopManager {
       readiness: 'connecting',
     });
     try {
-      target.lifecycle = await this.#startLifecycle(target, false);
+      target.lifecycle = await this.#startLifecycle(target, false, signal);
       if (this.#closed) {
         await target.lifecycle.close();
         throw new Error('Desktop Runtime Host manager is closed');
@@ -537,6 +571,16 @@ class RuntimeHostDesktopManagerImpl implements RuntimeHostDesktopManager {
 
   async disable(profileId: string): Promise<void> {
     return this.#mutateTarget(profileId, () => this.#disable(profileId));
+  }
+
+  unmountGuest(mountId: string): Promise<void> {
+    return this.#mutateTarget(mountId, async () => {
+      const target = this.#targets.get(mountId);
+      if (target && !isSessionGuestProfile(target.target.profile)) {
+        throw new Error('Runtime Host target is not a Session Guest mount');
+      }
+      await this.#disable(mountId);
+    });
   }
 
   async waitUntilReady(
@@ -757,6 +801,7 @@ class RuntimeHostDesktopManagerImpl implements RuntimeHostDesktopManager {
   async #startLifecycle(
     target: DesktopRuntimeHostTargetGeneration,
     reportInitialFailure: boolean,
+    initialSignal?: AbortSignal,
   ): Promise<RuntimeHostReconnectLifecycle<DesktopRuntimeHostCandidate>> {
     let starting = true;
     try {
@@ -764,7 +809,9 @@ class RuntimeHostDesktopManagerImpl implements RuntimeHostDesktopManager {
         connect: (signal) =>
           this.connect(
             target,
-            signal,
+            starting && initialSignal
+              ? AbortSignal.any([signal, initialSignal])
+              : signal,
             starting ? target.input.profileTarget?.sshInteraction : 'batch',
           ),
         onReconnectError: (error) => {
