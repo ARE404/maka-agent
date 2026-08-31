@@ -136,6 +136,8 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { ExternalSessionImportIpcResult } from './external-session-import-result.js';
 import type { DesktopSessionSummary } from '../shared/desktop-session-projection.js';
 import type {
+  SessionCollaborationCancelResult,
+  SessionCollaborationImportPhase,
   SessionCollaborationImportResult,
   SessionCollaborationMountSummary,
 } from '../shared/session-collaboration.js';
@@ -333,6 +335,10 @@ export interface DesktopRuntimeHostProfileSnapshot {
 export type DesktopSessionCollaborationImportResult = SessionCollaborationImportResult;
 
 export type DesktopGuestSessionMountSummary = SessionCollaborationMountSummary;
+
+export type DesktopSessionCollaborationImportPhase = SessionCollaborationImportPhase;
+
+export type DesktopSessionCollaborationCancelResult = SessionCollaborationCancelResult;
 
 export type DesktopSessionCollaborationPrepareResult =
   | {
@@ -574,6 +580,10 @@ export type DesktopRuntimeHostPeerMeshResult =
   | import('@maka/runtime-host/protocol').PeerMeshQueryResult
   | import('@maka/runtime-host/protocol').PeerMeshInvitationResult;
 
+export type DesktopRuntimeHostPeerMeshExecutionOutcome =
+  | { readonly kind: 'completed'; readonly result: DesktopRuntimeHostPeerMeshResult }
+  | { readonly kind: 'outcome_unknown' };
+
 type RuntimeHostUpdatePolicyResult = Extract<
   RuntimeHostServiceManagementFrame,
   { kind: 'result'; action: 'update_policy' }
@@ -705,7 +715,9 @@ export interface MakaBridge {
     importInvitation(input: {
       readonly code: string;
       readonly allowInsecure?: boolean;
-    }): Promise<DesktopSessionCollaborationImportResult>;
+      readonly operationId: string;
+    }, onProgress?: (phase: DesktopSessionCollaborationImportPhase) => void): Promise<DesktopSessionCollaborationImportResult>;
+    cancelImport(operationId: string): Promise<DesktopSessionCollaborationCancelResult>;
     listMounts(): Promise<readonly DesktopGuestSessionMountSummary[]>;
     removeMount(mountId: string): Promise<void>;
     requestTurn(
@@ -824,14 +836,14 @@ export interface MakaBridge {
     execute(
       target: DesktopRuntimeHostPeerMeshTarget,
       action: DesktopRuntimeHostPeerMeshAction,
-      input?: {
+      input: {
         readonly meshId?: string | null;
         readonly peerId?: string;
         readonly invitation?: string;
         readonly displayName?: string | null;
-        readonly operationId?: string;
+        readonly operationId: string;
       },
-    ): Promise<DesktopRuntimeHostPeerMeshResult>;
+    ): Promise<DesktopRuntimeHostPeerMeshExecutionOutcome>;
     cancel(operationId: string): Promise<void>;
   };
 

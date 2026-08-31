@@ -18,11 +18,15 @@
  */
 
 import type {
+  SessionCollaborationCancelResult,
+  SessionCollaborationImportPhase,
   SessionCollaborationImportResult,
   SessionCollaborationMountSummary,
 } from '../../../shared/session-collaboration.js';
 
 export type {
+  SessionCollaborationCancelResult,
+  SessionCollaborationImportPhase,
   SessionCollaborationImportResult,
   SessionCollaborationMountSummary,
 } from '../../../shared/session-collaboration.js';
@@ -31,7 +35,10 @@ export interface SessionCollaborationServices {
   importInvitation(input: {
     readonly code: string;
     readonly allowInsecure: boolean;
-  }): Promise<SessionCollaborationImportResult>;
+    readonly operationId: string;
+  }, onProgress?: (phase: SessionCollaborationImportPhase) => void): Promise<SessionCollaborationImportResult>;
+  cancelImport(operationId: string): Promise<SessionCollaborationCancelResult>;
   listMounts(): Promise<readonly SessionCollaborationMountSummary[]>;
   removeMount(mountId: string): Promise<void>;
+  createOperationId(): string;
 }
