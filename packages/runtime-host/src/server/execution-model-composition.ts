@@ -102,7 +102,7 @@ type HostExecutionRuntimePolicyAuthority = {
 
 type HostExecutionArtifactAuthority = Pick<
   InteractiveArtifactStoreWriter,
-  'create' | 'readDurableAttachmentBinary'
+  'create' | 'createOwned' | 'readDurableAttachmentBinary' | 'deleteOwnedArtifactInSession'
 >;
 
 type HostExecutionUsageAuthority = {
@@ -345,7 +345,11 @@ async function buildHostAiSdkBackend(
         );
       }
     : undefined;
-  const planProjectionImage = createReadImageSnapshotPlanner(input.artifacts);
+  const planProjectionImage = createReadImageSnapshotPlanner(
+    input.artifacts,
+    (sessionId, artifactId) =>
+      input.artifacts.deleteOwnedArtifactInSession(sessionId, artifactId, 'tool_result_projection'),
+  );
 
   try {
     return new HostAiSdkBackend(
@@ -441,6 +445,8 @@ async function buildHostAiSdkBackend(
         summarizeHistoryCompact,
         historyCompactRoute,
         recordHistoryCompactCheckpoint: input.context.recordHistoryCompactCheckpoint,
+        loadModelProjectionTransitions: input.context.loadModelProjectionTransitions,
+        recordModelProjectionTransition: input.context.recordModelProjectionTransition,
         loadTurnRuntimeEvents: input.context.loadTurnRuntimeEvents,
         allowMidTurnHistoryCompaction: input.context.allowMidTurnHistoryCompaction,
         recordRunTrace: input.context.recordRunTrace,

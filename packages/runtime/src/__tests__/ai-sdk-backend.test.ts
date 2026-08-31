@@ -18,6 +18,7 @@
  */
 
 import assert from 'node:assert/strict';
+import type { ModelProjectionTransition } from '@maka/core/model-projection-transition';
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
@@ -4454,6 +4455,7 @@ describe('AiSdkBackend model history', () => {
       bodySha256: string;
     }> = [];
     const oldResult = { body: 'x'.repeat(500) };
+    const transitions: ModelProjectionTransition[] = [];
     const backend = createTestAiSdkBackend({
       sessionId: 'session-1',
       header: header(),
@@ -4484,6 +4486,14 @@ describe('AiSdkBackend model history', () => {
           return { artifactId: `artifact-${event.runtimeEventId}` };
         },
       }),
+      loadModelProjectionTransitions: async () => ({
+        transitions: [...transitions],
+        unreadableTargets: new Set<string>(),
+        unscopedUnreadable: 0,
+      }),
+      recordModelProjectionTransition: async (transition) => {
+        transitions.push(transition);
+      },
     });
 
     await drain(
@@ -4531,119 +4541,6 @@ describe('AiSdkBackend model history', () => {
     assert.match(prompt, /"artifactId":"artifact-rt-result"/);
     assert.match(prompt, /"runtimeEventId":"rt-result"/);
     assert.equal(prompt.includes(oldResult.body), false);
-  });
-
-  test('preserves existing archive refs while adding newly archived refs', async () => {
-    const model = completionModel();
-    const existingResult = { body: 'EXISTING_ARCHIVE_REF_PAYLOAD'.repeat(20) };
-    const newResult = { body: 'NEW_ARCHIVE_REF_PAYLOAD'.repeat(20) };
-    const existingSerialized = JSON.stringify(existingResult);
-    const backend = createTestAiSdkBackend({
-      sessionId: 'session-1',
-      header: header(),
-      appendMessage: async () => {},
-      connection: connection(),
-      apiKey: 'sk-test',
-      modelId: 'mock-model-id',
-      modelFactory: () => model,
-      tools: [],
-      newId: idGenerator(),
-      now: monotonicClock(),
-      contextBudget: {
-        name: 'existing-archive-ref-test',
-        staleToolResultPrune: {
-          enabled: true,
-          maxResultEstimatedTokens: 1,
-          minRecentTurnsFull: 0,
-          archiveRefs: [
-            {
-              runtimeEventId: 'rt-result',
-              toolCallId: 'tool-1',
-              toolName: 'Read',
-              artifactId: 'artifact-existing-rt-result',
-              bodySha256: sha256(existingSerialized),
-              originalEstimatedTokens: existingSerialized.length,
-              originalBytes: utf8Bytes(existingSerialized),
-              rewriteVersion: ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
-              reason: 'stale_tool_result_pruned_before_compact',
-            },
-          ],
-        },
-        charsPerToken: 1,
-      },
-      toolResultArchive: testToolResultArchive({
-        archiveToolResult: async (event) =>
-          event.runtimeEventId === 'rt-new-result'
-            ? { artifactId: 'artifact-new-rt-result' }
-            : undefined,
-      }),
-    });
-
-    await drain(
-      backend.send({
-        turnId: 'turn-current',
-        text: 'current user',
-        context: [],
-        runtimeContext: [
-          runtimeEvent({
-            id: 'rt-call',
-            turnId: 'turn-prev',
-            role: 'model',
-            author: 'agent',
-            content: {
-              kind: 'function_call',
-              id: 'tool-1',
-              name: 'Read',
-              args: { path: 'package.json' },
-            },
-          }),
-          runtimeEvent({
-            id: 'rt-result',
-            turnId: 'turn-prev',
-            role: 'tool',
-            author: 'tool',
-            content: {
-              kind: 'function_response',
-              id: 'tool-1',
-              name: 'Read',
-              result: existingResult,
-              isError: false,
-            },
-          }),
-          runtimeEvent({
-            id: 'rt-new-call',
-            turnId: 'turn-new',
-            role: 'model',
-            author: 'agent',
-            content: {
-              kind: 'function_call',
-              id: 'tool-2',
-              name: 'Read',
-              args: { path: 'new.txt' },
-            },
-          }),
-          runtimeEvent({
-            id: 'rt-new-result',
-            turnId: 'turn-new',
-            role: 'tool',
-            author: 'tool',
-            content: {
-              kind: 'function_response',
-              id: 'tool-2',
-              name: 'Read',
-              result: newResult,
-              isError: false,
-            },
-          }),
-        ],
-      }),
-    );
-
-    const prompt = JSON.stringify(compactPrompt(model));
-    assert.match(prompt, /"artifactId":"artifact-existing-rt-result"/);
-    assert.match(prompt, /"artifactId":"artifact-new-rt-result"/);
-    assert.equal(prompt.includes(existingResult.body), false);
-    assert.equal(prompt.includes(newResult.body), false);
   });
 
   test('manual compactHistory writes a V2 checkpoint without the legacy artifact writer', async () => {
@@ -8704,6 +8601,7 @@ describe('AiSdkBackend usage telemetry', () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
     const largeBody = 'SECRET_PAYLOAD_SHOULD_BE_ARCHIVED'.repeat(200);
+    const archivedToolCallIds: string[] = [];
     let streamCalls = 0;
     const prompts: unknown[] = [];
     const model = new MockLanguageModelV4({
@@ -8747,17 +8645,35 @@ describe('AiSdkBackend usage telemetry', () => {
                     },
                   },
                 ]
-              : [
-                  { type: 'stream-start', warnings: [] },
-                  {
-                    type: 'finish',
-                    finishReason: { unified: 'stop', raw: 'stop' },
-                    usage: {
-                      inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
-                      outputTokens: { total: 1, text: 1, reasoning: 0 },
+              : streamCalls === 3
+                ? [
+                    { type: 'stream-start', warnings: [] },
+                    {
+                      type: 'tool-call',
+                      toolCallId: 'tool-3',
+                      toolName: 'Bash',
+                      input: JSON.stringify({ cmd: 'again' }),
                     },
-                  },
-                ];
+                    {
+                      type: 'finish',
+                      finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                      usage: {
+                        inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                        outputTokens: { total: 1, text: 1, reasoning: 0 },
+                      },
+                    },
+                  ]
+                : [
+                    { type: 'stream-start', warnings: [] },
+                    {
+                      type: 'finish',
+                      finishReason: { unified: 'stop', raw: 'stop' },
+                      usage: {
+                        inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                        outputTokens: { total: 1, text: 1, reasoning: 0 },
+                      },
+                    },
+                  ];
         return {
           stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
         };
@@ -8791,7 +8707,10 @@ describe('AiSdkBackend usage telemetry', () => {
         activeToolResultPrune: { enabled: true, maxCurrentResultEstimatedTokens: 1 },
       },
       toolResultArchive: testToolResultArchive({
-        archiveToolResult: async () => ({ artifactId: 'artifact-tool-1' }),
+        archiveToolResult: async (candidate) => {
+          archivedToolCallIds.push(candidate.toolCallId);
+          return { artifactId: `artifact-${candidate.toolCallId}` };
+        },
       }),
       loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
       newId: idGenerator(),
@@ -8811,7 +8730,7 @@ describe('AiSdkBackend usage telemetry', () => {
           contextBudget?: Record<string, unknown>;
         })
       | undefined;
-    assert.equal(streamCalls, 3);
+    assert.equal(streamCalls, 4);
     const secondPrompt = JSON.stringify(prompts[1]);
     assert.match(secondPrompt, /SECRET_PAYLOAD_SHOULD_BE_ARCHIVED/);
     assert.doesNotMatch(secondPrompt, /maka\.active_archived_tool_result/);
@@ -8819,8 +8738,17 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.doesNotMatch(thirdPrompt, /SECRET_PAYLOAD_SHOULD_BE_ARCHIVED/);
     assert.match(thirdPrompt, /artifact-tool-1/);
     assert.match(thirdPrompt, /NEWEST_RESULT_STAYS_VISIBLE/);
+    // Every later step rebuilds its prompt from the durable Turn ledger. The
+    // archive is durable, so the rebuild must fold it: a step that measured the
+    // raw body again would both resurrect it and archive it a second time.
+    const fourthPrompt = JSON.stringify(prompts[3]);
+    assert.doesNotMatch(fourthPrompt, /SECRET_PAYLOAD_SHOULD_BE_ARCHIVED/);
+    assert.match(fourthPrompt, /artifact-tool-1/);
+    // Each result is archived once, no matter how many later steps rebuild the
+    // Turn: the ledger, not a per-run memory, is what says it already happened.
+    assert.deepEqual(archivedToolCallIds, ['tool-1', 'tool-2']);
     for (const contextBudget of [usageMessage?.contextBudget, usageEvent?.contextBudget]) {
-      assert.equal(contextBudget?.activePrunedToolResults, 1);
+      assert.equal(contextBudget?.activePrunedToolResults, 2);
       assert.equal(contextBudget?.activeArchiveFailures, undefined);
       assert.ok(((contextBudget?.activeEstimatedTokensSaved as number | undefined) ?? 0) > 0);
     }

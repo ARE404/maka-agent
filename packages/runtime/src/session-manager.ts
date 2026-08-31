@@ -159,6 +159,8 @@ import { readLatestContextDiagnostics, type ContextDiagnostics } from './context
 import type { ModelCallCommit } from '@maka/core/agent-run';
 import type { ShellRunProcessManager } from './shell-run-manager.js';
 import type { HistoryCompactCheckpoint } from './history-compact-checkpoint.js';
+import type { ModelProjectionTransition } from '@maka/core/model-projection-transition';
+import type { LoadedModelProjectionTransitions } from './model-projection-transition-ledger.js';
 import type { AgentRunLineage, RuntimeContinuationFailpoint } from './agent-run.js';
 import type { RuntimeCommitResult, RuntimeCommitSink } from './runtime-commit-sink.js';
 import {
@@ -678,6 +680,17 @@ export interface BackendFactoryContext {
   loadHistoryCompactCheckpoint?: () => Promise<HistoryCompactCheckpoint | undefined>;
   recordHistoryCompactCheckpoint?: (
     checkpoint: HistoryCompactCheckpoint,
+    turnId: string,
+  ) => Promise<void>;
+  /**
+   * Session-scoped read of every committed model-projection transition (#4283).
+   * The reducer folds these onto the RuntimeEvent ledger, so a lossy rewrite
+   * survives the Turn that made it.
+   */
+  loadModelProjectionTransitions?: () => Promise<LoadedModelProjectionTransitions>;
+  /** Durable append for one transition; persistence precedes any model-visible loss. */
+  recordModelProjectionTransition?: (
+    transition: ModelProjectionTransition,
     turnId: string,
   ) => Promise<void>;
   /**

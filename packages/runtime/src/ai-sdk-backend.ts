@@ -1897,7 +1897,12 @@ export class AiSdkBackend implements AgentBackend {
             // the active-step shaper must see that growth so it can roll the
             // checkpoint forward instead of resurrecting raw history.
           }
-          const replayPlan = buildRuntimeEventModelReplayPlan(replayEvents, {
+          // The current Turn is model-visible history like any other, so it is
+          // folded through the same reducer before it becomes messages. Without
+          // this, a result archived at step N is rebuilt in full at step N+1 and
+          // the ledger's account of what the model sees stops being true.
+          const foldedReplayEvents = await this.compaction.foldEffectiveModelHistory(replayEvents);
+          const replayPlan = buildRuntimeEventModelReplayPlan(foldedReplayEvents, {
             toolActivityTurnIds: collectToolActivityTurnIds([
               ...(input.runtimeContext ?? []),
               ...turnEvents,
@@ -3380,9 +3385,20 @@ export class AiSdkBackend implements AgentBackend {
         diagnostics: [],
       };
     }
-    const priorRuntimeContext = input.runtimeContext.filter(
+    const rawPriorRuntimeContext = input.runtimeContext.filter(
       (event) => event.turnId !== input.turnId,
     );
+    // Everything below reads EFFECTIVE model history: raw events folded through
+    // the durable projection-transition reducer (#4283). Replay, budgeting and
+    // compaction share one input, so no RuntimeEvent replay path can resurrect
+    // content a committed transition removed. The StoredMessage projection used
+    // by the degraded fallbacks below is a separate representation that the fold
+    // does not reach — see #4283 for that remaining gap.
+    const preparedContextBudget = await this.compaction.prepareContextBudgetPolicy(
+      rawPriorRuntimeContext,
+      input.turnId,
+    );
+    const priorRuntimeContext = preparedContextBudget.events;
     const providerReasoningReplayEventIds = compatibleProviderReasoningReplayEventIds(
       priorRuntimeContext,
       input.runtimeContextRunHeaders,
@@ -3394,8 +3410,6 @@ export class AiSdkBackend implements AgentBackend {
       priorStored,
       buildSteeringSidecar(priorRuntimeContext),
     );
-    const preparedContextBudget =
-      await this.compaction.prepareContextBudgetPolicy(priorRuntimeContext);
     let contextBudget = preparedContextBudget.policy;
     const budgeted = applyRuntimeEventContextBudget(priorRuntimeContext, contextBudget);
     let runtimeContext = budgeted?.events ?? priorRuntimeContext;
