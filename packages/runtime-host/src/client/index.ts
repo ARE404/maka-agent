@@ -23,6 +23,11 @@ export {
   type ActivateRuntimeHostManagedDeploymentInput,
   type RuntimeHostManagedActivationErrorCode,
 } from './managed-activation.js';
+export {
+  decodeRuntimeHostWebRtcStunPolicy,
+  resolveRuntimeHostWebRtcStunUrls,
+  type RuntimeHostWebRtcStunPolicy,
+} from '../webrtc-stun-policy.js';
 export { openRuntimeHostManagedStdioBridge } from './managed-stdio-bridge.js';
 export {
   connectRuntimeHost,
