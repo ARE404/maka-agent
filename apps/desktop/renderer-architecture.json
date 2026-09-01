@@ -739,7 +739,7 @@
           "@maka/core/ui-locale": 1
         },
         "importSpecifiers": 11,
-        "nonTriviaTokens": 1267
+        "nonTriviaTokens": 1264
       },
       "src/renderer/app-shell-session-start-actions.ts": {
         "importDeclarations": 7,
@@ -4360,8 +4360,8 @@
           "./settings-status-badge.js": 1,
           "./subagent-preset-presentation.js": 1,
           "@astryxdesign/core": 1,
-          "@maka/core/llm-connections": 2,
-          "@maka/core/model-thinking": 2,
+          "@maka/core/llm-connections": 1,
+          "@maka/core/model-thinking": 1,
           "@maka/core/settings": 1,
           "@maka/core/subagent-settings": 1,
           "@maka/ui": 1,

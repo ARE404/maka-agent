@@ -28,13 +28,14 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { SHELL_RUN_UPDATE_BUFFER_MAX_ENTRIES } from '@maka/core/shell-run-result';
+import { resolveConnectionModelCatalog } from '@maka/core/model-catalog';
 import { type PermissionMode } from '@maka/core/permission';
 import { type OrchestrationMode } from '@maka/core/orchestration';
 import { type SessionEvent, type ShellRunUpdate } from '@maka/core/events';
 import { type SandboxBoundaryResponse } from '@maka/core/sandbox-boundary';
 import { type SessionSummary, type StoredMessage } from '@maka/core/session';
 import { type ThinkingLevel } from '@maka/core/model-thinking';
-import type { ConnectionCatalogSnapshot } from '@maka/core/runtime-policy';
+import type { RuntimeHostConnectionCatalogSnapshot as ConnectionCatalogSnapshot } from '@maka/runtime-host/client';
 import { type UserQuestionResponse } from '@maka/core/user-question';
 import type { SkillInvocationResult } from '@maka/core/skill-invocation';
 import type {
@@ -926,7 +927,6 @@ describe('Maka Pi TUI runner', () => {
       model: 'gpt-5.5',
       connectionId: 'connection-openai-1',
       connectionSlug: 'openai',
-      providerType: 'openai',
       permissionMode: 'bypass',
       terminal,
       onboarding: fakeOnboardingSurface({
@@ -1522,11 +1522,13 @@ describe('Maka Pi TUI runner', () => {
     resolveFirstSave(
       savedOnboardingResult([
         {
+          connectionId: 'connection-openai',
           connectionSlug: 'openai',
           connectionName: 'OpenAI',
           providerType: 'openai',
           model: 'gpt-5.5-new',
           isDefaultConnection: true,
+          thinkingLevels: [],
         },
       ]),
     );
@@ -3622,8 +3624,18 @@ describe('Maka Pi TUI runner', () => {
       cwd: '/repo',
       model: 'gpt-5',
       connectionSlug: 'openai',
-      providerType: 'openai',
       permissionMode: 'ask',
+      modelChoices: [
+        {
+          connectionId: 'connection-openai',
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5',
+          isDefaultConnection: true,
+          thinkingLevels: ['minimal', 'low', 'medium', 'high'],
+        },
+      ],
       terminal,
     });
 
@@ -3657,7 +3669,6 @@ describe('Maka Pi TUI runner', () => {
       model: 'gpt-5',
       models: ['gpt-5', 'gpt-5-mini'],
       connectionSlug: 'openai',
-      providerType: 'openai',
       permissionMode: 'ask',
       locale: 'zh',
       terminal,
@@ -3668,19 +3679,51 @@ describe('Maka Pi TUI runner', () => {
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('选择模型'));
     assert.match(plainTerminalOutput(terminal.screenOutput()), /↑↓ 选择 · Enter 确认 · Esc 关闭/u);
     terminal.input('\x1b');
+    exitMaka(terminal);
+    await run;
 
-    terminal.input('/thinking');
-    terminal.input('\r');
-    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('选择思考级别'));
-    assert.match(plainTerminalOutput(terminal.screenOutput()), /↑↓ 选择 · Enter 确认 · Esc 关闭/u);
+    // The thinking picker needs levels, and levels reach the TUI only on a
+    // model choice the Host resolved — a second runner supplies one.
+    const thinkingTerminal = new FakeTerminal();
+    const thinkingRun = runMakaPiTui({
+      title: 'Maka',
+      driver: new SlashCommandDriver(),
+      cwd: '/repo',
+      model: 'gpt-5',
+      connectionSlug: 'openai',
+      permissionMode: 'ask',
+      locale: 'zh',
+      modelChoices: [
+        {
+          connectionId: 'connection-openai',
+          connectionSlug: 'openai',
+          connectionName: 'OpenAI',
+          providerType: 'openai',
+          model: 'gpt-5',
+          isDefaultConnection: true,
+          thinkingLevels: ['minimal', 'low', 'medium', 'high'],
+        },
+      ],
+      terminal: thinkingTerminal,
+    });
+
+    thinkingTerminal.input('/thinking');
+    thinkingTerminal.input('\r');
+    await waitFor(() =>
+      plainTerminalOutput(thinkingTerminal.screenOutput()).includes('选择思考级别'),
+    );
+    assert.match(
+      plainTerminalOutput(thinkingTerminal.screenOutput()),
+      /↑↓ 选择 · Enter 确认 · Esc 关闭/u,
+    );
     assert.doesNotMatch(
-      plainTerminalOutput(terminal.screenOutput()),
+      plainTerminalOutput(thinkingTerminal.screenOutput()),
       /enter select \/ esc close/iu,
     );
 
-    terminal.input('\x1b');
-    exitMaka(terminal);
-    await run;
+    thinkingTerminal.input('\x1b');
+    exitMaka(thinkingTerminal);
+    await thinkingRun;
   });
 
   test('resumes a read-only session as Read only, and never marks Auto as current', async () => {
@@ -3744,7 +3787,6 @@ describe('Maka Pi TUI runner', () => {
       model: 'gpt-5.5',
       connectionId: 'connection-openai',
       connectionSlug: 'openai',
-      providerType: 'openai',
       locale: 'en',
       modelChoices: [
         {
@@ -3755,6 +3797,7 @@ describe('Maka Pi TUI runner', () => {
           model: 'gpt-5.5',
           displayName: 'GPT 5.5 Preview',
           isDefaultConnection: true,
+          thinkingLevels: [],
         },
         {
           connectionId: 'connection-zai',
@@ -3764,6 +3807,7 @@ describe('Maka Pi TUI runner', () => {
           model: 'glm-5.2',
           displayName: 'GLM 5.2',
           isDefaultConnection: false,
+          thinkingLevels: [],
         },
       ],
       permissionMode: 'ask',
@@ -3820,30 +3864,35 @@ describe('Maka Pi TUI runner', () => {
       // up in the status line — a dropped choice truly leaves the visible list.
       model: 'legacy-curated-out',
       connectionSlug: 'ghost',
-      providerType: 'openai',
       modelChoices: [
         {
+          connectionId: 'connection-alpha',
           connectionSlug: 'alpha',
           connectionName: 'Aurora',
           providerType: 'openai',
           model: 'gpt-5.5',
           displayName: 'GPT 5.5 Preview',
           isDefaultConnection: true,
+          thinkingLevels: [],
         },
         {
+          connectionId: 'connection-beta',
           connectionSlug: 'beta',
           connectionName: 'Boreal',
           providerType: 'zai',
           model: 'glm-max',
           displayName: 'GLM Max',
           isDefaultConnection: false,
+          thinkingLevels: [],
         },
         {
+          connectionId: 'connection-gamma',
           connectionSlug: 'gamma',
           connectionName: 'Crest',
           providerType: 'google',
           model: 'text-unicorn',
           isDefaultConnection: false,
+          thinkingLevels: [],
         },
       ],
       permissionMode: 'ask',
@@ -3869,7 +3918,7 @@ describe('Maka Pi TUI runner', () => {
     // label) and keeps only its matching choice. The fixture's three distinct
     // providers (openai / zai / google) let `zai` exercise the providerType
     // line alone (its label `Z.AI` is not a substring) and `gemini` exercise
-    // the PROVIDER_DEFAULTS label line alone (its type `google` is not), so
+    // the PROVIDER_REGISTRY label line alone (its type `google` is not), so
     // deleting either line would fail its assertion. Ctrl+U (deleteToLineStart)
     // clears the search field in one event so the next criterion starts from
     // the full list again.
@@ -3915,7 +3964,6 @@ describe('Maka Pi TUI runner', () => {
       model: 'gpt-5.5',
       connectionId: 'connection-openai',
       connectionSlug: 'openai',
-      providerType: 'openai',
       modelChoices: [
         {
           connectionId: 'connection-openai',
@@ -3924,6 +3972,7 @@ describe('Maka Pi TUI runner', () => {
           providerType: 'openai',
           model: 'gpt-5.5',
           isDefaultConnection: true,
+          thinkingLevels: [],
         },
         {
           connectionId: 'connection-openai',
@@ -3932,6 +3981,7 @@ describe('Maka Pi TUI runner', () => {
           providerType: 'openai',
           model: 'gpt-5.6',
           isDefaultConnection: true,
+          thinkingLevels: [],
         },
       ],
       permissionMode: 'ask',
@@ -3973,7 +4023,6 @@ describe('Maka Pi TUI runner', () => {
       model: 'shared-model',
       connectionId: 'connection-primary',
       connectionSlug: 'primary',
-      providerType: 'openai',
       modelChoices: [
         {
           connectionId: 'connection-primary',
@@ -3982,6 +4031,7 @@ describe('Maka Pi TUI runner', () => {
           providerType: 'openai',
           model: 'shared-model',
           isDefaultConnection: true,
+          thinkingLevels: [],
         },
         {
           connectionId: 'connection-relay',
@@ -3990,6 +4040,7 @@ describe('Maka Pi TUI runner', () => {
           providerType: 'openai',
           model: 'shared-model',
           isDefaultConnection: false,
+          thinkingLevels: [],
         },
       ],
       permissionMode: 'ask',
@@ -4036,6 +4087,16 @@ describe('Maka Pi TUI runner', () => {
           providerType: 'openai',
           enabled: true,
           enabledModelIds: ['shared-model'],
+          // The Host resolves the catalog before projecting it, and the picker
+          // offers what those entries say. A bare `[]` describes a snapshot no
+          // Host produces for an enabled model.
+          catalogEntries: resolveConnectionModelCatalog({
+            slug: 'openai',
+            providerType: 'openai',
+            defaultModel: '',
+            enabledModelIds: ['shared-model'],
+            models: [{ id: 'shared-model' }],
+          }),
           models: [{ id: 'shared-model' }],
         },
         {
@@ -4046,6 +4107,16 @@ describe('Maka Pi TUI runner', () => {
           providerType: 'openai',
           enabled: true,
           enabledModelIds: ['shared-model'],
+          // The Host resolves the catalog before projecting it, and the picker
+          // offers what those entries say. A bare `[]` describes a snapshot no
+          // Host produces for an enabled model.
+          catalogEntries: resolveConnectionModelCatalog({
+            slug: 'openai',
+            providerType: 'openai',
+            defaultModel: '',
+            enabledModelIds: ['shared-model'],
+            models: [{ id: 'shared-model' }],
+          }),
           models: [{ id: 'shared-model' }],
         },
       ],
@@ -4057,7 +4128,6 @@ describe('Maka Pi TUI runner', () => {
       cwd: '/repo',
       model: 'shared-model',
       connectionSlug: 'openai',
-      providerType: 'openai',
       modelChoices,
       permissionMode: 'ask',
       terminal,
@@ -4095,18 +4165,22 @@ describe('Maka Pi TUI runner', () => {
       [
         ...modelChoiceConnectionLabels([
           {
+            connectionId: 'connection-a',
             connectionSlug: 'openai',
             connectionName: 'openai-2',
             providerType: 'openai',
             model: 'model-a',
             isDefaultConnection: true,
+            thinkingLevels: [],
           },
           {
+            connectionId: 'connection-b',
             connectionSlug: 'openai-2',
             connectionName: '   ',
             providerType: 'openai',
             model: 'model-b',
             isDefaultConnection: false,
+            thinkingLevels: [],
           },
         ]),
       ],
@@ -4126,6 +4200,7 @@ describe('Maka Pi TUI runner', () => {
         providerType: 'openai',
         model: 'model-a',
         isDefaultConnection: true,
+        thinkingLevels: [],
       },
       {
         connectionId: 'connection-b',
@@ -4134,6 +4209,7 @@ describe('Maka Pi TUI runner', () => {
         providerType: 'openai',
         model: 'model-b',
         isDefaultConnection: false,
+        thinkingLevels: [],
       },
       {
         connectionId: 'connection-c',
@@ -4142,6 +4218,7 @@ describe('Maka Pi TUI runner', () => {
         providerType: 'openai',
         model: 'model-c',
         isDefaultConnection: false,
+        thinkingLevels: [],
       },
     ]);
 
@@ -7809,6 +7886,7 @@ describe('Maka Pi TUI runner', () => {
           providerType: 'openrouter',
           model: legacy.model,
           isDefaultConnection: true,
+          thinkingLevels: [],
         },
       ],
       permissionMode: 'ask',
@@ -7858,6 +7936,7 @@ describe('Maka Pi TUI runner', () => {
           providerType: 'openai',
           model: 'shared-model',
           isDefaultConnection: true,
+          thinkingLevels: [],
         },
       ],
       permissionMode: 'ask',
@@ -7900,6 +7979,7 @@ describe('Maka Pi TUI runner', () => {
       providerType: 'openai',
       model: 'gpt-5.5',
       isDefaultConnection: true,
+      thinkingLevels: [],
     };
     const saveCalls: OnboardingSaveInput[] = [];
     const run = runMakaPiTui({
@@ -7910,7 +7990,6 @@ describe('Maka Pi TUI runner', () => {
       model: 'claude-sonnet-4-5',
       connectionId: 'connection-a',
       connectionSlug: 'existing-account',
-      providerType: 'anthropic',
       connectionIdentities: [
         { connectionId: 'connection-a', connectionSlug: 'existing-account', enabled: true },
       ],
@@ -7922,6 +8001,7 @@ describe('Maka Pi TUI runner', () => {
           providerType: 'anthropic',
           model: 'claude-sonnet-4-5',
           isDefaultConnection: true,
+          thinkingLevels: [],
         },
       ],
       permissionMode: 'ask',

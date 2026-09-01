@@ -33,11 +33,7 @@ import {
   type Terminal,
 } from '@earendil-works/pi-tui';
 import type { PermissionMode } from '@maka/core/permission';
-import {
-  isThinkingLevel,
-  thinkingVariantsForModel,
-  type ThinkingLevel,
-} from '@maka/core/model-thinking';
+import { isThinkingLevel, type ThinkingLevel } from '@maka/core/model-thinking';
 import { type ModelInfo, type ProviderType } from '@maka/core/llm-connections';
 import type { OrchestrationMode } from '@maka/core/orchestration';
 import type {
@@ -198,7 +194,6 @@ export interface MakaPiTuiInput {
   connectionId?: string;
   connectionIdentities?: readonly ConnectionIdentity[];
   connectionSlug: string;
-  providerType?: ProviderType;
   permissionMode: PermissionMode;
   /** Maximum context tokens for the active model, for the statusline ctx segment. */
   modelContextWindow?: number;
@@ -441,21 +436,17 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let model = input.model;
   let connectionId = input.connectionId;
   let connectionSlug = input.connectionSlug;
-  // Mutable: a cross-connection /model switch rebinds the provider, which changes
-  // both the connection and the thinking variants the new model supports.
-  let providerType = input.providerType;
   let modelContextWindow = input.modelContextWindow;
   let permissionMode = input.permissionMode;
   let orchestrationMode = input.driver.getOrchestrationMode?.() ?? 'default';
   let thinkingLevel: ThinkingLevel | undefined = undefined;
-  // The boot connection's declared capabilities win (an openai-compatible
-  // relay can declare relayModelProfiles[model].thinkingLevels). The
-  // providerType+model metadata variant is the fallback for modelChoices-free
-  // embeddings of the runner.
+  // The Host resolved these when it projected the choice — including a relay's
+  // declared `relayModelProfiles[model].thinkingLevels`. A model no choice
+  // describes offers none rather than a locally guessed list.
   let thinkingLevels: readonly ThinkingLevel[] =
     input.modelChoices?.find(
       (choice) => choice.connectionSlug === connectionSlug && choice.model === model,
-    )?.thinkingLevels ?? (providerType ? thinkingVariantsForModel(providerType, model) : []);
+    )?.thinkingLevels ?? [];
   let sessionListScope: 'current' | 'all' = input.sessionListScope ?? 'current';
   let connectionIdentityNotice: string | undefined;
   let busy = false;
@@ -1536,17 +1527,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       state.entries.push({ kind: 'notice', level: 'error', text: identityNotice });
     }
     connectionIdentityNotice = identityNotice;
-    const matchingChoice = modelChoices?.find(
-      (choice) =>
-        choice.connectionId === summary.llmConnectionId &&
-        choice.connectionSlug === summary.llmConnectionSlug,
-    );
-    providerType =
-      matchingChoice?.providerType ??
-      (previousConnectionId === summary.llmConnectionId &&
-      previousConnectionSlug === summary.llmConnectionSlug
-        ? providerType
-        : undefined);
     const contextWindowMatch = modelChoices?.find(
       (choice) =>
         choice.connectionId === summary.llmConnectionId &&
@@ -1565,12 +1545,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     permissionMode = input.driver.getPermissionMode?.() ?? summary.permissionMode;
     orchestrationMode = summary.orchestrationMode ?? 'default';
     thinkingLevel = summary.thinkingLevel;
-    // Choice-first: a relay model's user-declared levels live on the ModelChoice;
-    // the metadata fallback serves providers whose variants derive from the
-    // model id alone.
-    thinkingLevels =
-      contextWindowMatch?.thinkingLevels ??
-      (providerType ? thinkingVariantsForModel(providerType, summary.model) : []);
+    thinkingLevels = contextWindowMatch?.thinkingLevels ?? [];
     refreshEditorCwd?.(cwd);
   };
 
@@ -1595,9 +1570,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     );
     if (match) modelContextWindow = match.contextWindow;
     thinkingLevel = undefined;
-    thinkingLevels =
-      match?.thinkingLevels ??
-      (providerType ? thinkingVariantsForModel(providerType, nextModel) : []);
+    thinkingLevels = match?.thinkingLevels ?? [];
     state.entries.push({
       kind: 'notice',
       level: 'info',
@@ -1616,9 +1589,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     ) {
       return;
     }
-    if (!choice.connectionId) {
-      throw new Error('Model choice is missing its exact Connection identity');
-    }
     const previousModel = transcriptLastUsedModel ?? model;
     const previousConnectionSlug = connectionSlug;
     const connectionLabels = modelChoiceConnectionLabels(modelChoices ?? [choice]);
@@ -1626,11 +1596,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     model = choice.model;
     connectionId = choice.connectionId;
     connectionSlug = choice.connectionSlug;
-    providerType = choice.providerType;
     modelContextWindow = choice.contextWindow;
     thinkingLevel = undefined;
-    thinkingLevels =
-      choice.thinkingLevels ?? thinkingVariantsForModel(choice.providerType, choice.model);
+    thinkingLevels = choice.thinkingLevels;
     state.entries.push({
       kind: 'notice',
       level: 'info',
@@ -2235,7 +2203,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         apiKey: wizardApiKey,
         baseUrl: wizardBaseUrl,
         enabledModelIds,
-        models: wizardModels,
       })
       .then(
         (result) => {
