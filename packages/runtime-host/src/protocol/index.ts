@@ -100,7 +100,11 @@ export const RUNTIME_HOST_REGISTRATION_SCHEMA_VERSION = 1 as const;
 export const RUNTIME_HOST_PROTOCOL_VERSION = 0 as const;
 // Increment when the same protocol version no longer guarantees safe Client-Host
 // interoperability. Mismatches are rejected before domain commands are admitted.
-export const RUNTIME_HOST_COMPATIBILITY_EPOCH = 92 as const;
+export const RUNTIME_HOST_COMPATIBILITY_EPOCH = 93 as const;
+// 93: Configuration credential transfer binds proxy destinations and
+// Connection credentials to exact Host-owned targets before secret access.
+// Proxy policy and credentials commit through one recoverable Host command;
+// older peers can split the writes and violate the shared credential basis.
 // 92: Owners can query their complete pending Session Turn-request inbox.
 // 91: Host status publishes the live Direct peer endpoint so newly issued
 // connection invitations do not preserve stale startup routes.
