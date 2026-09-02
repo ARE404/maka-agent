@@ -376,14 +376,14 @@ test('repairs an existing managed Host with the current setup package and restar
   assert.deepEqual(actions, ['update', 'restart']);
 });
 
-test('replaces a conflicting supervised Host through canonical authority without a receipt', async (t) => {
+test('replaces a conflicting supervised Host with the requested active-work policy', async (t) => {
   const base = await mkdtemp(join(tmpdir(), 'maka-local-managed-conflict-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const clientDataRoot = join(base, 'client');
   const rootPath = join(clientDataRoot, 'workspaces', 'default');
   const rootId = 'a'.repeat(64);
   await mkdir(rootPath, { recursive: true });
-  let updated = false;
+  const policies: Array<boolean | undefined> = [];
   const service = createDesktopLocalRuntimeHostRemoteAccess({
     ipcMain: { handle() {}, removeHandler() {} },
     clientDataRoot,
@@ -413,8 +413,21 @@ test('replaces a conflicting supervised Host through canonical authority without
         assert.equal(input.target.rootId, rootId);
         assert.equal(input.target.deploymentId, RECOVERY_DEPLOYMENT_ID);
         assert.deepEqual(input.expectedHost, { hostEpoch: 'older-host', pid: 42 });
-        assert.equal(input.allowInterruptActiveTasks, true);
-        updated = true;
+        policies.push(input.allowInterruptActiveTasks);
+        if (!input.allowInterruptActiveTasks) {
+          return {
+            kind: 'error' as const,
+            action: 'update' as const,
+            error: { code: 'active_tasks', message: 'active work remains' },
+          } as never;
+        }
+        if (policies.length === 3) {
+          return {
+            kind: 'result' as const,
+            action: 'update' as const,
+            update: { kind: 'already_current', version: '0.2.0' },
+          } as never;
+        }
         return {
           kind: 'result' as const,
           action: 'update' as const,
@@ -431,8 +444,13 @@ test('replaces a conflicting supervised Host through canonical authority without
     new AbortController().signal,
   );
   assert.ok(replacement);
-  await replacement.replace();
-  assert.equal(updated, true);
+  assert.equal(await replacement.replace('refuse_active_work'), 'active_tasks');
+  assert.equal(await replacement.replace('interrupt_active_work'), 'replaced');
+  await assert.rejects(
+    replacement.replace('interrupt_active_work'),
+    /did not replace the observed Host/u,
+  );
+  assert.deepEqual(policies, [undefined, true, true]);
 });
 
 test('does not persist recoverable setup authority before Desktop ownership commits', async (t) => {

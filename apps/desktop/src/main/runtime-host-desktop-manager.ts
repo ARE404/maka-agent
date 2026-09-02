@@ -36,7 +36,11 @@ import {
   type RuntimeHostRetirementMode,
   type RuntimeHostSshInteraction,
 } from '@maka/runtime-host/client';
-import type { HostRegistration, HostStatusResult } from '@maka/runtime-host/protocol';
+import {
+  isHostActivityIdle,
+  type HostRegistration,
+  type HostStatusResult,
+} from '@maka/runtime-host/protocol';
 import type { DesktopTargetSessionRef } from '../shared/runtime-host-identity.js';
 import {
   startDesktopRuntimeHostCandidate,
@@ -147,14 +151,13 @@ export class DesktopLocalHostRetirementError extends Error {
 
 export type RuntimeHostRestartDecision = 'restart' | 'wait' | 'cancel';
 export type RuntimeHostNonRestartableDecision = 'replace' | 'wait' | 'cancel';
-
-export interface RuntimeHostNonRestartableActions {
-  readonly canReplace: boolean;
-  readonly canWait: boolean;
-}
+export type RuntimeHostNonRestartableAction =
+  | 'replace_may_interrupt_work'
+  | 'wait'
+  | 'cancel_only';
 
 export interface RuntimeHostLocalReplacement {
-  replace(): Promise<void>;
+  replace(activeWorkPolicy: RuntimeHostRetirementMode): Promise<'replaced' | 'active_tasks'>;
 }
 
 export class RuntimeHostUpgradeCancelledError extends RuntimeHostPermanentReconnectError {
@@ -191,7 +194,7 @@ export interface RuntimeHostUpgradePrompts {
   ): Promise<RuntimeHostRestartDecision>;
   nonRestartable(
     conflict: RuntimeHostWaitConflict,
-    actions: RuntimeHostNonRestartableActions,
+    action: RuntimeHostNonRestartableAction,
   ): Promise<RuntimeHostNonRestartableDecision>;
 }
 
@@ -922,10 +925,7 @@ class RuntimeHostDesktopManagerImpl implements RuntimeHostDesktopManager {
       if (result.kind === 'upgrade_required' && result.restartable) {
         const activity = result.handshake?.activity;
         const decision =
-          activity &&
-          activity.connections === 0 &&
-          activity.activeOperations === 0 &&
-          activity.residencies.length === 0
+          activity && isHostActivityIdle(activity)
             ? 'restart'
             : await this.#resolveRestartable(result);
         if (decision === 'cancel') {
@@ -946,11 +946,26 @@ class RuntimeHostDesktopManagerImpl implements RuntimeHostDesktopManager {
         const replacement = target.input.profileTarget
           ? undefined
           : await this.resolveLocalHostReplacement?.(result.registration, signal);
-        const decision = await this.#resolveNonRestartable(result, {
-          canReplace: replacement !== undefined,
-          canWait:
-            replacement === undefined && result.registration.lifecycleMode !== 'service',
-        });
+        const activity = result.handshake?.activity;
+        if (replacement && activity && isHostActivityIdle(activity)) {
+          // Only a complete, observed snapshot can authorize silent
+          // replacement. The replacement transaction closes races with new
+          // operations; an absent snapshot requires explicit consent because
+          // it cannot prove that other clients are disconnected.
+          const attempt = await replacement.replace('refuse_active_work');
+          if (attempt === 'replaced') {
+            takeoverHostEpoch = undefined;
+            continue;
+          }
+        }
+        // The retirement waiter observes a local PID. Remote targets cannot
+        // use it to prove that a Host on another machine has exited.
+        const action: RuntimeHostNonRestartableAction = replacement
+          ? 'replace_may_interrupt_work'
+          : target.input.profileTarget
+            ? 'cancel_only'
+            : 'wait';
+        const decision = await this.#resolveNonRestartable(result, action);
         if (decision === 'cancel') throw new RuntimeHostUpgradeCancelledError();
         if (decision === 'replace') {
           if (!replacement) {
@@ -958,7 +973,12 @@ class RuntimeHostDesktopManagerImpl implements RuntimeHostDesktopManager {
               'This Runtime Host cannot be replaced from the current target',
             );
           }
-          await replacement.replace();
+          const replaced = await replacement.replace('interrupt_active_work');
+          if (replaced === 'active_tasks') {
+            throw new RuntimeHostPermanentReconnectError(
+              'This Runtime Host still owns work that cannot be interrupted safely',
+            );
+          }
           takeoverHostEpoch = undefined;
           continue;
         }
@@ -980,9 +1000,9 @@ class RuntimeHostDesktopManagerImpl implements RuntimeHostDesktopManager {
 
   #resolveNonRestartable(
     conflict: RuntimeHostWaitConflict,
-    actions: RuntimeHostNonRestartableActions,
+    action: RuntimeHostNonRestartableAction,
   ): Promise<RuntimeHostNonRestartableDecision> {
-    if (this.upgradePrompts) return this.upgradePrompts.nonRestartable(conflict, actions);
+    if (this.upgradePrompts) return this.upgradePrompts.nonRestartable(conflict, action);
     return this.#missingUpgradePrompt();
   }
 
