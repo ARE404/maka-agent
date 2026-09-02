@@ -307,6 +307,7 @@ test('pull request triggers stay on an explicit allowlist', () => {
     'dependency-audit.yml',
     'gitoxide-helper-admission.yml',
     'pr-effort-label.yml',
+    'release-linux-check.yml',
     'release-windows-check.yml',
     'runtime-host-owner-platform.yml',
     'runtime-host-peer-admission.yml',
@@ -590,6 +591,16 @@ test('the packaged Windows gate triggers on release orchestration changes', () =
   assert.match(workflow, /'\.github\/workflows\/release\.yml'/u);
 });
 
+test('the packaged Windows gate never spells the installer it built', () => {
+  // `scripts/desktop-release-targets.mjs` names every distributable. This lane
+  // hands the architecture to `verify:windows-x64`, which reads the descriptor,
+  // and discovers the one packaged `.exe` for the steps that need a path.
+  const workflow = readWorkflow('release-windows-check.yml');
+
+  assert.doesNotMatch(workflow, /win-x64\.exe/u);
+  assert.match(workflow, /exes=\(apps\/desktop\/release\/\*\.exe\)/u);
+});
+
 test('the packaged Windows gate workflow is itself a release-contract input', () => {
   assert.equal(planTests(['.github/workflows/release-windows-check.yml']).releaseContract, true);
   assert.match(
@@ -609,6 +620,21 @@ test('the packaged Windows gate triggers on the worker copy step it cannot impor
       "      - 'apps/desktop/scripts/copy-runtime-filesystem-worker.mjs'",
     ),
   );
+});
+
+test('the packaged Linux gate verifies under a virtual display', () => {
+  // The last thing `verify:linux` does is launch the extracted AppImage's
+  // renderer over CDP. A headless runner has no display, so a step that dropped
+  // `xvfb-run` would fail the lane at its slowest point.
+  const runs =
+    readWorkflow('release-linux-check.yml')
+      .replaceAll(/^[ \t]*#.*$/gmu, '')
+      .match(/^[ \t]*run: .*npm run verify:linux.*$/gmu) ?? [];
+
+  assert.equal(runs.length, 1);
+  for (const run of runs) {
+    assert.match(run, /run: xvfb-run\b/u, run);
+  }
 });
 
 test('pull-request and release lanes share the packaged sandbox lifecycle verifier', () => {
