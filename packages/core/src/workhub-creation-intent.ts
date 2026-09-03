@@ -101,8 +101,15 @@ const NAMED_CREATION_TITLE_INTRODUCER =
 const LEADING_CORRECTION_SEPARATOR = /^[\s,.;:!?，。；：！？—–-]+/u;
 const DIRECT_STOP_REQUEST =
   /^\s*(?:(?:please|kindly)\s+)?(?:stop|cancel|terminate|halt)\s+(?:(?:the|this)\s+)?(?:(?:session|work|task|job)\s+)?(.+?)\s*[.!。！]?\s*$/iu;
+// `停掉` and `停下` are the spoken forms of `停止`, as ordinary as the written
+// one. Without them `停掉支付任务` was not a stop at all, so the words were
+// delivered to Payments as new work — the opposite of what was asked. English
+// covers its own colloquial range with stop/cancel/terminate/halt; this is the
+// same range, not a wider claim. `关掉` stays out: it reads as "switch off",
+// which is usually work to do inside a Session, and English admits no
+// equivalent either.
 const DIRECT_CHINESE_STOP_REQUEST =
-  /^\s*(?:(?:请|请帮我|帮我|麻烦你?)\s*)?(?:停止|取消|终止|中止)\s*(?:(?:这个|该)?(?:会话|工作|任务)\s*)?(.+?)\s*[。！]?\s*$/iu;
+  /^\s*(?:(?:请|请帮我|帮我|麻烦你?)\s*)?(?:停止|停掉|停下|取消|终止|中止)\s*(?:(?:这个|该)?(?:会话|工作|任务)\s*)?(.+?)\s*[。！]?\s*$/iu;
 const UNSAFE_STOP_TARGET =
   /^(?:it|this|that|one|everything|all|current|session|work|task|job|(?:this|that|current)\s+(?:session|work|task|job)|它|这个|那个|全部|当前|会话|工作|任务|(?:这个|那个|当前)(?:会话|工作|任务))$/iu;
 
