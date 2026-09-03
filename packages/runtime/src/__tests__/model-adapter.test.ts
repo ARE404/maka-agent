@@ -555,7 +555,7 @@ describe('ModelAdapter stream and error normalization', () => {
       } as Chunk),
       [
         {
-          kind: 'text-metadata',
+          kind: 'text-end',
           providerOptions: {
             openai: {
               itemId: 'message-1',
@@ -572,6 +572,77 @@ describe('ModelAdapter stream and error normalization', () => {
           },
         },
       ],
+    );
+  });
+
+  test('preserves native Responses item boundaries and terminal metadata', () => {
+    const adapter = new ModelAdapter({
+      connection: {
+        slug: 'openai',
+        providerType: 'openai',
+        defaultModel: 'gpt-5',
+      },
+      apiKey: 'sk-test',
+      modelId: 'gpt-5',
+      modelFactory: () => ({}),
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    const metadata = {
+      openai: {
+        itemId: 'message-1',
+        phase: 'commentary',
+      },
+    };
+
+    assert.deepEqual(
+      adapter.translateChunk({
+        type: 'text-start',
+        id: 'message-1',
+        providerMetadata: metadata,
+      }),
+      [{ kind: 'text-start', providerItemBoundary: true }],
+    );
+    assert.deepEqual(
+      adapter.translateChunk({
+        type: 'text-end',
+        id: 'message-1',
+        providerMetadata: metadata,
+      }),
+      [{ kind: 'text-end', providerOptions: metadata, providerItemBoundary: true }],
+    );
+  });
+
+  test('does not treat Chat Completions metadata as a Responses item boundary', () => {
+    const adapter = new ModelAdapter({
+      connection: {
+        slug: 'openai-chat',
+        providerType: 'openai-compatible',
+        defaultModel: 'chat-model',
+      },
+      apiKey: 'sk-test',
+      modelId: 'chat-model',
+      modelFactory: () => ({}),
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    const metadata = { openai: { itemId: 'message-1', phase: 'commentary' } };
+
+    assert.deepEqual(
+      adapter.translateChunk({
+        type: 'text-start',
+        id: 'message-1',
+        providerMetadata: metadata,
+      }),
+      [{ kind: 'text-start' }],
+    );
+    assert.deepEqual(
+      adapter.translateChunk({
+        type: 'text-end',
+        id: 'message-1',
+        providerMetadata: metadata,
+      }),
+      [{ kind: 'text-end', providerOptions: metadata }],
     );
   });
 

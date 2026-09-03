@@ -785,7 +785,7 @@
           "react": 1
         },
         "importSpecifiers": 18,
-        "nonTriviaTokens": 1410
+        "nonTriviaTokens": 1408
       },
       "src/renderer/app-shell.tsx": {
         "importDeclarations": 102,

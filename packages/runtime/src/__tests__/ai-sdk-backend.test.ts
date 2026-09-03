@@ -10057,6 +10057,97 @@ describe('AiSdkBackend RunTrace', () => {
     assert.equal(typeof failureTrace?.data?.redactedErrorStackSha256, 'string');
   });
 
+  test('retries an idle watchdog timeout after an unstarted Responses text item', async () => {
+    const timers = manualWatchdogTimer();
+    let calls = 0;
+    const appended: StoredMessage[] = [];
+    const model = new MockLanguageModelV4({
+      doStream: async (options) => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            stream: hangingProviderStream(
+              [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'text-start',
+                  id: 'text-1',
+                  providerMetadata: {
+                    openai: { itemId: 'message-item-1', phase: 'commentary' },
+                  },
+                },
+              ],
+              options.abortSignal,
+            ),
+          };
+        }
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start', warnings: [] },
+              { type: 'text-start', id: 'text-2' },
+              { type: 'text-delta', id: 'text-2', delta: 'recovered' },
+              { type: 'text-end', id: 'text-2' },
+              {
+                type: 'finish',
+                finishReason: { unified: 'stop', raw: 'stop' },
+                usage: emptyUsage(),
+              },
+            ],
+            initialDelayInMs: null,
+            chunkDelayInMs: null,
+          }),
+        };
+      },
+    });
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (message) => {
+        appended.push(message);
+      },
+      connection: {
+        ...connection(),
+        slug: 'openai',
+        providerType: 'openai',
+        models: [{ id: 'gpt-5.6', apiProtocol: 'openai-responses' }],
+      },
+      apiKey: 'sk-test',
+      modelId: 'gpt-5.6',
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      streamWatchdogTimer: timers.clock,
+      providerRetrySleep: async () => {},
+    });
+
+    const events: SessionEvent[] = [];
+    const eventsPromise = collectEvents(
+      backend.send({ turnId: 'turn-1', text: 'hi', context: [] }),
+      events,
+    );
+    await waitFor(() => calls === 1 && timers.armCount() >= 3);
+    timers.fire();
+    await eventsPromise;
+
+    assert.equal(calls, 2);
+    assert.equal(
+      events.some((event) => event.type === 'provider_retry' && event.phase === 'started'),
+      true,
+    );
+    assert.equal(
+      events.some((event) => event.type === 'error'),
+      false,
+    );
+    assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'end_turn');
+    const recovered = appended.find(
+      (message): message is AssistantMessage => message.type === 'assistant',
+    );
+    assert.equal(recovered?.text, 'recovered');
+    assert.equal(recovered?.providerOptions, undefined);
+  });
+
   test('does not retry an idle watchdog timeout after provider continuation metadata', async () => {
     const timers = manualWatchdogTimer();
     let calls = 0;
@@ -14904,6 +14995,7 @@ describe('AiSdkBackend steering durability and identity', () => {
       (message): message is AssistantMessage => message.type === 'assistant',
     );
     assert.equal(assistant?.text, 'OneTwo');
+    assert.equal(assistant?.contentOrder, undefined);
     assert.deepEqual(assistant?.providerOptions, {
       openai: {
         annotations: [
@@ -14912,6 +15004,187 @@ describe('AiSdkBackend steering durability and identity', () => {
         ],
       },
     });
+  });
+
+  test('preserves native Responses text item boundaries as separate assistant messages', async () => {
+    const model = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: 'stream-start', warnings: [] },
+            {
+              type: 'text-start',
+              id: 'text-1',
+              providerMetadata: {
+                openai: { itemId: 'message-1', phase: 'commentary' },
+              },
+            },
+            { type: 'text-delta', id: 'text-1', delta: 'I am checking it.' },
+            {
+              type: 'text-end',
+              id: 'text-1',
+              providerMetadata: {
+                openai: { itemId: 'message-1', phase: 'commentary' },
+              },
+            },
+            {
+              type: 'text-start',
+              id: 'text-2',
+              providerMetadata: {
+                openai: { itemId: 'message-2', phase: 'final_answer' },
+              },
+            },
+            { type: 'text-delta', id: 'text-2', delta: 'It is ready.' },
+            {
+              type: 'text-end',
+              id: 'text-2',
+              providerMetadata: {
+                openai: { itemId: 'message-2', phase: 'final_answer' },
+              },
+            },
+            {
+              type: 'finish',
+              finishReason: { unified: 'stop', raw: 'stop' },
+              usage: emptyUsage(),
+            },
+          ] as LanguageModelV4StreamPart[],
+          initialDelayInMs: null,
+          chunkDelayInMs: null,
+        }),
+      }),
+    });
+    const appended: StoredMessage[] = [];
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (message) => {
+        appended.push(message);
+      },
+      connection: {
+        ...connection(),
+        slug: 'openai',
+        providerType: 'openai',
+        defaultModel: 'gpt-5',
+      },
+      apiKey: 'sk-test',
+      modelId: 'gpt-5',
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({ turnId: 'turn-1', text: 'inspect it', context: [] }));
+
+    assert.deepEqual(
+      appended
+        .filter((message): message is AssistantMessage => message.type === 'assistant')
+        .map((message) => ({
+          text: message.text,
+          providerOptions: message.providerOptions,
+        })),
+      [
+        {
+          text: 'I am checking it.',
+          providerOptions: {
+            openai: { itemId: 'message-1', phase: 'commentary' },
+          },
+        },
+        {
+          text: 'It is ready.',
+          providerOptions: {
+            openai: { itemId: 'message-2', phase: 'final_answer' },
+          },
+        },
+      ],
+    );
+  });
+
+  test('does not carry metadata from an empty Responses text item into the next item', async () => {
+    const model = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: simulateReadableStream({
+          chunks: [
+            { type: 'stream-start', warnings: [] },
+            {
+              type: 'text-start',
+              id: 'text-empty',
+              providerMetadata: {
+                openai: { itemId: 'message-empty', phase: 'commentary' },
+              },
+            },
+            {
+              type: 'text-end',
+              id: 'text-empty',
+              providerMetadata: {
+                openai: { itemId: 'message-empty', phase: 'commentary' },
+              },
+            },
+            {
+              type: 'text-start',
+              id: 'text-final',
+              providerMetadata: {
+                openai: { itemId: 'message-final', phase: 'final_answer' },
+              },
+            },
+            { type: 'text-delta', id: 'text-final', delta: 'Done.' },
+            {
+              type: 'text-end',
+              id: 'text-final',
+              providerMetadata: {
+                openai: { itemId: 'message-final', phase: 'final_answer' },
+              },
+            },
+            {
+              type: 'finish',
+              finishReason: { unified: 'stop', raw: 'stop' },
+              usage: emptyUsage(),
+            },
+          ] as LanguageModelV4StreamPart[],
+          initialDelayInMs: null,
+          chunkDelayInMs: null,
+        }),
+      }),
+    });
+    const appended: StoredMessage[] = [];
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (message) => {
+        appended.push(message);
+      },
+      connection: {
+        ...connection(),
+        slug: 'openai',
+        providerType: 'openai',
+        defaultModel: 'gpt-5',
+      },
+      apiKey: 'sk-test',
+      modelId: 'gpt-5',
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({ turnId: 'turn-1', text: 'finish it', context: [] }));
+
+    assert.deepEqual(
+      appended
+        .filter((message): message is AssistantMessage => message.type === 'assistant')
+        .map((message) => ({
+          text: message.text,
+          providerOptions: message.providerOptions,
+        })),
+      [
+        {
+          text: 'Done.',
+          providerOptions: {
+            openai: { itemId: 'message-final', phase: 'final_answer' },
+          },
+        },
+      ],
+    );
   });
 
   test('executes native WebSearch inside the primary provider stream', async () => {
@@ -15017,6 +15290,7 @@ describe('AiSdkBackend steering durability and identity', () => {
     const assistant = appended.find(
       (message): message is AssistantMessage => message.type === 'assistant',
     );
+    assert.deepEqual(assistant?.contentOrder, ['tools', 'text']);
     assert.deepEqual(assistant?.providerOptions, {
       openai: {
         itemId: 'message-1',

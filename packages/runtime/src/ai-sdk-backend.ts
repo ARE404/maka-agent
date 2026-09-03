@@ -61,6 +61,7 @@ import type {
 import type {
   StoredMessage,
   AssistantMessage,
+  AssistantStepContentKind,
   AssistantThinkingPart,
   ToolCallMessage,
   ToolResultMessage,
@@ -164,6 +165,7 @@ import {
 import { buildProviderOptions } from './model-factory.js';
 import { persistedOpenAiResponsesStepMessages } from './openai-responses-continuation.js';
 import type { OpenAiResponsesTransportState } from './openai-responses-websocket.js';
+import { nonCanonicalContentOrder } from './runtime-event-read-model.js';
 import {
   composeRequestProjection,
   type DispatchRequestShape,
@@ -1462,8 +1464,12 @@ export class AiSdkBackend implements AgentBackend {
     let stepTextPartStartOffset = 0;
     let stepThinkingParts: AssistantThinkingPart[] = [];
     let stepThinkingPartsById = new Map<string, AssistantThinkingPart>();
+    let stepContentOrder: AssistantStepContentKind[] = [];
     const startedAt = this.now();
 
+    const recordStepContent = (kind: AssistantStepContentKind): void => {
+      if (!stepContentOrder.includes(kind)) stepContentOrder.push(kind);
+    };
     // Flush the current step's AssistantMessage (text + thinking) and the paired
     // terminal thinking/text events, then clear the per-step accumulators.
     // Persist when the step produced text OR reasoning — a thinking-only step
@@ -1473,11 +1479,23 @@ export class AiSdkBackend implements AgentBackend {
     // precedes text_complete so the read-model attaches this step's reasoning to
     // this step's assistant row. Hoisted to send() scope so both the streaming
     // path and the abort/error handler can flush a partial step.
+    const resetStep = (): void => {
+      stepText = '';
+      stepTextProviderOptions = undefined;
+      stepTextPartStartOffset = 0;
+      stepThinkingParts = [];
+      stepThinkingPartsById = new Map();
+      stepContentOrder = [];
+    };
     const flushStep = async (): Promise<void> => {
       const hasThinking = stepThinkingParts.length > 0;
-      if (stepText.length === 0 && !hasThinking) return;
+      if (stepText.length === 0 && !hasThinking) {
+        resetStep();
+        return;
+      }
       const stepId = currentStepMessageId;
       const thinkingText = stepThinkingParts.map((part) => part.text).join('');
+      const contentOrder = nonCanonicalContentOrder(stepContentOrder);
       const msg: AssistantMessage = {
         type: 'assistant',
         id: stepId,
@@ -1487,6 +1505,7 @@ export class AiSdkBackend implements AgentBackend {
         ...(stepTextProviderOptions !== undefined
           ? { providerOptions: stepTextProviderOptions }
           : {}),
+        ...(contentOrder ? { contentOrder } : {}),
         modelId: this.input.modelId,
         ...(hasThinking
           ? {
@@ -1539,11 +1558,7 @@ export class AiSdkBackend implements AgentBackend {
           : {}),
       } satisfies TextCompleteEvent);
       scope.finalAssistantText = stepText.length > 0 ? stepText : undefined;
-      stepText = '';
-      stepTextProviderOptions = undefined;
-      stepTextPartStartOffset = 0;
-      stepThinkingParts = [];
-      stepThinkingPartsById = new Map();
+      resetStep();
     };
     let tokenUsage: NormalizedAiSdkUsage | undefined;
     let tokenUsageCostUsd: number | undefined;
@@ -2355,8 +2370,13 @@ export class AiSdkBackend implements AgentBackend {
                 }
               }
               if (event.kind === 'text-start') {
+                if (stepText.length > 0 && event.providerItemBoundary === true) {
+                  await flushStep();
+                  currentStepMessageId = this.newId();
+                }
                 stepTextPartStartOffset = stepText.length;
               } else if (event.kind === 'text') {
+                if (event.text.length > 0) recordStepContent('text');
                 stepText += event.text;
                 if (event.text.length > 0) attemptSawText = true;
                 queue.push({
@@ -2367,15 +2387,21 @@ export class AiSdkBackend implements AgentBackend {
                   messageId: currentStepMessageId,
                   text: event.text,
                 } satisfies TextDeltaEvent);
-              } else if (event.kind === 'text-metadata') {
-                attemptSawContinuationMetadata = true;
-                stepTextProviderOptions = mergeTextProviderOptions(
-                  stepTextProviderOptions,
-                  stripUndefinedDeep(event.providerOptions) as NonNullable<
-                    ModelMessage['providerOptions']
-                  >,
-                  stepTextPartStartOffset,
-                );
+              } else if (event.kind === 'text-end') {
+                if (event.providerOptions !== undefined) {
+                  attemptSawContinuationMetadata = true;
+                  stepTextProviderOptions = mergeTextProviderOptions(
+                    stepTextProviderOptions,
+                    stripUndefinedDeep(event.providerOptions) as NonNullable<
+                      ModelMessage['providerOptions']
+                    >,
+                    stepTextPartStartOffset,
+                  );
+                }
+                if (event.providerItemBoundary === true) {
+                  await flushStep();
+                  currentStepMessageId = this.newId();
+                }
               } else if (event.kind === 'thinking-start') {
                 if (event.providerOptions !== undefined) {
                   attemptSawContinuationMetadata = true;
@@ -2391,6 +2417,7 @@ export class AiSdkBackend implements AgentBackend {
                   stepThinkingPartsById.set(event.reasoningPartId, part);
                 }
               } else if (event.kind === 'thinking') {
+                if (event.text.length > 0) recordStepContent('thinking');
                 if (event.text.length > 0) attemptSawThinking = true;
                 if (event.providerOptions !== undefined) {
                   if (event.providerOptionsOrigin !== 'maka_transport') {
@@ -2476,6 +2503,7 @@ export class AiSdkBackend implements AgentBackend {
                 attemptSawToolActivity = true;
               } else if (event.kind === 'tool-call') {
                 attemptSawToolActivity = true;
+                recordStepContent('tools');
                 if (event.toolCall.providerExecuted) {
                   providerToolActivityCount += 1;
                   providerToolInputs.set(event.toolCall.toolCallId, event.toolCall.input);
