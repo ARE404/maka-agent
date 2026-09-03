@@ -101,7 +101,10 @@ export const RUNTIME_HOST_REGISTRATION_SCHEMA_VERSION = 1 as const;
 export const RUNTIME_HOST_PROTOCOL_VERSION = 0 as const;
 // Increment when the same protocol version no longer guarantees safe Client-Host
 // interoperability. Mismatches are rejected before domain commands are admitted.
-export const RUNTIME_HOST_COMPATIBILITY_EPOCH = 113 as const;
+export const RUNTIME_HOST_COMPATIBILITY_EPOCH = 114 as const;
+// 114: WorkHub Coordination admits a `resume_work` proposal and answers with a
+// `resume_work` outcome. An older peer's closed decoder rejects both the
+// disposition it does not know and the result kind it cannot read.
 // 113: WorkHub exposes current active delegation linkage in the existing Host
 // snapshot. Older peers disagree on the closed result shape.
 // 112: Owners can query the Host execution environment through an extensible,

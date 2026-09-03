@@ -131,7 +131,7 @@ export interface HostWorkHubCoordinationCoordinatorOptions {
   readonly executions: CoordinationExecutions;
   readonly sessionActions: Pick<
     WorkHubActionGateEffects,
-    'readDelegationRetirement' | 'retireDelegation'
+    'readDelegationRetirement' | 'retireDelegation' | 'resumeDelegation'
   > & {
     assign(
       ...args: [
@@ -224,6 +224,7 @@ export class HostWorkHubCoordinationCoordinator {
       resolveStop: (input) => this.#resolveStop(input),
       readDelegationRetirement: options.sessionActions.readDelegationRetirement,
       retireDelegation: options.sessionActions.retireDelegation,
+      resumeDelegation: options.sessionActions.resumeDelegation,
     });
   }
 

@@ -1633,6 +1633,10 @@ function coordinator(
     executions,
     sessionActions: {
       readDelegationRetirement: async () => 'not_retired',
+      resumeDelegation: async () => ({
+        outcome: 'resume_started' as const,
+        targetTurnId: 'resumed-turn',
+      }),
       retireDelegation: async () => ({ outcome: 'cancelled_pending' }),
       ...sessionActions,
       assign,
