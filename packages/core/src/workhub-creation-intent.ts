@@ -248,15 +248,23 @@ function hasNegatedWorkHubCreationRequest(value: string): boolean {
 }
 
 /** Whether already-normalized, literal-masked text is an executable instruction. */
-function isImperativeWorkHubNewTopicRequest(normalized: string): boolean {
+/**
+ * `naming` is resolved from the unmasked text by the caller. A quoted title is
+ * a literal span, so the mask blanks it, and re-deriving the title from masked
+ * text would read every quoted name as an unusable one — the reason
+ * `Create a new Session called "Payments"` was refused while the same sentence
+ * without quotes was admitted. The mask still decides everything else here: it
+ * exists so quoted words cannot be read as commands, and that is unchanged.
+ */
+function isImperativeWorkHubNewTopicRequest(
+  normalized: string,
+  naming: WorkHubCreationNaming,
+): boolean {
   const actions = allMatches(normalized, EXECUTION_ACTION);
   if (isDeliberative(normalized) || hasUnquotedTerminalWithdrawal(normalized)) {
     return false;
   }
-  if (
-    hasWorkHubNamedCreationClause(normalized) &&
-    !affirmativeWorkHubNamedCreationTitle(normalized)
-  ) {
+  if (naming.kind === 'unusable') {
     return false;
   }
   const explicitCreation = isExplicitWorkHubCreationRequest(normalized);
@@ -309,7 +317,7 @@ export function readWorkHubRequestIntent(value: string): WorkHubRequestIntent {
       ? 'non_executable'
       : hasAmbiguousAdvisoryCommand(masked, actions)
         ? 'ambiguous'
-        : isImperativeWorkHubNewTopicRequest(masked)
+        : isImperativeWorkHubNewTopicRequest(masked, naming)
           ? 'imperative'
           : 'non_executable';
   return {

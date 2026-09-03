@@ -1066,3 +1066,30 @@ test('requires a direct, explicitly named command for WorkHub stop authority', (
     );
   }
 });
+
+test('a quoted Session name is a title, not a reason to refuse the request', () => {
+  // The literal mask blanks quoted spans so a quoted word can never be read as
+  // a command. That is right for commands and wrong for the one place the
+  // quotes mark the object itself: naming a Session. Quoting the name is the
+  // natural way to write it, and it used to be the one way that did not work.
+  for (const [quoted, bare] of [
+    ['Create a new Session called "Payments"', 'Create a new Session called Payments'],
+    ['请创建一个新会话名为"支付任务"', '请创建一个新会话名为支付任务'],
+  ] as const) {
+    const quotedIntent = intentFor(quoted);
+    const bareIntent = intentFor(bare);
+    assert.equal(quotedIntent.execution, 'imperative', quoted);
+    assert.equal(quotedIntent.execution, bareIntent.execution, quoted);
+    assert.deepEqual(quotedIntent.creation.naming, bareIntent.creation.naming, quoted);
+  }
+
+  // The mask still decides everything else. None of these may be promoted.
+  for (const text of [
+    'Should we create a new Session called "Payments"?',
+    'Maybe create a new Session called "Payments" later',
+    'Do not create a new Session called "Payments"',
+    'Create a new Session called "',
+  ]) {
+    assert.notEqual(intentFor(text).execution, 'imperative', text);
+  }
+});
