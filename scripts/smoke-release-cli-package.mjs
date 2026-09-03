@@ -277,7 +277,7 @@ async function smokeRuntimeHostPeerProtocol({ packageRoot, cliEntrypoint, root }
     const listener = host.peerListeners[0];
     if (
       !listener ||
-      listener.peerId !== peerId ||
+      listener.reachability.lease.peerId !== peerId ||
       listener.reachability.lease.directRoutes.length === 0
     ) {
       throw new Error('Installed Runtime Host direct-peer listener did not become ready');
@@ -332,9 +332,7 @@ async function smokeRuntimeHostPeerProtocol({ packageRoot, cliEntrypoint, root }
         rootId: host.rootId,
         transport: {
           kind: 'libp2p-direct',
-          peerId,
-          routeHints: listener.reachability.lease.directRoutes,
-          coordinationRelays: listener.reachability.lease.coordinationRoutes,
+          reachability: listener.reachability,
         },
       },
       credential: issued.credential,

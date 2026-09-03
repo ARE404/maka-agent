@@ -21,7 +21,7 @@
 
 - Status: implementation plan
 - Tracking issue: [#4554](https://github.com/apache/maka/issues/4554)
-- Baseline: `main` at `ad18da42c803607117762c3e7e0a2e4d9bc74fea`
+- Baseline: `main` at `eacfb46aa7ec93273bf468335f4270bba62d35a5`
 - Delivery: four stacked pull requests
 
 ## Review charter
@@ -132,8 +132,10 @@ The publisher atomically persists the exact next signed lease before exposing it
 Skipped revisions are valid; publishing different facts at one revision is not. A
 receiver validates signature, expected peer, bounds, signed lifetime, and revision.
 Runtime freshness uses a local monotonic receipt deadline capped by the signed lifetime
-so modest clock skew cannot turn an old lease into current truth. Restarted processes
-conservatively revalidate persisted records against wall time.
+so wall-clock rollback cannot turn an old lease into current truth. A publisher restart
+authenticates its own persisted record without treating the local wall clock as remote
+freshness authority, then immediately publishes a higher revision when its timestamps
+are no longer usable under the current clock.
 
 ### MeshMemberAdvertisement
 
@@ -275,7 +277,53 @@ charter. Their evidence is adjudicated into this ledger:
 
 | ID | Source | Decision | Evidence or resolution |
 | --- | --- | --- | --- |
-| — | — | open | No findings recorded yet |
+| R1-C1 | correctness | confirmed | Route resolution now distinguishes `available`, bounded `recovering`, and `exhausted`; Mesh presentation, native waiting, direct profiles, and Session startup consume the same state. |
+| R1-C2 | correctness | confirmed | Runtime lease freshness uses a local monotonic receipt deadline capped by the signed lifetime; wall-clock rollback cannot extend current truth in-process. |
+| R1-C3 | correctness | confirmed | The strict Peer Mesh wire/storage replacement advances the compatibility epoch to 98. |
+| R1-C4 | correctness | confirmed | Windows recovery source closure follows the new reachability owner and publisher instead of the removed Mesh owner path. |
+| R1-S1 | simplification | confirmed | The endpoint owner is the sole peer-client lifetime authority; Desktop no longer closes the same client a second time. |
+| R1-S2 | simplification | confirmed | Route resolution has one lifecycle: clients start unattached and Mesh explicitly attaches and detaches the resolver. Constructor/factory injection was removed. |
+| R1-S3 | simplification | superseded | A later security review proved that deriving long-lived authority identity from a replaceable locator lets a member rebind the authority. R2-C2 replaces this decision. |
+| R2-C1 | correctness | confirmed | Startup verifies all persisted signatures, prunes leases beyond the bounded recovery horizon, and retains roster membership; ordinary offline time can no longer brick Mesh initialization. |
+| R2-C2 | correctness | confirmed | The authority PeerId is now part of the authority-signed roster and immutable across roster revisions. Invitations and authenticated streams must match it, while reachability remains only a replaceable locator. |
+| R2-S1 | simplification | confirmed | Remembered Relay anchors are persisted regardless of whether public discovery is enabled; discovery selects new anchors, while anchor recovery is a separate concern. |
+| R2-S2 | simplification | confirmed | Relay-anchor persistence uses one coalescing watch slot instead of an unbounded snapshot queue. |
+| R2-S3 | simplification | confirmed | Mesh presence reads the native Swarm connectivity snapshot instead of maintaining a partial, stale `recentlyReached` cache. |
+| R2-S4 | simplification | superseded | The shared revision-only vector was simpler, but it hid equal-revision conflicts between replicas. R11-C1 replaces it with one shared content-bound summary. |
+| R2-S5 | simplification | rejected | The one-shot post-finalization refresh suppression remains: it prevents guest credential finalization from becoming a second network acquisition, as required by the frozen collaboration invariant. |
+| R2-S6 | simplification | superseded | The target wrapper was removed first; R3-S2 then removed the remaining duplicate authority lease from replica state entirely. |
+| R2-CI1 | CI | confirmed | Lower-stack Desktop fixtures retain the flat transport shape until PR4 introduces signed profile reachability, preserving each PR's review boundary. |
+| R2-CI2 | CI | confirmed | The Peer Mesh protocol imports the reachability wire decoder directly from its model module, keeping filesystem-backed publisher code out of the Linux preload bundle. |
+| R3-C1 | correctness | confirmed | Publisher renewal now uses a monotonic receipt deadline, immediately replaces a lease whose issue time is ahead of the local wall clock, and authenticates persisted local state without applying receiver freshness policy. A rollback therefore neither strands renewal nor prevents restart. |
+| R3-S1 | simplification | confirmed | Peer listeners no longer expose an unused `ownsClient` branch; the endpoint owner remains the only client lifetime authority. |
+| R3-S2 | simplification | confirmed | Replica state no longer duplicates authority reachability. Invitation and redemption evidence merge into the bounded common lease table, while the signed roster remains the sole authority-identity source. |
+| R4-CI1 | CI | confirmed | The installed CLI smoke exposed an untyped client/configuration ambiguity. The service now accepts only endpoint configuration and always owns the resulting endpoint; the smoke uses that production composition and an independent Mesh fixture instead of injecting a borrowed endpoint. |
+| R4-S1 | simplification | confirmed | The legacy combined Mesh owner duplicated endpoint and Mesh-component composition solely for release smoke. It was removed; callers now compose and close those two independently owned lifetimes in dependency order. |
+| R5-C1 | correctness | confirmed | The top-stack installed CLI smoke now supplies the listener's signed reachability object instead of the removed flat Direct transport fields. |
+| R5-C2 | correctness | confirmed | Desktop shutdown settles Mesh cleanup before endpoint cleanup but never lets a Mesh failure skip the endpoint owner; it reports accumulated failures only after both lifetimes have been released. |
+| R5-S1 | simplification | confirmed | The test-only borrowed endpoint service mode was removed. Runtime Host service ownership is now invariant, while tests that need independent endpoints compose them outside the service. |
+| R5-S2 | simplification | confirmed | An attached route resolver is now one complete snapshot/refresh/subscription capability. The client still supports no resolver, but no longer carries unused partial-capability branches. |
+| R6-S1 | simplification | confirmed | Peer identity now exposes only the immutable PeerId. Dynamic addresses flow from the native reachability snapshot into the signed lease, and listener/CLI projections derive from that lease instead of retaining parallel unsigned copies. |
+| R7-C1 | correctness | confirmed | Reachability authentication is now side-effect free. A remote lease enters the monotonic receipt cache only after invitation redemption or Mesh synchronization proves that both peers are authorized by the active roster; the cache is pruned and insertion-limited to active remote roster members. |
+| R7-CI1 | CI | confirmed | The lower-stack installed CLI smoke now derives route hints from the listener's signed lease. It no longer relies on unsigned listener fields introduced only by a later PR, so every layer remains independently testable. |
+| R7-S1 | simplification | partially confirmed | The publisher file no longer repeats an unsigned outer PeerId already authenticated by the signed lease. The local lease remains in the Mesh evidence table because that table is the uniform bounded anti-entropy cache, not a competing authority; excluding self would add special cases to vectors, pages, persistence, and status projection. |
+| R7-S2 | simplification | confirmed | The cross-layer `waitForRoutes` option was removed. Application attempts intrinsically accept live route updates until their deadline; Mesh control either uses explicit candidates, reuses an already eligible direct connection, or fails immediately. |
+| R8-S1 | simplification | confirmed | The Mesh receipt cache no longer mirrors the publisher's local receipt or retains an unconsumed pending-authority receipt. Its sole authority class is now active remote roster members. |
+| R8-C1 | correctness | confirmed | Peer-keyed recovery state now has collection-level bounds. Authenticated route receipts are globally horizon-pruned and LRU-bounded with active observers preferred, while completed Mesh sweeps are retained only for currently visible remote roster members. |
+| R9-C1 | correctness | confirmed | Each Mesh synchronization page revalidates the target against the current active roster both before dialing and after asynchronous route preparation, immediately before emitting local reachability. A queued worker therefore cannot disclose refreshed locators to a member removed from its original roster snapshot. |
+| R9-C2 | correctness | confirmed | A fenced native connection attempt now records WebRTC signaling attempts per current relay PeerId and keeps at most one active upgrade. Failure retires only that relay attempt; a newly introduced relay can be tried within the same immutable request and deadline without retrying failed candidates or creating a second connection authority. |
+| R10-C1 | correctness | confirmed | Persisted recovery evidence is authenticated independently of receiver freshness policy. A lease from before a wall-clock rollback remains a bounded dial hint but receives no currentness receipt until its issue time is credible; the local publisher can immediately replace it with a higher revision. Direct profiles use the same historical-evidence admission path. |
+| R10-C2 | correctness | confirmed | Authenticated Mesh input now flows through the common reachability merge without deleting the prior record first. Equal revisions with different signed facts fail closed, preserving the revision vector's convergence contract. |
+| R10-S1 | simplification | confirmed | Desktop's managed-service descriptor retains only the immutable PeerId. Startup route arrays no longer form an unsigned, stale availability gate; connection codes and collaboration targets come from the Runtime Host's live signed endpoint. |
+| R11-C1 | correctness | confirmed | Reachability and advertisement anti-entropy now summarize each signed fact as `{ peerId, revision, digest }`, where the digest binds the canonical signed payload. Equal-revision disagreement is rejected during summary comparison instead of remaining silently partitioned between replicas. |
+| R11-C2 | correctness | confirmed | Each WebRTC Relay upgrade now has its own fenced identity and child cancellation token. Removing its Relay retires the active attempt, a replacement can start in the same connection attempt, and a late success is closed unless both its identity and Relay membership are still current. |
+| R12-C1 | correctness | confirmed | The WebRTC Relay-attempt identity now survives through the libp2p dial lifecycle. Candidate replacement retires and closes stale dials, an established connection is admitted only for the exact current attempt, and a late terminal event from an old dial cannot clear its replacement. |
+| R13-C1 | correctness | confirmed | A persisted Direct target now keeps one live reconnect lifecycle when its first connection fails transiently. Route and resume wakeups can therefore recover the same target after a cold-start ordering gap; identity, credential, compatibility, caller cancellation, and other permanent failures still terminate it. `needs_repair` is recoverable state rather than a permanent reconnect verdict. |
+| R13-S1 | simplification | rejected | The active WebRTC attempt is the logical flow identity, while the dial origin maps an external libp2p `ConnectionId` back to that identity. Replacing the explicit relation with phase-dependent map scans does not remove a state owner and weakens the clarity of the remove/re-add Relay ABA fence. |
+| R14-C1 | correctness | confirmed | Direct profile startup now classifies immutable signed-reachability authentication failures, peer identity mismatch, and an unavailable native peer API as permanent. Route exhaustion and ordinary transport failure remain recoverable, so retry state cannot hide a profile that requires repair. |
+| R14-C2 | correctness | confirmed | A permanent result from the immediate retry is captured on either side of the lifecycle-factory microtask boundary. Desktop never activates a target already made terminal, while a later fatal result still follows the ordinary unavailable transition. |
+| R14-S1 | simplification | confirmed | Remote lease verification no longer belongs to the local durable publisher, and its standalone opener is no longer a public package API. The aggregate endpoint owner is the sole production exclusion lifetime, so the publisher no longer acquires a nested writer lock for a call path that production cannot use independently. |
+| R15-C1 | correctness | confirmed | Direct profile startup now classifies an absent peer endpoint client through the same permanent native-capability boundary as an incompatible or unavailable addon. A build that cannot provide peer networking therefore becomes honestly unavailable instead of retaining an in-process reconnect loop that can never acquire the missing dependency. |
 
 Only findings that affect the merge bar and have a proportionate root fix enter the
 stack. Narrow constructed paths and low-value polish do not. A local fix triggers a

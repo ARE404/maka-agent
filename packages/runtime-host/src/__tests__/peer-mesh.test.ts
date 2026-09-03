@@ -447,18 +447,26 @@ test('repairs an existing membership with a fresh invitation after every locator
     await authorityPeer.setCoordinationRelays([]);
     await authorityPeer.setRouteHints([]);
     await authority.reconcile();
+    authorityPeer.setReachable(false);
     await member.reconcile();
     assert.equal(
       member.status()[0]?.memberRoutes.find(({ peerId }) => peerId === 'peer-a')?.state,
       'reconnecting',
     );
+    const observedStates: string[] = [];
+    const unsubscribe = member.subscribeRoutes('peer-a', () => {
+      observedStates.push(member.resolveRoutes('peer-a').state);
+    });
     await member.prepareRoutes('peer-a', AbortSignal.timeout(4_000));
+    unsubscribe();
+    assert.deepEqual(observedStates, ['exhausted']);
     assert.equal(
       member.status()[0]?.memberRoutes.find(({ peerId }) => peerId === 'peer-a')?.state,
       'needs_repair',
     );
 
     const recoveredRoute = '/memory/peer-a-recovered/p2p/peer-a';
+    authorityPeer.setReachable(true);
     await authorityPeer.setRouteHints([recoveredRoute]);
     const repaired = await member.join(await authority.invite(meshId));
     assert.equal(member.status().length, 1);
@@ -1381,6 +1389,7 @@ class MemoryPeerClient implements PeerMeshTransport, PeerReachabilityPublisher {
   #stallNextControl = false;
   #responseDelayMs = 0;
   #reachable = true;
+  readonly #connectedPeerIds = new Set<string>();
   #routeHints: readonly string[];
   #coordinationRelays: readonly string[];
   #reachability: SignedPeerReachabilityLeaseV1 | undefined;
@@ -1421,10 +1430,13 @@ class MemoryPeerClient implements PeerMeshTransport, PeerReachabilityPublisher {
   }
 
   identity() {
+    return { peerId: this.peerId } as const;
+  }
+
+  reachability() {
     return {
-      peerId: this.peerId,
       listenAddresses: this.#routeHints,
-      coordinationRelays: this.#coordinationRelays,
+      activeCoordinationRelays: this.#coordinationRelays,
     } as const;
   }
 
@@ -1438,13 +1450,13 @@ class MemoryPeerClient implements PeerMeshTransport, PeerReachabilityPublisher {
   }
 
   async refresh(): Promise<SignedPeerReachabilityLeaseV1> {
-    const identity = this.identity();
+    const reachability = this.reachability();
     const now = this.#now();
     if (
       this.#reachability &&
       this.#reachability.lease.issuedAt <= now &&
       this.#reachability.lease.expiresAt > now + PEER_REACHABILITY_REFRESH_LEAD_MS &&
-      samePeerReachabilityRoutes(this.#reachability.lease, identity)
+      samePeerReachabilityRoutes(this.#reachability.lease, reachability)
     ) {
       return this.#reachability;
     }
@@ -1455,8 +1467,8 @@ class MemoryPeerClient implements PeerMeshTransport, PeerReachabilityPublisher {
       revision: this.#reachabilityRevision,
       issuedAt: now,
       expiresAt: now + PEER_REACHABILITY_LEASE_TTL_MS,
-      directRoutes: identity.listenAddresses,
-      coordinationRoutes: identity.coordinationRelays,
+      directRoutes: reachability.listenAddresses,
+      coordinationRoutes: reachability.activeCoordinationRelays,
     });
     const proof = await this.signIdentity(peerReachabilityLeaseSigningBytes(lease));
     const signed = decodeSignedPeerReachabilityLease({
@@ -1501,6 +1513,10 @@ class MemoryPeerClient implements PeerMeshTransport, PeerReachabilityPublisher {
 
   setReachable(reachable: boolean): void {
     this.#reachable = reachable;
+    if (!reachable) {
+      this.#connectedPeerIds.clear();
+      for (const peer of this.peers.values()) peer.#connectedPeerIds.delete(this.peerId);
+    }
   }
 
   setResponseDelay(delayMs: number): void {
@@ -1573,6 +1589,10 @@ class MemoryPeerClient implements PeerMeshTransport, PeerReachabilityPublisher {
     );
   }
 
+  isConnected(peerId: string): boolean {
+    return this.#connectedPeerIds.has(peerId);
+  }
+
   transitSnapshot() {
     return {
       allowedPeerCount: this.transitPolicy.allowedPeerIds.length,
@@ -1627,9 +1647,11 @@ class MemoryPeerClient implements PeerMeshTransport, PeerReachabilityPublisher {
     }
     signal?.throwIfAborted();
     const remote = this.peers.get(input.peerId);
-    if (!remote || !remote.#reachable) {
+    if (!this.#reachable || !remote || !remote.#reachable) {
       throw new Error('Peer is unavailable');
     }
+    this.#connectedPeerIds.add(input.peerId);
+    remote.#connectedPeerIds.add(this.peerId);
     const [localStream, remoteStream] = memoryStreamPair(this.peerId, input.peerId, (bytes) => {
       const newline = bytes.indexOf(0x0a);
       if (newline < 0) return;
@@ -1675,6 +1697,8 @@ class MemoryPeerClient implements PeerMeshTransport, PeerReachabilityPublisher {
   close(): Promise<void> {
     if (this.#closed) return Promise.resolve();
     this.#closed = true;
+    this.#connectedPeerIds.clear();
+    for (const peer of this.peers.values()) peer.#connectedPeerIds.delete(this.peerId);
     this.#reachabilityListeners.clear();
     this.#meshServer?.stop();
     return Promise.resolve();

@@ -143,12 +143,7 @@ test('enabling remote access hands the same root to one managed service before D
   assert.deepEqual(decodeRuntimeHostOwnerConnectionCode(result.connectionCode), {
     name: decodeRuntimeHostOwnerConnectionCode(result.connectionCode).name,
     rootId: 'a'.repeat(64),
-    transport: {
-      kind: 'libp2p-direct',
-      peerId: livePeer.lease.peerId,
-      routeHints: livePeer.lease.directRoutes,
-      coordinationRelays: livePeer.lease.coordinationRoutes,
-    },
+    transport: { kind: 'libp2p-direct', reachability: livePeer },
     credential: 'pending-credential',
   });
   const lifecycle = JSON.parse(
@@ -169,12 +164,12 @@ test('shares the running Local Host endpoint instead of its persisted startup ro
   await writeManagedLifecycle(clientDataRoot, rootPath, rootId);
   const configuredPeer = {
     peerId: '12D3KooWpeer',
-    routeHints: ['/ip4/192.0.2.1/udp/41000/quic-v1'],
+    routeHints: [],
     coordinationRelays: [],
   };
   const livePeer = peerReachability(
     configuredPeer.peerId,
-    configuredPeer.routeHints,
+    ['/ip4/192.0.2.1/udp/41000/quic-v1'],
     ['/dns4/relay.example/udp/443/quic-v1/p2p/12D3KooWrelay'],
   );
   const service = createDesktopLocalRuntimeHostRemoteAccess({
@@ -219,12 +214,7 @@ test('shares the running Local Host endpoint instead of its persisted startup ro
   const target = await service.createCollaborationConnectionTarget();
   assert.deepEqual(target, {
     name: target.name,
-    transport: {
-      kind: 'libp2p-direct',
-      peerId: livePeer.lease.peerId,
-      routeHints: livePeer.lease.directRoutes,
-      coordinationRelays: livePeer.lease.coordinationRoutes,
-    },
+    transport: { kind: 'libp2p-direct', reachability: livePeer },
   });
 });
 

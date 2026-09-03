@@ -23,6 +23,7 @@ export const PEER_REACHABILITY_LEASE_TTL_MS = 5 * 60 * 1_000;
 export const PEER_REACHABILITY_REFRESH_LEAD_MS = 60 * 1_000;
 export const PEER_REACHABILITY_MAX_LIFETIME_MS = 10 * 60 * 1_000;
 export const PEER_REACHABILITY_MAX_CLOCK_SKEW_MS = 2 * 60 * 1_000;
+export const PEER_REACHABILITY_RECOVERY_HORIZON_MS = 24 * 60 * 60 * 1_000;
 export const PEER_REACHABILITY_MAX_ROUTES_PER_CLASS = 16;
 export const PEER_REACHABILITY_MAX_RECORD_BYTES = 48 * 1_024;
 
@@ -53,11 +54,13 @@ export interface PeerReachabilityLeaseReceipt {
   readonly currentUntil: number;
 }
 
-export interface PeerReachabilityIdentity {
+export interface PeerReachabilityPeer {
   identity(): Readonly<{
     peerId: string;
+  }>;
+  reachability(): Readonly<{
     listenAddresses: readonly string[];
-    coordinationRelays: readonly string[];
+    activeCoordinationRelays: readonly string[];
   }>;
   signIdentity(payload: Buffer): Promise<RuntimeHostPeerIdentityProof>;
   verifyIdentity(peerId: string, payload: Buffer, proof: RuntimeHostPeerIdentityProof): boolean;
@@ -115,7 +118,7 @@ export function verifySignedPeerReachabilityLease(input: {
   readonly value: unknown;
   readonly expectedPeerId: string;
   readonly now: number;
-  readonly verifyIdentity: PeerReachabilityIdentity['verifyIdentity'];
+  readonly verifyIdentity: PeerReachabilityPeer['verifyIdentity'];
   readonly allowExpired?: boolean;
 }): SignedPeerReachabilityLeaseV1 {
   const signed = authenticateSignedPeerReachabilityLease(input);
@@ -131,7 +134,7 @@ export function verifySignedPeerReachabilityLease(input: {
 export function authenticateSignedPeerReachabilityLease(input: {
   readonly value: unknown;
   readonly expectedPeerId: string;
-  readonly verifyIdentity: PeerReachabilityIdentity['verifyIdentity'];
+  readonly verifyIdentity: PeerReachabilityPeer['verifyIdentity'];
 }): SignedPeerReachabilityLeaseV1 {
   const signed = decodeSignedPeerReachabilityLease(input.value);
   if (signed.lease.peerId !== input.expectedPeerId) {
@@ -164,11 +167,11 @@ export function peerReachabilityLeaseSigningBytes(lease: PeerReachabilityLeaseV1
 
 export function samePeerReachabilityRoutes(
   lease: PeerReachabilityLeaseV1,
-  identity: ReturnType<PeerReachabilityIdentity['identity']>,
+  reachability: ReturnType<PeerReachabilityPeer['reachability']>,
 ): boolean {
   return (
-    sameStrings(lease.directRoutes, identity.listenAddresses) &&
-    sameStrings(lease.coordinationRoutes, identity.coordinationRelays)
+    sameStrings(lease.directRoutes, reachability.listenAddresses) &&
+    sameStrings(lease.coordinationRoutes, reachability.activeCoordinationRelays)
   );
 }
 
@@ -211,6 +214,13 @@ export function isPeerReachabilityLeaseCurrent(
       receipt.signature === signed.signature &&
       receipt.currentUntil > monotonicNow,
   );
+}
+
+export function isPeerReachabilityLeaseRecoverable(
+  lease: PeerReachabilityLeaseV1,
+  now: number,
+): boolean {
+  return lease.expiresAt > now - PEER_REACHABILITY_RECOVERY_HORIZON_MS;
 }
 
 function exactRecord(

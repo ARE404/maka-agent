@@ -21,6 +21,7 @@ import { randomUUID } from 'node:crypto';
 import {
   decodeRemoteRuntimeHostProfile,
   RUNTIME_HOST_ACCESS_CREDENTIAL_MAX_BYTES,
+  RuntimeHostPermanentReconnectError,
   type ResolvedRuntimeHostProfile,
   type RuntimeHostConnectionPhase,
   type RuntimeHostRemoteTransport,
@@ -177,7 +178,7 @@ export function createDesktopGuestSessionMountService(input: {
     if (
       closed ||
       mount.transport.kind !== 'libp2p-direct' ||
-      endpoint.lease.peerId !== mount.transport.peerId
+      endpoint.lease.peerId !== mount.transport.reachability.lease.peerId
     ) return;
     void mutate(async () => {
       if (removingMounts.has(mount.mountId)) return;
@@ -185,19 +186,14 @@ export function createDesktopGuestSessionMountService(input: {
       const retained = current.get(mount.mountId);
       if (
         retained?.transport.kind !== 'libp2p-direct' ||
-        retained.transport.peerId !== endpoint.lease.peerId ||
-        (
-          sameStrings(retained.transport.routeHints, endpoint.lease.directRoutes) &&
-          sameStrings(retained.transport.coordinationRelays, endpoint.lease.coordinationRoutes)
-        )
+        retained.transport.reachability.lease.peerId !== endpoint.lease.peerId ||
+        retained.transport.reachability.lease.revision >= endpoint.lease.revision
       ) return;
       const updated = decodeMount({
         ...retained,
         transport: {
           kind: 'libp2p-direct',
-          peerId: endpoint.lease.peerId,
-          routeHints: endpoint.lease.directRoutes,
-          coordinationRelays: endpoint.lease.coordinationRoutes,
+          reachability: endpoint,
         },
       });
       await persist(new Map(current).set(mount.mountId, updated));
@@ -272,7 +268,9 @@ export function createDesktopGuestSessionMountService(input: {
             removingMounts.has(mount.mountId)
           ) return;
           activation.stage = 'connecting';
-          onError(asError(error), mount);
+          const failure = asError(error);
+          onError(failure, mount);
+          if (failure instanceof RuntimeHostPermanentReconnectError) return;
           await wait(delayMs, activation.controller.signal);
           delayMs = Math.min(delayMs * 2, STARTUP_RETRY_MAX_MS);
         }
@@ -467,10 +465,6 @@ export function createDesktopGuestSessionMountService(input: {
   };
 }
 
-function sameStrings(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
-}
-
 export function registerDesktopGuestSessionMountIpc(
   ipcMain: Pick<Electron.IpcMain, 'handle' | 'removeHandler'>,
   service: DesktopGuestSessionMountService,
@@ -573,9 +567,12 @@ function decodeMount(value: unknown): GuestSessionMount {
 
 function isPeerPathUnavailable(error: unknown): boolean {
   if (!isRecord(error) || typeof error.code !== 'string') return false;
-  return error.code === 'direct_path_unavailable' || error.code === 'transit_unavailable';
+  return (
+    error.code === 'direct_path_unavailable' ||
+    error.code === 'transit_unavailable' ||
+    error.code === 'peer_reachability_needs_repair'
+  );
 }
-
 
 function collaborationProgressForConnectionPhase(
   phase: RuntimeHostConnectionPhase,
