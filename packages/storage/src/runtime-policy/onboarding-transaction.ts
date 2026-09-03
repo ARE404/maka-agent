@@ -108,13 +108,13 @@ export function prepareConnectionOnboardingIntent(
 ): CurrentConnectionOnboardingIntent {
   const decode = source === 'persisted' ? decodePersistedDomain : decodeConnectionInput;
   const providerType = decode(() => decodeProviderType(input.providerType));
-  if (!providerAuthSupportsApiKey(providerType)) {
+  const definition = PROVIDER_REGISTRY[providerType];
+  if (!providerAuthSupportsApiKey(providerType) && definition.authKind !== 'oauth_token') {
     throw codecError(
       source === 'persisted' ? 'invalid_document' : 'invalid_connection_input',
-      'Onboarding requires an API-key provider',
+      'Onboarding requires a provider with a connection credential',
     );
   }
-  const definition = PROVIDER_REGISTRY[providerType];
   const discovery = decode(() => normalizeConnectionModelDiscoveryResult(input.discovery));
   // Non-empty is the requirement; `source` is write provenance, not a
   // quality bar. A provider without a model-list endpoint runs discovery by
@@ -381,7 +381,11 @@ function decodeOAuthTarget(value: unknown): InteractiveOAuthLoginTarget {
 function isOAuthProvider(
   providerType: ProviderType,
 ): providerType is InteractiveOAuthLoginProvider {
-  return providerType === 'openai-codex' || providerType === 'xai-oauth';
+  return (
+    providerType === 'openai-codex' ||
+    providerType === 'xai-oauth' ||
+    providerType === 'github-copilot'
+  );
 }
 
 function decodeOAuthAttemptId(
