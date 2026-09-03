@@ -244,6 +244,9 @@ export class HostConnectionEffectCoordinator {
     if (begun.kind === 'catalog_full') {
       return { kind: 'rejected', reason: 'catalog_full' };
     }
+    if (begun.kind === 'slug_taken') {
+      return { kind: 'rejected', reason: 'slug_taken' };
+    }
     const providerType = begun.candidate.providerType;
     const candidate = begun.existingConnection ?? undefined;
     const supplied = input.apiKey?.trim() ?? '';
@@ -325,6 +328,9 @@ export class HostConnectionEffectCoordinator {
       }
       if (committed.kind === 'target_missing') {
         return { kind: 'rejected', reason: 'connection_not_found' };
+      }
+      if (committed.kind === 'slug_taken') {
+        return { kind: 'rejected', reason: 'slug_taken' };
       }
       if (committed.kind === 'superseded') {
         return { kind: 'rejected', reason: 'superseded' };
@@ -501,6 +507,7 @@ type OnboardingDiscovery =
         | 'connection_not_found'
         | 'credential_not_configured'
         | 'base_url_not_configured'
+        | 'slug_taken'
         | 'catalog_full';
     }
   | { readonly kind: 'failed'; readonly errorClass: ConnectionEffectFailureClass };
