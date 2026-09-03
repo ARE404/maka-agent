@@ -28,6 +28,7 @@ import type {
 } from '@maka/core/mcp';
 import type { InteractionFormInput, InteractionFormResult } from '@maka/core/interaction';
 import type { PermissionMode, ToolCategory } from '@maka/core/permission';
+import { truncateUtf16Safe } from '@maka/core/text-sanitize';
 import type { ExecutionBoundary } from '@maka/core/sandbox-boundary';
 import type { ToolRecoveryMode } from '@maka/core/runtime-event';
 import type { ToolResultContentPart, ToolResultOutput } from './model-protocol.js';
@@ -304,8 +305,9 @@ function summarizeNonVisualBlock(block: McpCallResult['content'][number]): unkno
 
 function clipModelText(value: string, limit: number): string {
   if (value.length <= limit) return value;
+  // The marker is all-BMP, so slicing it can't split a pair.
   if (limit <= TRUNCATION_MARKER.length) return TRUNCATION_MARKER.slice(0, limit);
-  return `${value.slice(0, limit - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
+  return `${truncateUtf16Safe(value, limit - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
 }
 
 function safeJsonStringify(value: unknown): string {
