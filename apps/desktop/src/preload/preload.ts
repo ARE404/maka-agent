@@ -1897,16 +1897,6 @@ const makaBridge = {
         (scope) => ipcRenderer.invoke('workhub:resolveCoordinationSession', scope),
       );
     },
-    async answer(
-      coordinationSessionId: string,
-      input: { turnId: string; text: string },
-    ): Promise<{ turnId: string }> {
-      const scope = await resolveDesktopWorkHubCoordinationCreateScope(
-        coordinationSessionId,
-        runtimeHostSessionRef,
-      );
-      return ipcRenderer.invoke('workhub:answer', scope, input) as Promise<{ turnId: string }>;
-    },
     async record(
       coordinationSessionId: string,
       input: { turnId: string; userText: string; assistantText: string },
@@ -1961,16 +1951,6 @@ const makaBridge = {
           targetSessionId: recordRuntimeHostSessionScope(scope, result.result.targetSessionId),
         },
       };
-    },
-    async createSession(
-      coordinationSessionId: string,
-      input: { name: string },
-    ): Promise<DesktopSessionSummary> {
-      const scope = await resolveDesktopWorkHubCoordinationCreateScope(
-        coordinationSessionId,
-        runtimeHostSessionRef,
-      );
-      return createDesktopSessionOnScope(scope, input);
     },
   },
   sessions: {

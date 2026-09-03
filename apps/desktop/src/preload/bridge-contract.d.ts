@@ -1035,11 +1035,6 @@ export interface MakaBridge {
   workHub: {
     /** Resolve the active Runtime Host's stable coordination conversation. */
     resolveCoordinationSession(): Promise<string>;
-    /** Answer an ordinary question inside the persistent Coordination Session. */
-    answer(
-      coordinationSessionId: string,
-      input: { turnId: string; text: string },
-    ): Promise<{ turnId: string }>;
     /** Persist one deterministic clarification or routing summary. */
     record(
       coordinationSessionId: string,
@@ -1054,11 +1049,6 @@ export interface MakaBridge {
       coordinationSessionId: string,
       input: Omit<OperationInput<'workhub.coordination.act'>, 'create'>,
     ): Promise<OperationOutcome<'workhub.coordination.act'>>;
-    /** Create an ordinary Session on the exact Host owning the resolved conversation. */
-    createSession(
-      coordinationSessionId: string,
-      input: { name: string },
-    ): Promise<DesktopSessionSummary>;
   };
   sessions: {
     list(filter?: SessionListFilter): Promise<DesktopSessionSummary[]>;
