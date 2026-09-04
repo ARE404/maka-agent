@@ -17,6 +17,7 @@
  * under the License.
  */
 
+import { createHash } from 'node:crypto';
 import { TOOL_ACTIVITY_KINDS, type ToolActivityKind } from '@maka/core/events';
 import {
   decodeInteractionAnswer,
@@ -83,6 +84,19 @@ export type ClientCapabilityHostPathAccess = 'none' | 'cwd';
 export const CLIENT_CAPABILITY_MAX_OFFERS = 32;
 export const CLIENT_CAPABILITY_MAX_SERVICES = 32;
 export const CLIENT_CAPABILITY_MAX_TOOLS_PER_OFFER = 64;
+
+/**
+ * Normalize an arbitrary Client Capability identity (an MCP server id or tool
+ * name from user configuration) into a wire-safe entity id: identities that
+ * already fit pass through unchanged, anything else becomes a readable label
+ * plus a collision-proof digest of the original value.
+ */
+export function clientCapabilityEntityId(value: string, maxLength = 128): string {
+  if (/^[A-Za-z0-9_-]+$/u.test(value) && value.length <= maxLength) return value;
+  const label = value.replace(/[^A-Za-z0-9_-]+/gu, '_').slice(0, maxLength - 25) || 'mcp';
+  const digest = createHash('sha256').update(value).digest('hex').slice(0, 24);
+  return `${label}_${digest}`;
+}
 export const CLIENT_CAPABILITY_MAX_TOOLS = 256;
 export const CLIENT_CAPABILITY_MAX_MANIFEST_BYTES = 56 * 1024;
 export const CLIENT_CAPABILITY_MAX_RESULT_BYTES = 24 * 1024 * 1024;
@@ -726,7 +740,7 @@ function decodeClientCapabilityOffer(value: unknown): ClientCapabilityOffer {
       : {
           description: requireString(record.description, 'description', 1_024),
         }),
-    tools: record.tools.map(decodeToolDescriptor),
+    tools: record.tools.map(decodeClientCapabilityToolDescriptor),
   };
 }
 
@@ -751,7 +765,9 @@ function decodeClientCapabilityHostPathAccess(value: unknown): ClientCapabilityH
   throw invalidProtocolFrame('Invalid Client Capability Host path access');
 }
 
-function decodeToolDescriptor(value: unknown): ClientCapabilityToolDescriptor {
+export function decodeClientCapabilityToolDescriptor(
+  value: unknown,
+): ClientCapabilityToolDescriptor {
   const record = requireRecord(value, 'Client Capability tool');
   assertOptionalExactKeys(
     record,
@@ -759,11 +775,7 @@ function decodeToolDescriptor(value: unknown): ClientCapabilityToolDescriptor {
     ['serverId', 'name', 'inputSchema'],
     ['description', 'annotations', 'activityKind'],
   );
-  const inputSchema = decodeJsonRecord(record.inputSchema, 'inputSchema');
-  if (jsonByteLength(inputSchema) > 32 * 1024) {
-    throw invalidProtocolFrame('Client Capability tool schema is too large');
-  }
-  validateToolInputSchema(inputSchema);
+  const inputSchema = decodeClientCapabilityToolInputSchema(record.inputSchema);
   return {
     serverId: requireString(record.serverId, 'serverId', 128),
     name: requireString(record.name, 'name', 128),
@@ -784,6 +796,15 @@ function decodeToolDescriptor(value: unknown): ClientCapabilityToolDescriptor {
       ? {}
       : { annotations: decodeToolAnnotations(record.annotations) }),
   };
+}
+
+function decodeClientCapabilityToolInputSchema(value: unknown): Record<string, unknown> {
+  const inputSchema = decodeJsonRecord(value, 'inputSchema');
+  if (jsonByteLength(inputSchema) > 32 * 1024) {
+    throw invalidProtocolFrame('Client Capability tool schema is too large');
+  }
+  validateToolInputSchema(inputSchema);
+  return inputSchema;
 }
 
 function decodeToolActivityKind(value: unknown): ToolActivityKind {

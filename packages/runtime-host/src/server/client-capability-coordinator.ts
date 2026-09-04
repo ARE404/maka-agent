@@ -66,6 +66,7 @@ import { clientCapabilityProviderId } from './client-capability-provider-id.js';
 const DEFAULT_CALL_TIMEOUT_MS = 150_000;
 const DESKTOP_BROWSER_SERVER_ID = 'desktop_browser';
 const DESKTOP_SETTINGS_SERVER_ID = 'desktop_settings';
+const DESKTOP_MCP_OFFER_PREFIX = 'desktop_mcp';
 const DESKTOP_BROWSER_TOOLS = new Set([
   'browser_navigate',
   'browser_snapshot',
@@ -1504,32 +1505,51 @@ function managedClientCapabilityGrantTarget(
     return undefined;
   }
   if (
-    tool.offerId !== DESKTOP_BROWSER_SERVER_ID ||
-    serverId !== DESKTOP_BROWSER_SERVER_ID ||
-    !DESKTOP_BROWSER_TOOLS.has(toolName)
+    tool.offerId === DESKTOP_BROWSER_SERVER_ID &&
+    serverId === DESKTOP_BROWSER_SERVER_ID &&
+    DESKTOP_BROWSER_TOOLS.has(toolName)
   ) {
-    throw new Error(`Client Capability has no managed admission policy: ${serverId}/${toolName}`);
+    if (evidence.kind !== 'browser_url') {
+      throw new Error('Desktop Browser admission requires URL evidence');
+    }
+    let url: URL;
+    try {
+      url = new URL(evidence.url);
+    } catch {
+      throw new Error('Desktop Browser admission URL is invalid');
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error('Desktop Browser admission requires an HTTP origin');
+    }
+    return Object.freeze({
+      providerId: registration.providerId,
+      contractId,
+      serverId,
+      toolName,
+      capability: 'browser',
+      scope: Object.freeze({ kind: 'browser_origin', origin: url.origin }),
+    });
   }
-  if (evidence.kind !== 'browser_url') {
-    throw new Error('Desktop Browser admission requires URL evidence');
+  // Desktop MCP tools publish one offer per MCP server (chunked past the
+  // single-offer tool limit), every offerId carrying the desktop_mcp prefix.
+  // The Session Grant scope takes the descriptor's real MCP server identity.
+  if (
+    tool.offerId === DESKTOP_MCP_OFFER_PREFIX ||
+    tool.offerId.startsWith(`${DESKTOP_MCP_OFFER_PREFIX}_`)
+  ) {
+    if (evidence.kind !== 'none') {
+      throw new Error('Desktop MCP admission does not accept scope evidence');
+    }
+    return Object.freeze({
+      providerId: registration.providerId,
+      contractId,
+      serverId,
+      toolName,
+      capability: 'desktop_mcp',
+      scope: Object.freeze({ kind: 'mcp_tool', serverId, toolName }),
+    });
   }
-  let url: URL;
-  try {
-    url = new URL(evidence.url);
-  } catch {
-    throw new Error('Desktop Browser admission URL is invalid');
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('Desktop Browser admission requires an HTTP origin');
-  }
-  return Object.freeze({
-    providerId: registration.providerId,
-    contractId,
-    serverId,
-    toolName,
-    capability: 'browser',
-    scope: Object.freeze({ kind: 'browser_origin', origin: url.origin }),
-  });
+  throw new Error(`Client Capability has no managed admission policy: ${serverId}/${toolName}`);
 }
 
 function serviceContract(serviceId: string, version: string): string {
