@@ -977,11 +977,7 @@ export class DesktopRuntimeHostClient {
     return this.request("workhub.coordination.act", input);
   }
 
-  answerWorkHubCoordination(
-    input: OperationInput<"workhub.coordination.answer">,
-  ): Promise<OperationOutput<"workhub.coordination.answer">> {
-    return this.request("workhub.coordination.answer", input);
-  }
+
 
   recordWorkHubCoordination(
     input: OperationInput<"workhub.coordination.record">,
