@@ -200,6 +200,7 @@ export interface WorkHubMessageAssignmentRequest {
 export interface WorkHubMessageAssignmentResult {
   readonly kind: 'assigned' | 'existing';
   readonly targetCreated: boolean;
+  readonly sequence: number;
   readonly assignment: WorkHubDelegationAssignedMessage;
 }
 

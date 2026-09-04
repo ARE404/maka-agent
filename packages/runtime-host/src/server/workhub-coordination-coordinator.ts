@@ -38,7 +38,11 @@ import {
   type WorkHubDelegationStopRequestedMessage,
   type WorkHubDelegationStopResolvedMessage,
 } from '@maka/core/session';
-import type { SessionAuthorityStore, SessionHeaderSnapshot } from '@maka/storage/session-store';
+import {
+  isSessionNotFoundError,
+  type SessionAuthorityStore,
+  type SessionHeaderSnapshot,
+} from '@maka/storage/session-store';
 import type {
   OperationOutcome,
   WorkHubCoordinationActInput,
@@ -82,6 +86,13 @@ const COORDINATION_SUMMARY_READ_MAX_BYTES =
   JSON_ESCAPE_MAX_BYTES_PER_INPUT_BYTE *
     (WORKHUB_COORDINATION_TEXT_MAX_BYTES + WORKHUB_COORDINATION_SUMMARY_MAX_BYTES) +
   16 * 1024;
+const ACTIVE_DELEGATION_SCAN_MAX_BYTES = 4 * 1024 * 1024;
+const ACTIVE_DELEGATION_SCAN_MAX_MESSAGES = 256;
+
+interface ActiveWorkHubAssignment {
+  readonly sequence: number;
+  readonly assignment: WorkHubDelegationAssignedMessage;
+}
 
 type CoordinationStores = Pick<
   SessionAuthorityStore,
@@ -93,7 +104,6 @@ type CoordinationStores = Pick<
   | 'probeSessionRemoval'
   | 'probeStableSessionCreate'
   | 'readHeaderSnapshot'
-  | 'readMessagesSnapshot'
   | 'readWorkHubAssignment'
   | 'readWorkHubReplacement'
   | 'readWorkHubReplacementAbort'
@@ -102,6 +112,7 @@ type CoordinationStores = Pick<
   | 'readWorkHubStopResolution'
   | 'readTranscriptHighWaterSnapshot'
   | 'readTranscriptMessagesSnapshot'
+  | 'readTranscriptRecordsSnapshot'
   | 'updateHeaderVersioned'
 >;
 
@@ -120,8 +131,14 @@ export interface HostWorkHubCoordinationCoordinatorOptions {
   readonly executions: CoordinationExecutions;
   readonly sessionActions: Pick<
     WorkHubActionGateEffects,
-    'assign' | 'readDelegationRetirement' | 'retireDelegation'
-  >;
+    'readDelegationRetirement' | 'retireDelegation'
+  > & {
+    assign(...args: Parameters<WorkHubActionGateEffects['assign']>): Promise<
+      Awaited<ReturnType<WorkHubActionGateEffects['assign']>> & {
+        readonly committedAssignment?: ActiveWorkHubAssignment;
+      }
+    >;
+  };
   readonly resolveCreateTarget: () => Promise<CoordinationCreateTarget>;
   readonly requestDrain: () => void;
 }
@@ -145,6 +162,7 @@ export class HostWorkHubCoordinationCoordinator {
   readonly #requestDrain: () => void;
   readonly #actionGate: WorkHubCoordinationActionGate;
   readonly #readDelegationRetirement: HostWorkHubCoordinationCoordinatorOptions['sessionActions']['readDelegationRetirement'];
+  #activeAssignments: Promise<Map<string, ActiveWorkHubAssignment>> | undefined;
 
   constructor(options: HostWorkHubCoordinationCoordinatorOptions) {
     this.#coordinationCwd = join(options.stateRoot, COORDINATION_CWD_DIRECTORY);
@@ -193,7 +211,16 @@ export class HostWorkHubCoordinationCoordinator {
           throw new WorkHubActionEffectFailure(outcome.error.code, outcome.error.message);
         }
       },
-      assign: options.sessionActions.assign,
+      assign: async (input, context) => {
+        const result = await options.sessionActions.assign(input, context);
+        if (result.committedAssignment) {
+          await this.#applyActiveMessage(
+            result.committedAssignment.sequence,
+            result.committedAssignment.assignment,
+          );
+        }
+        return result;
+      },
       prepareReplacement: (input) => this.#prepareReplacement(input),
       abortReplacement: (input) => this.#abortReplacement(input),
       prepareStop: (input) => this.#prepareStop(input),
@@ -286,10 +313,10 @@ export class HostWorkHubCoordinationCoordinator {
       }),
       conflictMessage: 'WorkHub delegation already has a different stop claim',
       beforeAppend: async () => {
-        const [replacement, supersession, messages] = await Promise.all([
+        const [replacement, supersession, activeAssignments] = await Promise.all([
           this.#stores.readWorkHubReplacement(input.stopsDelegationId),
           this.#stores.readWorkHubSupersession(input.stopsDelegationId),
-          this.#stores.readMessagesSnapshot(WORKHUB_COORDINATION_SESSION_ID),
+          this.#listActiveAssignments(),
         ]);
         if (replacement || supersession) {
           throw new WorkHubActionGateFailure(
@@ -297,7 +324,6 @@ export class HostWorkHubCoordinationCoordinator {
             'WorkHub delegation is already being replaced',
           );
         }
-        const activeAssignments = activeWorkHubAssignments(messages);
         // Held lanes make this the last moment the one-target proof can change.
         // It is proved from opaque delegation identity, so a concurrent rename
         // is harmless while a concurrent delegation to the same Session is not.
@@ -333,9 +359,7 @@ export class HostWorkHubCoordinationCoordinator {
   }
 
   async #listActiveAssignments(): Promise<readonly WorkHubDelegationAssignedMessage[]> {
-    return activeWorkHubAssignments(
-      await this.#stores.readMessagesSnapshot(WORKHUB_COORDINATION_SESSION_ID),
-    );
+    return (await this.#listActiveAssignmentRecords()).map(({ assignment }) => assignment);
   }
 
   #resolveStop(
@@ -435,11 +459,15 @@ export class HostWorkHubCoordinationCoordinator {
         await options.beforeAppend();
         try {
           await this.#stores.appendMessages(WORKHUB_COORDINATION_SESSION_ID, [requested]);
+          await this.#applyLatestActiveMessage(requested);
           await this.#continuity.refreshCanonical(WORKHUB_COORDINATION_SESSION_ID, lease);
           return requested;
         } catch {
           const replay = await options.read().catch(() => undefined);
-          if (replay && isDeepStrictEqual(replay, requested)) return replay;
+          if (replay && isDeepStrictEqual(replay, requested)) {
+            await this.#applyLatestActiveMessage(replay);
+            return replay;
+          }
           this.#requestDrain();
           throw new WorkHubActionEffectFailure(
             'commit_outcome_unknown',
@@ -452,7 +480,21 @@ export class HostWorkHubCoordinationCoordinator {
 
   async #candidates(): Promise<OperationOutcome<'workhub.coordination.candidates'>> {
     try {
-      return { ok: true, result: await this.#actionGate.candidates() };
+      const [result, activeAssignments] = await Promise.all([
+        this.#actionGate.candidates(),
+        this.#listActiveAssignmentRecords(),
+      ]);
+      return {
+        ok: true,
+        result: {
+          ...result,
+          delegations: activeAssignments.map(({ sequence, assignment }) => ({
+            actionId: assignment.actionId,
+            targetSessionId: assignment.targetSessionId,
+            sequence,
+          })),
+        },
+      };
     } catch {
       return {
         ok: false,
@@ -462,6 +504,37 @@ export class HostWorkHubCoordinationCoordinator {
         },
       };
     }
+  }
+
+  async #listActiveAssignmentRecords(): Promise<readonly ActiveWorkHubAssignment[]> {
+    const active = await this.#activeAssignmentIndex();
+    return [...active.values()].sort(
+      (left, right) =>
+        left.sequence - right.sequence ||
+        left.assignment.delegationId.localeCompare(right.assignment.delegationId),
+    );
+  }
+
+  #activeAssignmentIndex(): Promise<Map<string, ActiveWorkHubAssignment>> {
+    return (this.#activeAssignments ??= readActiveWorkHubAssignments(this.#stores));
+  }
+
+  async #applyLatestActiveMessage(message: StoredMessage): Promise<void> {
+    if (!activeDelegationTransition(message)) return;
+    const sequence = await this.#stores.readTranscriptHighWaterSnapshot(
+      WORKHUB_COORDINATION_SESSION_ID,
+    );
+    if (sequence === null) {
+      throw new WorkHubActionEffectFailure(
+        'persistence_failed',
+        'WorkHub Coordination transcript is unavailable',
+      );
+    }
+    await this.#applyActiveMessage(sequence, message);
+  }
+
+  async #applyActiveMessage(sequence: number, message: StoredMessage): Promise<void> {
+    projectActiveWorkHubMessage(await this.#activeAssignmentIndex(), sequence, message);
   }
 
   async #act(
@@ -788,28 +861,67 @@ function validCoordinationHeader(header: SessionHeader): boolean {
   );
 }
 
-function digest(value: unknown): `sha256:${string}` {
-  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+async function readActiveWorkHubAssignments(
+  stores: Pick<CoordinationStores, 'readTranscriptRecordsSnapshot'>,
+): Promise<Map<string, ActiveWorkHubAssignment>> {
+  const active = new Map<string, ActiveWorkHubAssignment>();
+  let position = 0;
+  let throughSequence: number | null | undefined;
+  try {
+    while (true) {
+      const page = await stores.readTranscriptRecordsSnapshot(WORKHUB_COORDINATION_SESSION_ID, {
+        direction: 'newer',
+        position,
+        maxStoredBytes: ACTIVE_DELEGATION_SCAN_MAX_BYTES,
+        maxMessages: ACTIVE_DELEGATION_SCAN_MAX_MESSAGES,
+        ...(throughSequence === undefined ? {} : { throughSequence }),
+      });
+      throughSequence = page.throughSequence;
+      for (const { sequence, message } of page.records) {
+        projectActiveWorkHubMessage(active, sequence, message);
+      }
+      if (page.nextPosition === null) return active;
+      if (page.nextPosition <= position) {
+        throw new Error('WorkHub Coordination transcript scan did not advance');
+      }
+      position = page.nextPosition;
+    }
+  } catch (error) {
+    if (isSessionNotFoundError(error)) return active;
+    throw error;
+  }
 }
 
-function activeWorkHubAssignments(
-  messages: readonly StoredMessage[],
-): WorkHubDelegationAssignedMessage[] {
-  const terminalDelegationIds = new Set<string>();
-  const assignments: WorkHubDelegationAssignedMessage[] = [];
-  for (const message of messages) {
-    if (message.type !== 'workhub_coordination') continue;
-    if (message.kind === 'delegation_assigned') {
-      assignments.push(message);
-    } else if (message.kind === 'delegation_superseded') {
-      terminalDelegationIds.add(message.supersededDelegationId);
-    } else if (message.kind === 'delegation_replacement_aborted') {
-      terminalDelegationIds.add(message.abortedDelegationId);
-    } else if (message.kind === 'delegation_stop_resolved' && message.outcome !== 'not_owned') {
-      terminalDelegationIds.add(message.stopsDelegationId);
-    }
+function activeDelegationTransition(message: StoredMessage): boolean {
+  return (
+    message.type === 'workhub_coordination' &&
+    (message.kind === 'delegation_assigned' ||
+      message.kind === 'delegation_superseded' ||
+      message.kind === 'delegation_replacement_aborted' ||
+      (message.kind === 'delegation_stop_resolved' && message.outcome !== 'not_owned'))
+  );
+}
+
+function projectActiveWorkHubMessage(
+  active: Map<string, ActiveWorkHubAssignment>,
+  sequence: number,
+  message: StoredMessage,
+): void {
+  if (message.type !== 'workhub_coordination') return;
+  if (message.kind === 'delegation_assigned') {
+    if (message.replacesDelegationId) active.delete(message.replacesDelegationId);
+    active.set(message.delegationId, { sequence, assignment: message });
+  } else if (message.kind === 'delegation_superseded') {
+    active.delete(message.supersededDelegationId);
+  } else if (message.kind === 'delegation_replacement_aborted') {
+    active.delete(message.abortedDelegationId);
+  } else if (message.kind === 'delegation_stop_resolved' && message.outcome !== 'not_owned') {
+    active.delete(message.stopsDelegationId);
   }
-  return assignments.filter(({ delegationId }) => !terminalDelegationIds.has(delegationId));
+}
+
+function digest(value: unknown): `sha256:${string}` {
+  return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
 }
 
 function workHubDestructiveClaimIdentitySuffix(delegationId: string): string {

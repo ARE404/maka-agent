@@ -33,6 +33,7 @@ import {
 import {
   isDeepResearchSession,
   type SessionHeader,
+  type WorkHubDelegationAssignedMessage,
   WORKHUB_COORDINATION_SESSION_ID,
   WORKHUB_COORDINATION_REPLACEMENT_SCHEMA_VERSION,
 } from '@maka/core/session';
@@ -1446,6 +1447,9 @@ export async function createExecutionRuntimeHostComposition(
             .slice(0, 48);
           const messageId = `whm_${suffix}`;
           const content = normalizeMessageContent({ text: input.userText });
+          let committedAssignment:
+            | { readonly sequence: number; readonly assignment: WorkHubDelegationAssignedMessage }
+            | undefined;
           const persisted =
             durable ??
             (await sessionAdmission.runMany(
@@ -1528,6 +1532,12 @@ export async function createExecutionRuntimeHostComposition(
                   ...(create ? { create } : {}),
                   ...(supersession ? { supersession } : {}),
                 });
+                if (result.kind === 'assigned') {
+                  committedAssignment = {
+                    sequence: result.sequence,
+                    assignment: result.assignment,
+                  };
+                }
                 // Keep the durable steering identity and its live queue owner
                 // under one Session admission. A terminal transition must not
                 // observe the committed Message before the queue does.
@@ -1549,6 +1559,7 @@ export async function createExecutionRuntimeHostComposition(
           return {
             turnId: persisted.targetTurnId,
             ...(persisted.steered ? { steered: true as const } : {}),
+            ...(committedAssignment ? { committedAssignment } : {}),
           };
         },
       },
