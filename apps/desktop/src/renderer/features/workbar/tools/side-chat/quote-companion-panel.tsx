@@ -34,10 +34,7 @@ import {
   type ComposerHandle,
 } from '@maka/ui';
 import type { SessionSummary } from '@maka/core/session';
-import {
-  generalizedErrorMessage,
-  generalizedErrorMessageChinese,
-} from '@maka/core/redaction';
+import { generalizedErrorMessageForLocale } from '@maka/core/redaction';
 import { useQuoteCompanion } from './use-quote-companion';
 import { useComposerAttachments } from '../../../../use-composer-attachments';
 import { useComposerMentionsContext } from '../../../../composer-mentions.js';
@@ -182,9 +179,7 @@ export function QuoteCompanionPanel(props: {
       const compactCopy = getDesktopConversationCopy(locale).quoteCompanion;
       toast.error(
         compactCopy.compactErrorTitle,
-        locale === 'zh'
-          ? generalizedErrorMessageChinese(error, compactCopy.compactErrorFallback)
-          : generalizedErrorMessage(error, compactCopy.compactErrorFallback),
+        generalizedErrorMessageForLocale(error, compactCopy.compactErrorFallback, locale),
         undefined,
         { sessionId },
       );

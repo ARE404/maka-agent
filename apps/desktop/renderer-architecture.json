@@ -408,8 +408,8 @@
           "./locales/shell-copy.js": 1,
           "@maka/core/redaction": 1
         },
-        "importSpecifiers": 3,
-        "nonTriviaTokens": 515
+        "importSpecifiers": 2,
+        "nonTriviaTokens": 504
       },
       "src/renderer/app-shell-detail-panel.tsx": {
         "importDeclarations": 0,
@@ -444,7 +444,7 @@
         "nonTriviaTokens": 672
       },
       "src/renderer/app-shell-effects.ts": {
-        "importDeclarations": 13,
+        "importDeclarations": 12,
         "bridgePaths": {
           "window.maka.app.info": 1,
           "window.maka.appWindow.subscribeCommand": 1,
@@ -490,12 +490,11 @@
           "./theme": 1,
           "./titlebar-modal-sync": 1,
           "@astryxdesign/core/hooks": 1,
-          "@maka/core/redaction": 1,
           "@maka/core/session-event-health": 1,
           "react": 1
         },
-        "importSpecifiers": 21,
-        "nonTriviaTokens": 3823
+        "importSpecifiers": 20,
+        "nonTriviaTokens": 3816
       },
       "src/renderer/app-shell-overlays.tsx": {
         "importDeclarations": 8,
@@ -2909,7 +2908,6 @@
           "./settings-expandable-row": 1,
           "./settings-section": 1,
           "./settings-skeleton.js": 1,
-          "@astryxdesign/core": 1,
           "@maka/ui": 1,
           "react": 1
         }
@@ -3894,7 +3892,6 @@
           "../features/connection-settings": 1,
           "./oauth-login-flow-guard": 1,
           "./runtime-host-settings-target.js": 1,
-          "@maka/core/redaction": 1,
           "@maka/ui": 1,
           "react": 1
         }

@@ -370,7 +370,7 @@ function ComposedShell(props: {
     deriveAppShellTurnPresentation(turns, {
       activeId: active?.id,
       pendingTurnActions: new Set<string>(),
-      uiLocale: 'zh',
+      uiLocale: 'zh-CN',
     });
   const projectGroups: SessionGroup[] = catalogProjects.map((item) => ({
     id: `project:${item.id}`,

@@ -18,7 +18,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { generalizedErrorMessage, generalizedErrorMessageChinese } from '@maka/core/redaction';
+import { generalizedErrorMessageForLocale } from '@maka/core/redaction';
 import { type UiLocale } from '@maka/core/ui-locale';
 import {
   mergeSessionTraces,
@@ -145,9 +145,7 @@ export function useSessionTrace(
                   loading: false,
                   loadingEarlier: false,
                   error:
-                    copy.locale === 'zh'
-                      ? generalizedErrorMessageChinese(error, copy.loadFailed)
-                      : generalizedErrorMessage(error, copy.loadFailed),
+                    generalizedErrorMessageForLocale(error, copy.loadFailed, copy.locale),
                 }
               : current,
           );
@@ -202,9 +200,7 @@ export function useSessionTrace(
                   loading: false,
                   loadingEarlier: false,
                   error:
-                    copy.locale === 'zh'
-                      ? generalizedErrorMessageChinese(error, copy.loadFailed)
-                      : generalizedErrorMessage(error, copy.loadFailed),
+                    generalizedErrorMessageForLocale(error, copy.loadFailed, copy.locale),
                 }
               : current,
           );

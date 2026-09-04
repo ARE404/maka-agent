@@ -965,7 +965,7 @@ export function ChatView(props: {
 export function DeepResearchProgressPanel({
   run,
   onContinue,
-  copy = getConversationCopy('zh').chat.deepResearchProgress,
+  copy = getConversationCopy('zh-CN').chat.deepResearchProgress,
 }: {
   run: DeepResearchClientProgress;
   onContinue?: (run: DeepResearchClientProgress) => void;
