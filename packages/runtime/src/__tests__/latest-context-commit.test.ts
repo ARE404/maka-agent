@@ -38,7 +38,7 @@ import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import type { LanguageModelV4StreamPart } from '@ai-sdk/provider';
 import {
   decodeModelCallAttempt,
-  PREPARED_REQUEST_OBSERVATION_MAX_SEGMENTS,
+  PROMPT_COMPOSITION_MAX_TOOLS,
   type ModelCallAttempt,
 } from '@maka/core/model-call-attempt';
 import { createSqliteAgentRunStore } from '@maka/storage/agent-run-store';
@@ -154,11 +154,10 @@ test('a real send seals its observation into SQLite and reconstructs it after re
         )
       ).flat();
       assert.equal(canonicalAttempts.length, 1);
-      const observation = canonicalAttempts[0]?.requestObservation;
-      assert.ok(observation);
-      assert.ok(observation.segments.length <= PREPARED_REQUEST_OBSERVATION_MAX_SEGMENTS);
-      assert.ok(observation.segments.length > 0);
-      assert.ok(observation.segments.every((segment) => segment.comparison === 'exact'));
+      const composition = canonicalAttempts[0]?.promptComposition;
+      assert.ok(composition);
+      assert.ok(composition.segments.length > 0);
+      assert.ok((composition.tools?.length ?? 0) <= PROMPT_COMPOSITION_MAX_TOOLS);
 
       let coldScans = 0;
       const cold = await readLatestContextDiagnostics(
@@ -186,7 +185,7 @@ test('a real send seals its observation into SQLite and reconstructs it after re
   }
 });
 
-test('an artifact captured before abort does not create a canonical sent attempt', async () => {
+test('a turn aborted before dispatch does not create a canonical sent attempt', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-aborted-request-chain-'));
   try {
     const sessionStore = createSessionStore(root);
@@ -196,7 +195,6 @@ test('an artifact captured before abort does not create a canonical sent attempt
     let ids = 0;
     const newId = () => `abort-chain-${++ids}`;
     let providerCalls = 0;
-    let artifactWrites = 0;
 
     backends.register('ai-sdk', (ctx) => {
       let backend!: ReturnType<typeof createTestAiSdkBackend>;
@@ -220,10 +218,8 @@ test('an artifact captured before abort does not create a canonical sent attempt
             },
           }),
         tools: [],
-        persistPreparedRequestArtifact: async () => {
-          artifactWrites += 1;
+        beforeRunProviderDispatch: () => {
           void backend.stop('user_stop');
-          return { artifactId: 'abandoned-artifact' };
         },
         ...(ctx.recordModelCallAttempt
           ? { recordModelCallAttempt: ctx.recordModelCallAttempt }
@@ -260,7 +256,6 @@ test('an artifact captured before abort does not create a canonical sent attempt
     const events = (
       await Promise.all(runIds.map((runId) => runStore.readEvents(session.id, runId)))
     ).flat();
-    assert.equal(artifactWrites, 1);
     assert.equal(providerCalls, 0);
     assert.equal(events.filter((event) => event.type === 'model_call_attempt_recorded').length, 0);
     assert.deepEqual(await readLatestContextDiagnostics(runStore, session.id, runIds), {
