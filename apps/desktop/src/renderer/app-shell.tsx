@@ -2896,7 +2896,7 @@ function AppShellContent({
                   respondToUserForm={respondToUserForm}
                   stop={stop}
                   directoryComposerProps={directoryComposerProps}
-                  directoryPickerEnabled={!!(
+                  directoryPickerEnabled={Boolean(
                     canStageComposerContext && directoryHostId && !revisionDraft
                   )}
                   // #646: Stop must be available for the WHOLE turn - the moment the
@@ -2949,7 +2949,7 @@ function AppShellContent({
                       ? undefined
                       : attachFilePaths
                   }
-                  modelLabel={activeModelLabel ?? newChatModelLabel ?? undefined}
+                  modelLabel={activeModelLabel ?? newChatModelLabel}
                   activeSession={activeSessionForView}
                   activeModelConnectionId={activeSessionForModelControls?.llmConnectionId}
                   activeModelConnectionSlug={activeSessionForModelControls?.llmConnectionSlug}
@@ -2957,14 +2957,13 @@ function AppShellContent({
                   activeModelLabel={activeModelLabel}
                   activeProviderType={activeConnection?.providerType}
                   latestRequestUsageTokens={selectLatestRequestUsage(messages, activeTranscriptRange, activeModel, activeSessionForModelControls)}
+                  onOpenContextUsage={() => workbar.commands.openTool('inspector')}
                   modelChoices={chatModelChoices}
                   modelSwitchHasHistory={modelSwitchHasHistory}
                   hideUnavailableCurrentModel={sessionHealthNotice?.onClickTarget === 'model_picker'}
                   renderProviderMark={(type) => <ProviderBrandMark type={type} />}
                   modelSwitchAvailability={modelSwitchAvailability}
-                  onModelChange={(input) => {
-                    if (activeId) void setSessionModel(activeId, input);
-                  }}
+                  onModelChange={(input) => activeId ? void setSessionModel(activeId, input) : undefined}
                   activeThinkingLevels={activeThinkingLevels}
                   activeThinkingLevel={activeThinkingLevel}
                   onThinkingLevelChange={(level) => {
@@ -3009,8 +3008,8 @@ function AppShellContent({
                   }
                   onPermissionModeChange={
                     activeBoundarySurface.localInteractionAvailable
-                      ? async (mode) => {
-                          await setPermissionMode(mode);
+                      ? async mode => {
+                          await setPermissionMode(mode)
                         }
                       : undefined
                   }
@@ -3020,14 +3019,10 @@ function AppShellContent({
                   // a reason here would gray the row mid-click — the blink
                   // this control had. The rows repaint when the write lands.
                   planModeDisabledReason={modeChangeDisabledReason}
-                  onPlanModeChange={(active) => {
-                    void setPlanMode(active);
-                  }}
+                  onPlanModeChange={(active) => void setPlanMode(active)}
                   orchestrationMode={activeOrchestrationMode}
                   orchestrationModeDisabledReason={modeChangeDisabledReason}
-                  onOrchestrationModeChange={(mode) => {
-                    void setOrchestrationMode(mode);
-                  }}
+                  onOrchestrationModeChange={(mode) => void setOrchestrationMode(mode)}
                   goalDisabledReason={
                     activeStreamingLive || (activeId && turnActive)
                       ? shellCopy.goalTurnActive
