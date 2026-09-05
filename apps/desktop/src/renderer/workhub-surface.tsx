@@ -42,6 +42,7 @@ import {
 } from './workhub-send-lease.js';
 import { WorkHubCoordinationFailure } from './workhub-coordination-port.js';
 import { WorkHubNavigationRail } from './features/workhub/index.js';
+import { getWorkHubRailCopy } from './locales/workhub-copy.js';
 
 export interface WorkHubConversationTurn {
   requestId: string;
@@ -227,6 +228,7 @@ export function WorkHubSurface(props: {
   onOpenSession(sessionId: string): void;
 }) {
   const copy = workHubCopy(props.locale);
+  const railCopy = getWorkHubRailCopy(props.locale);
   const [projection, setProjection] = useState<WorkHubProjection>({ sessions: [], turns: [] });
   const [coordination, setCoordination] = useState<{
     readonly turns: readonly WorkHubCoordinationTurn[];
@@ -407,9 +409,9 @@ export function WorkHubSurface(props: {
         <div className="workhub-body">
           <WorkHubNavigationRail
             sessions={projection.sessions}
-            focusSessionId={props.initialFocusSessionId}
+            focusSessionId={projection.focusSessionId}
             delegatedSessionIds={coordination.delegatedSessionIds}
-            copy={copy}
+            copy={railCopy}
             onOpenSession={props.onOpenSession}
           />
 
@@ -852,15 +854,6 @@ function workHubCopy(locale: UiLocale) {
     return {
       locale,
       subtitle: '在一个入口里继续、创建和查看普通 Session',
-      work: '工作', workNavigation: '工作导航', filterWork: '筛选工作', focused: '当前',
-      filteredWorkCount: (visible: number, total: number) => `${visible}/${total}`,
-      noFilteredWork: '此筛选下没有工作',
-      filters: [
-        { id: 'all' as const, label: '全部' },
-        { id: 'active' as const, label: '进行中' },
-        { id: 'attention' as const, label: '待处理' },
-        { id: 'stopped' as const, label: '已停止' },
-      ],
       emptyTitle: '从这里继续所有工作',
       emptyBody: (count: number) => count > 0
         ? `WorkHub 会根据已有 ${count} 个 Session 判断目标；不确定时会先询问你。`
@@ -922,15 +915,6 @@ function workHubCopy(locale: UiLocale) {
     return {
       locale,
       subtitle: '在一個入口繼續、建立和檢視一般 Session',
-      work: '工作', workNavigation: '工作導覽', filterWork: '篩選工作', focused: '目前',
-      filteredWorkCount: (visible: number, total: number) => `${visible}/${total}`,
-      noFilteredWork: '此篩選下沒有工作',
-      filters: [
-        { id: 'all' as const, label: '全部' },
-        { id: 'active' as const, label: '進行中' },
-        { id: 'attention' as const, label: '待處理' },
-        { id: 'stopped' as const, label: '已停止' },
-      ],
       emptyTitle: '從這裡繼續所有工作',
       emptyBody: (count: number) => count > 0
         ? `WorkHub 會根據現有 ${count} 個 Session 判斷目標；不確定時會先詢問你。`
@@ -992,15 +976,6 @@ function workHubCopy(locale: UiLocale) {
   return {
     locale,
     subtitle: 'Continue, create, and review ordinary Sessions from one place',
-    work: 'Work', workNavigation: 'Work navigation', filterWork: 'Filter work', focused: 'Focused',
-    filteredWorkCount: (visible: number, total: number) => `${visible}/${total}`,
-    noFilteredWork: 'No work matches this filter',
-    filters: [
-      { id: 'all' as const, label: 'All' },
-      { id: 'active' as const, label: 'Active' },
-      { id: 'attention' as const, label: 'Needs you' },
-      { id: 'stopped' as const, label: 'Stopped' },
-    ],
     emptyTitle: 'Continue all work from here',
     emptyBody: (count: number) => count > 0
       ? `WorkHub routes against ${count} existing Session${count === 1 ? '' : 's'} and asks when the target is unclear.`

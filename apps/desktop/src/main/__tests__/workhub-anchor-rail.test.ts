@@ -19,12 +19,16 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import type { WorkHubSessionSummary } from "../../renderer/workhub-controller.js";
 import {
   deriveWorkHubAnchors,
   matchesWorkHubFilter,
   MAX_WORKHUB_ANCHORS,
+  WorkHubNavigationRail,
 } from "../../renderer/features/workhub/index.js";
+import { getWorkHubRailCopy } from "../../renderer/locales/workhub-copy.js";
 
 function session(
   sessionId: string,
@@ -132,4 +136,19 @@ test("filtering never mutates the authoritative projection", () => {
     filter: "attention",
   });
   assert.deepEqual(sessions, before);
+});
+
+test("rail copy distinguishes bounded anchors from all matching work", () => {
+  const many = Array.from({ length: 20 }, (_, index) =>
+    session(`session-${index}`, "active", index),
+  );
+  const markup = renderToStaticMarkup(createElement(WorkHubNavigationRail, {
+    sessions: many,
+    delegatedSessionIds: [],
+    copy: getWorkHubRailCopy("en"),
+    onOpenSession: () => undefined,
+  }));
+
+  assert.match(markup, /8\/20 anchors · 20 total/u);
+  assert.equal(markup.match(/workhub-anchor-content/gu)?.length, 8);
 });

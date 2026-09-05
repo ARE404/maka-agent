@@ -150,6 +150,8 @@ export function boundedWorkHubTimelineText(value: string): string {
 export interface WorkHubProjection {
   sessions: WorkHubSessionSummary[];
   turns: WorkHubProjectedTurn[];
+  /** Current deterministic coordination focus; projection only, never authority. */
+  focusSessionId?: string;
 }
 
 export interface WorkHubSubmitInput {
@@ -448,6 +450,7 @@ export function createWorkHubController(deps: {
         ) {
           reconcileFocus(readPolicy, facts);
         }
+        const focusSessionId = readPolicy.focusSnapshot().current?.sessionId;
         return {
           sessions: ordinary
             .map(({ kind: _kind, runningTurnIds: _runningTurnIds, ...session }) => session),
@@ -455,6 +458,7 @@ export function createWorkHubController(deps: {
           // Ordinary Session transcripts remain routing evidence, never a
           // second WorkHub conversation source.
           turns: [],
+          ...(focusSessionId ? { focusSessionId } : {}),
         };
       } finally {
         if (input?.focus && pendingFocusReadVersion === readFocusVersion) {

@@ -20,4 +20,5 @@
 export * from './model/anchor-rail.js';
 export * from './model/route-policy.js';
 export * from './model/routing-strategy.js';
+export * from './model/routing-experiment.js';
 export { WorkHubNavigationRail } from './ui/workhub-navigation-rail.js';

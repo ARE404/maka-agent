@@ -18,6 +18,7 @@
  */
 
 import { useState } from 'react';
+import { Button } from '@maka/ui';
 import {
   deriveWorkHubAnchors,
   matchesWorkHubFilter,
@@ -32,7 +33,7 @@ interface WorkHubNavigationRailCopy {
   readonly focused: string;
   readonly archived: string;
   readonly states: Readonly<Record<WorkHubAnchorSession['state'], string>>;
-  readonly filteredWorkCount: (visible: number, total: number) => string;
+  readonly anchorCount: (shown: number, matching: number, total: number) => string;
   readonly noFilteredWork: string;
   readonly filters: ReadonlyArray<{
     readonly id: WorkHubWorkFilter;
@@ -54,25 +55,26 @@ export function WorkHubNavigationRail(props: {
     delegatedSessionIds: props.delegatedSessionIds,
     filter,
   });
-  const filteredWorkCount = props.sessions.filter((session) =>
+  const matchingWorkCount = props.sessions.filter((session) =>
     matchesWorkHubFilter(session, filter)).length;
 
   return (
     <aside className="workhub-anchor-rail" aria-label={props.copy.workNavigation}>
       <div className="workhub-anchor-heading">
         <strong>{props.copy.work}</strong>
-        <span>{props.copy.filteredWorkCount(filteredWorkCount, props.sessions.length)}</span>
+        <span>{props.copy.anchorCount(anchors.length, matchingWorkCount, props.sessions.length)}</span>
       </div>
       <div className="workhub-filters" role="toolbar" aria-label={props.copy.filterWork}>
         {props.copy.filters.map((candidate) => (
-          <button
+          <Button
             key={candidate.id}
-            type="button"
+            className="workhub-filter-button"
+            variant={filter === candidate.id ? 'secondary' : 'ghost'}
+            size="sm"
+            label={candidate.label}
             aria-pressed={filter === candidate.id}
             onClick={() => setFilter(candidate.id)}
-          >
-            {candidate.label}
-          </button>
+          />
         ))}
       </div>
       <nav className="workhub-anchors" aria-label={props.copy.workNavigation}>
@@ -81,22 +83,28 @@ export function WorkHubNavigationRail(props: {
             ? props.copy.archived
             : props.copy.states[anchor.session.state];
           return (
-            <button
+            <Button
               key={anchor.session.target.sessionId}
-              type="button"
+              className="workhub-anchor-button"
+              variant="ghost"
+              size="sm"
+              width="100%"
+              label={`${anchor.session.sessionName}, ${state}`}
               aria-current={anchor.reason === 'focus' ? 'page' : undefined}
               data-state={anchor.session.archived ? 'archived' : anchor.session.state}
               onClick={() => props.onOpenSession(anchor.session.target.sessionId)}
             >
-              <span className="workhub-anchor-title">
-                <span className="workhub-anchor-state" aria-hidden="true" />
-                <strong>{anchor.session.sessionName}</strong>
+              <span className="workhub-anchor-content">
+                <span className="workhub-anchor-title">
+                  <span className="workhub-anchor-state" aria-hidden="true" />
+                  <strong>{anchor.session.sessionName}</strong>
+                </span>
+                <small>
+                  {anchor.reason === 'focus' ? props.copy.focused : anchor.session.projectName}
+                  {' · '}{state}
+                </small>
               </span>
-              <small>
-                {anchor.reason === 'focus' ? props.copy.focused : anchor.session.projectName}
-                {' · '}{state}
-              </small>
-            </button>
+            </Button>
           );
         }) : (
           <p className="workhub-anchor-empty">{props.copy.noFilteredWork}</p>

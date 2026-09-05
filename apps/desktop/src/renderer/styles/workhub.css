@@ -130,30 +130,8 @@
   padding: 8px 0;
 }
 
-.workhub-filters button {
-  min-height: 28px;
-  padding: 4px 7px;
-  border: 0;
-  border-radius: var(--radius-control, 6px);
-  background: transparent;
-  color: var(--color-text-secondary, var(--muted-foreground));
-  font: inherit;
+.workhub-filter-button {
   font-size: var(--font-size-body-xs, 12px);
-}
-
-.workhub-filters button:hover {
-  color: var(--color-text-primary, var(--foreground));
-}
-
-.workhub-filters button[aria-pressed="true"] {
-  background: var(--color-background-secondary, var(--muted));
-  color: var(--color-text-primary, var(--foreground));
-}
-
-.workhub-filters button:focus-visible,
-.workhub-anchors button:focus-visible {
-  outline: 2px solid var(--color-border-focus, var(--ring));
-  outline-offset: 2px;
 }
 
 .workhub-anchors {
@@ -161,22 +139,17 @@
   flex-direction: column;
 }
 
-.workhub-anchors button {
+.workhub-anchor-button {
+  border-bottom: 1px solid var(--color-border-subtle, var(--border));
+}
+
+.workhub-anchor-content {
   display: flex;
+  width: 100%;
   min-width: 0;
   flex-direction: column;
   gap: 3px;
-  padding: 9px 0;
-  border: 0;
-  border-bottom: 1px solid var(--color-border-subtle, var(--border));
-  background: transparent;
-  color: var(--color-text-primary, var(--foreground));
-  font: inherit;
   text-align: left;
-}
-
-.workhub-anchors button:hover strong {
-  color: var(--color-accent, var(--accent));
 }
 
 .workhub-anchor-title {
@@ -202,19 +175,19 @@
   color: var(--color-text-secondary, var(--muted-foreground));
 }
 
-.workhub-anchors button[data-state="running"] .workhub-anchor-state {
+.workhub-anchor-button[data-state="running"] .workhub-anchor-state {
   border-color: var(--color-accent, var(--accent));
   background: var(--color-accent, var(--accent));
 }
 
-.workhub-anchors button[data-state="waiting_for_user"] .workhub-anchor-state,
-.workhub-anchors button[data-state="blocked"] .workhub-anchor-state {
+.workhub-anchor-button[data-state="waiting_for_user"] .workhub-anchor-state,
+.workhub-anchor-button[data-state="blocked"] .workhub-anchor-state {
   border-color: var(--color-text-warning, var(--warning));
   background: var(--color-text-warning, var(--warning));
 }
 
-.workhub-anchors button[data-state="aborted"] .workhub-anchor-state,
-.workhub-anchors button[data-state="archived"] .workhub-anchor-state {
+.workhub-anchor-button[data-state="aborted"] .workhub-anchor-state,
+.workhub-anchor-button[data-state="archived"] .workhub-anchor-state {
   opacity: 0.55;
 }
 
@@ -430,7 +403,7 @@
     overflow-x: auto;
   }
 
-  .workhub-anchors button {
+  .workhub-anchor-content {
     padding-right: 16px;
   }
 }

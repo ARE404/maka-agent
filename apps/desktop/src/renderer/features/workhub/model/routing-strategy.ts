@@ -70,6 +70,10 @@ export interface WorkHubRoutingStrategy {
   resolveStop: WorkHubRoutePolicy["resolveStop"];
   resolve(input: WorkHubRoutingInput): Promise<WorkHubRouteDecision>;
   initializeFocus(targets: readonly WorkHubRoutingTarget[]): void;
+  focusSnapshot(): {
+    readonly current?: WorkHubRoutingTarget;
+    readonly previous?: WorkHubRoutingTarget;
+  };
   newVisit(): WorkHubRoutingStrategy;
   rememberTarget(target: WorkHubRoutingTarget): void;
 }
@@ -142,6 +146,9 @@ export function createWorkHubR24RoutingStrategy(
     },
     initializeFocus(targets) {
       policy.initializeFocus(targets);
+    },
+    focusSnapshot() {
+      return policy.focusSnapshot();
     },
     newVisit() {
       return createWorkHubR24RoutingStrategy(policy.newVisit());
@@ -272,6 +279,9 @@ function createModelRoutingStrategy(input: {
     },
     initializeFocus(targets) {
       input.baseline.initializeFocus(targets);
+    },
+    focusSnapshot() {
+      return input.baseline.focusSnapshot();
     },
     newVisit() {
       return createModelRoutingStrategy({

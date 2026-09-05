@@ -30,7 +30,10 @@ import {
 } from '../../renderer/workhub-controller.js';
 import {
   createWorkHubRoutePolicy,
+  runWorkHubRoutingExperiment,
   workHubNewSessionName,
+  WORKHUB_R24_ROUTING_STRATEGY_ID,
+  WORKHUB_R3B_ROUTING_STRATEGY_ID,
 } from '../../renderer/features/workhub/index.js';
 import {
   createWorkHubR3ARoutingStrategy,
@@ -699,6 +702,7 @@ test('submit routes a unique complete Session name without asking', async () => 
     evidence: 'exact_session_name',
   });
   assert.deepEqual(submitted, ['payment']);
+  assert.equal((await controller.read()).focusSessionId, 'payment');
 });
 
 test('an injected R3 strategy still delegates through the shared controller and Action Gate', async () => {
@@ -735,6 +739,69 @@ test('an injected R3 strategy still delegates through the shared controller and 
     evidence: 'model_candidate',
   });
   assert.deepEqual(submitted, ['payment']);
+});
+
+test('the routing experiment repeats every strategy inside the same controller and Action Gate shell', async () => {
+  let modelCalls = 0;
+  const shellContexts: unknown[] = [];
+  const observations = await runWorkHubRoutingExperiment({
+    repetitions: 2,
+    cases: [{ caseId: 'payment', text: '支付回调幂等性：补充重复投递测试' }],
+    context: {
+      snapshotId: 'snapshot-routing-fixture',
+      sessions: [
+        {
+          target: { sessionId: 'login' },
+          projectName: 'maka',
+          sessionName: '登录刷新令牌',
+          state: 'active',
+          updatedAt: 2,
+        },
+        {
+          target: { sessionId: 'payment' },
+          projectName: 'maka',
+          sessionName: '支付回调幂等性',
+          state: 'active',
+          updatedAt: 1,
+        },
+      ],
+      coordinationTranscript: [],
+      runtimeState: { candidateSetId: `sha256:${'c'.repeat(64)}` },
+    },
+    model: {
+      async decide(input) {
+        modelCalls += 1;
+        return input.mayChooseCandidate
+          ? { disposition: 'delegate_existing', candidateRef: 'candidate-payment' }
+          : { disposition: 'delegate_existing' };
+      },
+    },
+    createShell({ strategy, context }) {
+      shellContexts.push(context);
+      const sessions = port(context.sessions.map((entry) => ({
+        ...entry,
+        kind: 'ordinary' as const,
+        archived: false,
+      })));
+      const controller = createWorkHubController({ sessions, routingStrategy: strategy });
+      return { submit: (input) => controller.submit(input) };
+    },
+  });
+
+  assert.equal(observations.length, 6);
+  assert.equal(modelCalls, 4);
+  assert.equal(new Set(shellContexts).size, 1);
+  assert.equal(Object.isFrozen(shellContexts[0]), true);
+  assert.deepEqual(
+    new Set(observations.map(({ strategyId }) => strategyId)),
+    new Set([
+      WORKHUB_R24_ROUTING_STRATEGY_ID,
+      WORKHUB_R3A_ROUTING_STRATEGY_ID,
+      WORKHUB_R3B_ROUTING_STRATEGY_ID,
+    ]),
+  );
+  assert.ok(observations.every(({ result }) =>
+    result.kind === 'submitted' && result.target.sessionId === 'payment'));
 });
 
 test('a unique longer Session name outranks a generic contained Session name', async () => {
