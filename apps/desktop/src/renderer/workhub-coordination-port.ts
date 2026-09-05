@@ -76,16 +76,23 @@ export function createDesktopWorkHubCoordinationPort(deps: {
       let refreshGeneration = 0;
       let handle: Awaited<ReturnType<typeof deps.transcripts.open>> | undefined;
       let refreshLane = Promise.resolve();
+      let refreshScheduled = false;
+      let scheduledRefreshGeneration = 0;
       let activeDelegations: readonly WorkHubActiveDelegation[] = [];
       const emit = () => {
         handler(projectWorkHubCoordinationTurns(store.snapshot().messages), activeDelegations);
       };
       const scheduleRefresh = (generation: number) => {
+        scheduledRefreshGeneration = generation;
+        if (refreshScheduled) return;
+        refreshScheduled = true;
         refreshLane = refreshLane
           .then(async () => {
-            if (disposed || generation !== refreshGeneration) return;
+            const scheduledGeneration = scheduledRefreshGeneration;
+            refreshScheduled = false;
+            if (disposed || scheduledGeneration !== refreshGeneration) return;
             const result = await deps.candidates();
-            if (disposed || generation !== refreshGeneration) return;
+            if (disposed || scheduledGeneration !== refreshGeneration) return;
             activeDelegations = result.delegations;
             if (ready) emit();
           })

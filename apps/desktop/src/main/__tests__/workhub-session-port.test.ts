@@ -589,6 +589,80 @@ test('Coordination transcript reads old active linkage without replaying older h
   await handle.close();
 });
 
+test('Coordination transcript coalesces a burst into one Host snapshot refresh', async () => {
+  const sessionId = desktopSessionKey({ hostId: 'local-host', sessionId: 'coordination' });
+  let deliver: ((batch: DesktopTranscriptBatch) => void) | undefined;
+  let snapshotReads = 0;
+  const adapter = createDesktopWorkHubCoordinationPort({
+    sessionId,
+    transcripts: {
+      open: async (_requestedSessionId, handler) => {
+        deliver = handler;
+        handler({
+          sessionId: 'coordination',
+          deliverySequence: 1,
+          generation: 'generation-1',
+          hostEpoch: 'epoch-1',
+          durableThrough: null,
+          fragments: [],
+          evictedDurableSequences: [],
+          completedOverlayMessageIds: [],
+          hasOlder: false,
+          hasNewer: false,
+          reset: true,
+          ready: true,
+        });
+        return {
+          sessionId,
+          generation: 'generation-1',
+          hostEpoch: 'epoch-1',
+          readThroughMessageId: null,
+          loadBefore: async () => {},
+          loadAround: async () => {},
+          close: async () => {},
+        };
+      },
+    },
+    record: async (input) => ({ turnId: input.turnId }),
+    candidates: async () => {
+      snapshotReads += 1;
+      return {
+        candidateSetId: `sha256:${'c'.repeat(64)}`,
+        candidates: [],
+        delegations: [],
+      };
+    },
+    act: async () => ({
+      ok: true,
+      result: { disposition: 'answer_here', coordinationTurnId: 'coordination-turn' },
+    }),
+  });
+  const handle = await adapter.open(() => {}, (error) => assert.fail(String(error)));
+  assert.equal(snapshotReads, 1);
+
+  for (let deliverySequence = 2; deliverySequence <= 4; deliverySequence += 1) {
+    deliver?.({
+      sessionId: 'coordination',
+      deliverySequence,
+      generation: 'generation-1',
+      hostEpoch: 'epoch-1',
+      durableThrough: null,
+      fragments: [],
+      evictedDurableSequences: [],
+      completedOverlayMessageIds: [],
+      hasOlder: false,
+      hasNewer: false,
+      reset: false,
+      ready: true,
+    });
+  }
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  assert.equal(snapshotReads, 2);
+  await handle.close();
+});
+
 test('projects durable Session messages into an ordered WorkHub conversation', () => {
   const turns = projectWorkHubSessionTurns({
     target: { sessionId: 'payment' },
