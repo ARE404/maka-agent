@@ -18,6 +18,11 @@
  */
 
 import {
+  SAFE_BOUNDARY_RESUME_PARK_REASONS,
+  type SafeBoundaryResumeParkReason,
+} from '@maka/core/runtime-invocation';
+
+import {
   requireCount,
   requireEntityId,
   requireExactRecord,
@@ -234,6 +239,7 @@ export type WorkHubCoordinationActResult =
       readonly outcome: 'resume_started' | 'already_running' | 'parked';
       readonly targetSessionId: string;
       readonly targetTurnId?: string;
+      readonly parkReason?: SafeBoundaryResumeParkReason;
     };
 
 export const WORKHUB_COORDINATION_OPERATION_SPECS = {
@@ -566,7 +572,7 @@ export function decodeWorkHubCoordinationActResult(value: unknown): WorkHubCoord
       result,
       'WorkHub Coordination resume result',
       ['disposition', 'outcome', 'targetSessionId'],
-      ['targetTurnId'],
+      ['targetTurnId', 'parkReason'],
     );
     if (
       exact.outcome !== 'resume_started' &&
@@ -580,6 +586,13 @@ export function decodeWorkHubCoordinationActResult(value: unknown): WorkHubCoord
     if ((exact.outcome === 'resume_started') !== (exact.targetTurnId !== undefined)) {
       throw invalidProtocolFrame('Invalid WorkHub resume target Turn');
     }
+    if (
+      exact.outcome === 'parked'
+        ? !(SAFE_BOUNDARY_RESUME_PARK_REASONS as readonly unknown[]).includes(exact.parkReason)
+        : exact.parkReason !== undefined
+    ) {
+      throw invalidProtocolFrame('Invalid WorkHub resume park reason');
+    }
     return {
       disposition: 'resume_work',
       outcome: exact.outcome,
@@ -589,6 +602,9 @@ export function decodeWorkHubCoordinationActResult(value: unknown): WorkHubCoord
         : {
             targetTurnId: requireEntityId(exact.targetTurnId, 'WorkHub target Turn id'),
           }),
+      ...(exact.parkReason === undefined
+        ? {}
+        : { parkReason: exact.parkReason as SafeBoundaryResumeParkReason }),
     };
   }
   throw invalidProtocolFrame('Invalid WorkHub Coordination action disposition');
