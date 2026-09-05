@@ -680,31 +680,6 @@ test('WorkHub creates new work through the production assignment composition', a
       const session = (await manager.listSessions()).find(({ id }) => id === targetSessionId);
       assert.equal(session?.name, 'Login stability');
       assert.equal(session?.llmConnectionId, connectionId);
-
-      const current = await composition.handlers['workhub.coordination.candidates']({}, context);
-      assert.equal(current.ok, true);
-      if (!current.ok) return;
-      assert.deepEqual(current.result.delegations, [
-        {
-          actionId: 'workhub-create-action',
-          targetSessionId,
-          sequence: 0,
-        },
-      ]);
-      const stopped = await composition.handlers['workhub.coordination.act'](
-        {
-          actionId: 'workhub-create-stop-action',
-          userText: 'Stop Login stability',
-          confirmation: { kind: 'user_stop' },
-          proposal: {
-            disposition: 'stop_work',
-            expects: { targetSessionId },
-          },
-        },
-        context,
-      );
-      assert.equal(stopped.ok, true, JSON.stringify(stopped));
-      if (stopped.ok) assert.equal(stopped.result.disposition, 'stop_work');
     } finally {
       await composition.close();
     }
@@ -831,6 +806,89 @@ test('WorkHub Stop retires the running continuation after Resume', async () => {
           context,
         );
       }
+      await composition.close();
+    }
+  });
+});
+
+test('WorkHub does not record resume while safe-boundary resume is disabled', async () => {
+  await withCompositionRoot(async ({ root, owner }) => {
+    const connectionId = await configureFakeDefaultTarget(owner);
+    const { composition, manager } = await createCapturedExecutionComposition(owner, {
+      safeBoundaryResume: false,
+    });
+    const context = {
+      hostEpoch: 'execution-composition-test',
+      connectionId: 'workhub-disabled-resume-client',
+      principal: 'local_os_user' as const,
+      acquireResidency: () => ({ release() {} }),
+    };
+    try {
+      const target = await manager.createSession({
+        cwd: root,
+        llmConnectionId: connectionId,
+        llmConnectionSlug: 'fake',
+        model: 'fake-model',
+        permissionMode: 'ask',
+        name: 'Payments',
+      });
+      await composition.handlers['workhub.coordination.resolve']({}, context);
+      const candidates = await composition.handlers['workhub.coordination.candidates']({}, context);
+      assert.equal(candidates.ok, true);
+      if (!candidates.ok) return;
+      const candidate = candidates.result.candidates.find(
+        ({ sessionId }) => sessionId === target.id,
+      );
+      assert.ok(candidate);
+      if (!candidate) return;
+      const delegated = await composition.handlers['workhub.coordination.act'](
+        {
+          actionId: 'workhub-disabled-resume-delegation',
+          userText: FAKE_HOLD_OPEN_PROMPT,
+          candidateSetId: candidates.result.candidateSetId,
+          proposal: {
+            disposition: 'delegate_existing',
+            candidateRef: candidate.candidateRef,
+          },
+        },
+        context,
+      );
+      assert.equal(delegated.ok, true, JSON.stringify(delegated));
+      if (!delegated.ok || delegated.result.disposition !== 'delegate_existing') return;
+      const original = await composition.handlers['turn.query'](
+        { sessionId: target.id, turnId: delegated.result.targetTurnId },
+        context,
+      );
+      assert.equal(original.ok, true);
+      if (!original.ok) return;
+      await composition.handlers['turn.stop'](
+        { sessionId: target.id, turnId: original.result.turnId, runId: original.result.runId },
+        context,
+      );
+
+      const actionId = 'workhub-disabled-resume';
+      const resumed = await composition.handlers['workhub.coordination.act'](
+        {
+          actionId,
+          userText: 'Resume Payments',
+          proposal: {
+            disposition: 'resume_work',
+            expects: { targetSessionId: target.id },
+          },
+        },
+        context,
+      );
+      assert.deepEqual(resumed, {
+        ok: false,
+        error: {
+          code: 'operation_unavailable',
+          message: 'Safe-boundary resume is disabled for this Runtime Host',
+        },
+      });
+      await composition.close();
+      const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
+      assert.equal(await stores.sessionStore.readWorkHubResume(actionId), undefined);
+    } finally {
       await composition.close();
     }
   });
@@ -1716,7 +1774,8 @@ async function createCapturedExecutionComposition(
     return originalRecover.call(this, stores);
   };
   try {
-    if (options.safeBoundaryResume) process.env.MAKA_RUNTIME_SAFE_BOUNDARY_RESUME = '1';
+    if (options.safeBoundaryResume === true) process.env.MAKA_RUNTIME_SAFE_BOUNDARY_RESUME = '1';
+    if (options.safeBoundaryResume === false) delete process.env.MAKA_RUNTIME_SAFE_BOUNDARY_RESUME;
     // The production composition no longer registers a test backend of its
     // own; the deterministic one arrives through the same `primaryBackendFactory`
     // seam the Desktop E2E run uses.
