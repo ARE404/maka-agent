@@ -17,13 +17,21 @@
  * under the License.
  */
 
-import type { WorkHubSessionSummary } from "./workhub-controller.js";
+export interface WorkHubAnchorSession {
+  readonly target: { readonly sessionId: string };
+  readonly projectName: string;
+  readonly sessionName: string;
+  readonly archived: boolean;
+  readonly state: "active" | "running" | "waiting_for_user" | "blocked" | "aborted";
+  readonly latestResult?: string;
+  readonly updatedAt: number;
+}
 
 export type WorkHubWorkFilter = "all" | "active" | "attention" | "stopped";
 export type WorkHubAnchorReason = "focus" | "delegated" | "recent";
 
 export interface WorkHubAnchor {
-  readonly session: WorkHubSessionSummary;
+  readonly session: WorkHubAnchorSession;
   readonly reason: WorkHubAnchorReason;
 }
 
@@ -34,7 +42,7 @@ export const MAX_WORKHUB_ANCHORS = 8;
  * candidate set and owns no Session or delegation state.
  */
 export function deriveWorkHubAnchors(input: {
-  readonly sessions: readonly WorkHubSessionSummary[];
+  readonly sessions: readonly WorkHubAnchorSession[];
   readonly focusSessionId?: string;
   readonly delegatedSessionIds: readonly string[];
   readonly filter: WorkHubWorkFilter;
@@ -72,7 +80,7 @@ export function deriveWorkHubAnchors(input: {
 }
 
 export function matchesWorkHubFilter(
-  session: WorkHubSessionSummary,
+  session: WorkHubAnchorSession,
   filter: WorkHubWorkFilter,
 ): boolean {
   if (filter === "all") return true;

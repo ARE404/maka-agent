@@ -36,7 +36,7 @@ import {
   createWorkHubR3ARoutingStrategy,
   WORKHUB_R3A_ROUTING_STRATEGY_ID,
   type WorkHubRoutingStrategy,
-} from '../../renderer/workhub-routing-strategy.js';
+} from '../../renderer/features/workhub/index.js';
 import { WorkHubCoordinationFailure } from '../../renderer/workhub-coordination-port.js';
 
 const appShellUrl = [

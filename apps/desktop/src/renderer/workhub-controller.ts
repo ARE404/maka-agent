@@ -33,7 +33,7 @@ import {
   type WorkHubRoutingStrategy,
   type WorkHubRoutingStrategyId,
   WORKHUB_R24_ROUTING_STRATEGY_ID,
-} from './workhub-routing-strategy.js';
+} from './features/workhub/index.js';
 import type {
   OperationError,
   WorkHubCoordinationActInput,
@@ -171,9 +171,9 @@ export interface WorkHubReadInput {
   focus?: WorkHubSessionTarget;
 }
 
-/** @deprecated Prefer the versioned IDs exported by workhub-routing-strategy. */
+/** @deprecated Prefer the versioned IDs exported by the WorkHub feature. */
 export const WORKHUB_ROUTING_STRATEGY_ID = WORKHUB_R24_ROUTING_STRATEGY_ID;
-export type { WorkHubRoutingStrategyId } from './workhub-routing-strategy.js';
+export type { WorkHubRoutingStrategyId } from './features/workhub/index.js';
 
 export type WorkHubSubmission = (
   | {

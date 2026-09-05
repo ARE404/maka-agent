@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ChatMessage,
   ChatMessageBubble,
@@ -28,7 +28,6 @@ import { Button } from '@astryxdesign/core/Button';
 import type { UiLocale } from '@maka/core/ui-locale';
 import { ChatSurfaceLayout, Composer } from '@maka/ui';
 import type {
-  WorkHubActiveDelegation,
   WorkHubController,
   WorkHubCoordinationTurn,
   WorkHubDelegationLinkState,
@@ -42,11 +41,7 @@ import {
   type WorkHubSendAttempt,
 } from './workhub-send-lease.js';
 import { WorkHubCoordinationFailure } from './workhub-coordination-port.js';
-import {
-  deriveWorkHubAnchors,
-  matchesWorkHubFilter,
-  type WorkHubWorkFilter,
-} from './workhub-anchor-rail.js';
+import { WorkHubNavigationRail } from './features/workhub/index.js';
 
 export interface WorkHubConversationTurn {
   requestId: string;
@@ -233,8 +228,10 @@ export function WorkHubSurface(props: {
 }) {
   const copy = workHubCopy(props.locale);
   const [projection, setProjection] = useState<WorkHubProjection>({ sessions: [], turns: [] });
-  const [coordinationTurns, setCoordinationTurns] = useState<readonly WorkHubCoordinationTurn[]>([]);
-  const [activeDelegations, setActiveDelegations] = useState<readonly WorkHubActiveDelegation[]>([]);
+  const [coordination, setCoordination] = useState<{
+    readonly turns: readonly WorkHubCoordinationTurn[];
+    readonly delegatedSessionIds: readonly string[];
+  }>({ turns: [], delegatedSessionIds: [] });
   const [turns, setTurns] = useState<WorkHubConversationTurn[]>([]);
   const [pending, setPending] = useState(false);
   const [initialLoadSettled, setInitialLoadSettled] = useState(false);
@@ -246,7 +243,6 @@ export function WorkHubSurface(props: {
   const sendLease = useRef(new WorkHubSendLease({ scope: props.leaseScope })).current;
   const [loadError, setLoadError] = useState(false);
   const [conversationError, setConversationError] = useState(false);
-  const [workFilter, setWorkFilter] = useState<WorkHubWorkFilter>('all');
   const refresh = useCallback(async (focusSessionId?: string) => {
     const isLatest = refreshGate.begin();
     try {
@@ -282,8 +278,12 @@ export function WorkHubSurface(props: {
     void props.controller.openConversation(
       (next, nextActiveDelegations) => {
         if (disposed) return;
-        setCoordinationTurns(next);
-        setActiveDelegations(nextActiveDelegations);
+        setCoordination({
+          turns: next,
+          delegatedSessionIds: nextActiveDelegations.map(
+            (delegation) => delegation.targetSessionId,
+          ),
+        });
         setConversationReady(true);
         setConversationError(false);
       },
@@ -373,21 +373,9 @@ export function WorkHubSurface(props: {
       },
     });
   }, [conversationReady, initialLoadSettled, route, routeGate, sendLease]);
-  const visible = visibleWorkHubConversation(coordinationTurns, turns);
+  const visible = visibleWorkHubConversation(coordination.turns, turns);
   const visibleCoordinationTurns = visible.coordination;
   const visibleLocalTurns = visible.local;
-  const delegatedSessionIds = useMemo(
-    () => activeDelegations.map((delegation) => delegation.targetSessionId),
-    [activeDelegations],
-  );
-  const anchors = useMemo(() => deriveWorkHubAnchors({
-    sessions: projection.sessions,
-    focusSessionId: props.initialFocusSessionId,
-    delegatedSessionIds,
-    filter: workFilter,
-  }), [delegatedSessionIds, projection.sessions, props.initialFocusSessionId, workFilter]);
-  const filteredWorkCount = useMemo(() => projection.sessions.filter((session) =>
-    matchesWorkHubFilter(session, workFilter)).length, [projection.sessions, workFilter]);
   const conversationEmpty = visibleCoordinationTurns.length === 0 && visibleLocalTurns.length === 0;
   const surfaceReady = initialLoadSettled && conversationReady;
 
@@ -417,51 +405,13 @@ export function WorkHubSurface(props: {
         </header>
 
         <div className="workhub-body">
-          <aside className="workhub-anchor-rail" aria-label={copy.workNavigation}>
-            <div className="workhub-anchor-heading">
-              <strong>{copy.work}</strong>
-              <span>{copy.filteredWorkCount(filteredWorkCount, projection.sessions.length)}</span>
-            </div>
-            <div className="workhub-filters" role="toolbar" aria-label={copy.filterWork}>
-              {copy.filters.map((filter) => (
-                <button
-                  key={filter.id}
-                  type="button"
-                  aria-pressed={workFilter === filter.id}
-                  onClick={() => setWorkFilter(filter.id)}
-                >
-                  {filter.label}
-                </button>
-              ))}
-            </div>
-            <nav className="workhub-anchors" aria-label={copy.workNavigation}>
-              {anchors.length > 0 ? anchors.map((anchor) => {
-                const state = anchor.session.archived
-                  ? copy.archived
-                  : copy.states[anchor.session.state];
-                return (
-                  <button
-                    key={anchor.session.target.sessionId}
-                    type="button"
-                    aria-current={anchor.reason === 'focus' ? 'page' : undefined}
-                    data-state={anchor.session.archived ? 'archived' : anchor.session.state}
-                    onClick={() => props.onOpenSession(anchor.session.target.sessionId)}
-                  >
-                    <span className="workhub-anchor-title">
-                      <span className="workhub-anchor-state" aria-hidden="true" />
-                      <strong>{anchor.session.sessionName}</strong>
-                    </span>
-                    <small>
-                      {anchor.reason === 'focus' ? copy.focused : anchor.session.projectName}
-                      {' · '}{state}
-                    </small>
-                  </button>
-                );
-              }) : (
-                <p className="workhub-anchor-empty">{copy.noFilteredWork}</p>
-              )}
-            </nav>
-          </aside>
+          <WorkHubNavigationRail
+            sessions={projection.sessions}
+            focusSessionId={props.initialFocusSessionId}
+            delegatedSessionIds={coordination.delegatedSessionIds}
+            copy={copy}
+            onOpenSession={props.onOpenSession}
+          />
 
           <div className="maka-chat-shell workhub-conversation-shell">
             <ChatMessageList

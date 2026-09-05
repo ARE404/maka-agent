@@ -30,7 +30,7 @@ import {
   WORKHUB_R3B_ROUTING_STRATEGY_ID,
   type WorkHubModelDisposition,
   type WorkHubModelRoutingRequest,
-} from "../../renderer/workhub-routing-strategy.js";
+} from "../../renderer/features/workhub/index.js";
 
 const sessions: WorkHubSessionFacts[] = [
   {

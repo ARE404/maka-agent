@@ -24,7 +24,7 @@ import {
   deriveWorkHubAnchors,
   matchesWorkHubFilter,
   MAX_WORKHUB_ANCHORS,
-} from "../../renderer/workhub-anchor-rail.js";
+} from "../../renderer/features/workhub/index.js";
 
 function session(
   sessionId: string,

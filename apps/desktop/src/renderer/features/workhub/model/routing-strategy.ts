@@ -17,18 +17,27 @@
  * under the License.
  */
 
-import type {
-  WorkHubSessionFacts,
-  WorkHubSessionTarget,
-} from "./workhub-controller.js";
 import {
   boundedWorkHubText,
   createWorkHubRoutePolicy,
   workHubNewSessionName,
   type WorkHubRouteDecision,
   type WorkHubRoutePolicy,
-} from "./workhub-route-policy.js";
-import { readWorkHubRequestIntent } from "./application/contracts/workhub-request-intent.js";
+} from "./route-policy.js";
+import { readWorkHubRequestIntent } from "../../../application/contracts/workhub-request-intent.js";
+
+export interface WorkHubRoutingTarget {
+  readonly sessionId: string;
+}
+
+export interface WorkHubRoutingSessionFacts {
+  readonly target: WorkHubRoutingTarget;
+  readonly projectName: string;
+  readonly sessionName: string;
+  readonly state: "active" | "running" | "waiting_for_user" | "blocked" | "aborted";
+  readonly latestResult?: string;
+  readonly updatedAt: number;
+}
 
 export const WORKHUB_R24_ROUTING_STRATEGY_ID =
   "wh-r2.4-session-context-continuity" as const;
@@ -44,11 +53,11 @@ export type WorkHubRoutingStrategyId =
 
 export interface WorkHubRoutingInput {
   readonly text: string;
-  readonly sessions: readonly WorkHubSessionFacts[];
+  readonly sessions: readonly WorkHubRoutingSessionFacts[];
   readonly originPromptBySessionId: ReadonlyMap<string, string | undefined>;
   readonly candidateRefBySessionId: ReadonlyMap<string, string>;
   readonly coordinationTranscript: readonly WorkHubRoutingTranscriptTurn[];
-  readonly explicitTarget?: WorkHubSessionTarget;
+  readonly explicitTarget?: WorkHubRoutingTarget;
 }
 
 export interface WorkHubRoutingTranscriptTurn {
@@ -60,9 +69,9 @@ export interface WorkHubRoutingStrategy {
   readonly strategyId: WorkHubRoutingStrategyId;
   resolveStop: WorkHubRoutePolicy["resolveStop"];
   resolve(input: WorkHubRoutingInput): Promise<WorkHubRouteDecision>;
-  initializeFocus(targets: readonly WorkHubSessionTarget[]): void;
+  initializeFocus(targets: readonly WorkHubRoutingTarget[]): void;
   newVisit(): WorkHubRoutingStrategy;
-  rememberTarget(target: WorkHubSessionTarget): void;
+  rememberTarget(target: WorkHubRoutingTarget): void;
 }
 
 export type WorkHubModelDisposition =
@@ -76,7 +85,7 @@ export interface WorkHubModelRoutingCandidate {
   readonly candidateRef: string;
   readonly projectName: string;
   readonly sessionName: string;
-  readonly state: WorkHubSessionFacts["state"];
+  readonly state: WorkHubRoutingSessionFacts["state"];
   readonly focus?: "current" | "previous";
   readonly latestResult?: string;
   readonly originPrompt?: string;
@@ -316,7 +325,7 @@ function targetForCandidateRef(
   input: WorkHubRoutingInput,
   candidates: readonly WorkHubModelRoutingCandidate[],
   candidateRef: string | undefined,
-): WorkHubSessionTarget | undefined {
+): WorkHubRoutingTarget | undefined {
   if (
     !candidateRef ||
     !candidates.some((candidate) => candidate.candidateRef === candidateRef)
@@ -335,7 +344,7 @@ function targetForCandidateRef(
 }
 
 function failClosed(
-  sessions: readonly WorkHubSessionFacts[],
+  sessions: readonly WorkHubRoutingSessionFacts[],
 ): WorkHubRouteDecision {
   return sessions.length > 0
     ? {

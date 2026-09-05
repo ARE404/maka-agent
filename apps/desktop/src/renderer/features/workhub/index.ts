@@ -17,15 +17,8 @@
  * under the License.
  */
 
-// Compatibility boundary for existing legacy WorkHub consumers. New WorkHub
-// policy code lives behind the feature's public API.
-export {
-  boundedWorkHubText,
-  createWorkHubRoutePolicy,
-  workHubNewSessionName,
-  type WorkHubRouteDecision,
-  type WorkHubRouteEvidence,
-  type WorkHubRoutePolicy,
-  type WorkHubStopClarificationReason,
-  type WorkHubStopRouteDecision,
-} from './features/workhub/index.js';
+export * from './model/anchor-rail.js';
+export * from './model/route-policy.js';
+export * from './model/routing-strategy.js';
+export { WorkHubNavigationRail } from './ui/workhub-navigation-rail.js';
+export type { WorkHubNavigationRailCopy } from './ui/workhub-navigation-rail.js';

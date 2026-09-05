@@ -4553,6 +4553,7 @@
         "unresolvedDependencies": 0,
         "actionFactories": [],
         "dependencyPaths": {
+          "./features/workhub/index.js": 1,
           "./workhub-route-policy.js": 1
         }
       },
@@ -4599,7 +4600,7 @@
         "unresolvedDependencies": 0,
         "actionFactories": [],
         "dependencyPaths": {
-          "./application/contracts/workhub-request-intent.js": 1
+          "./features/workhub/index.js": 1
         }
       },
       "src/renderer/workhub-send-lease.ts": {
@@ -4644,6 +4645,7 @@
         "unresolvedDependencies": 0,
         "actionFactories": [],
         "dependencyPaths": {
+          "./features/workhub/index.js": 1,
           "./workhub-coordination-port.js": 1,
           "./workhub-send-lease.js": 1,
           "@astryxdesign/core": 1,
