@@ -4533,6 +4533,7 @@
         "unresolvedDependencies": 0,
         "actionFactories": [],
         "dependencyPaths": {
+          "./application/contracts/workhub.js": 1,
           "./workhub-route-policy.js": 1
         }
       },
@@ -4566,8 +4567,8 @@
         "unresolvedDependencies": 0,
         "actionFactories": [],
         "dependencyPaths": {
+          "./application/contracts/workhub.js": 1,
           "./desktop-transcript-range-store.js": 1,
-          "./workhub-controller.js": 1,
           "@maka/core/session": 1
         }
       },
@@ -4579,7 +4580,8 @@
         "unresolvedDependencies": 0,
         "actionFactories": [],
         "dependencyPaths": {
-          "./application/contracts/workhub-request-intent.js": 1
+          "@maka/core/workhub-creation-intent": 1,
+          "@maka/core/workhub-session-resolver": 1
         }
       },
       "src/renderer/workhub-send-lease.ts": {
@@ -4607,8 +4609,8 @@
         "actionFactories": [],
         "dependencyPaths": {
           "../shared/runtime-host-identity.js": 1,
+          "./application/contracts/workhub.js": 1,
           "./desktop-transcript-range-store.js": 1,
-          "./workhub-controller.js": 1,
           "@maka/core/session": 1
         }
       },
@@ -4624,7 +4626,7 @@
         "unresolvedDependencies": 0,
         "actionFactories": [],
         "dependencyPaths": {
-          "./workhub-coordination-port.js": 1,
+          "./application/contracts/workhub.js": 1,
           "./workhub-send-lease.js": 1,
           "@astryxdesign/core": 1,
           "@astryxdesign/core/Button": 1,

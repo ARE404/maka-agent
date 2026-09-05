@@ -25,260 +25,27 @@
 
 import {
   createWorkHubRoutePolicy,
-  type WorkHubRouteEvidence,
-  type WorkHubStopClarificationReason,
 } from './workhub-route-policy.js';
 import type {
-  OperationError,
   WorkHubCoordinationActInput,
   WorkHubCoordinationActResult,
-  WorkHubCoordinationCandidatesResult,
 } from '@maka/runtime-host/protocol';
-
-/**
- * A Host operation the Coordination port could not complete. It lives beside
- * the port interface rather than beside its Desktop implementation, so a
- * caller can tell a refusal from a fault without depending on the adapter.
- */
-export class WorkHubCoordinationFailure extends Error {
-  constructor(
-    readonly code: OperationError<'workhub.coordination.act'>['code'],
-    message: string,
-  ) {
-    super(message);
-    this.name = 'WorkHubCoordinationFailure';
-  }
-}
-
-export interface WorkHubSessionTarget {
-  sessionId: string;
-}
-
-export type WorkHubSessionState =
-  | 'active'
-  | 'running'
-  | 'waiting_for_user'
-  | 'blocked'
-  | 'aborted';
-
-export interface WorkHubSessionFacts {
-  target: WorkHubSessionTarget;
-  projectName: string;
-  sessionName: string;
-  kind: 'ordinary' | 'internal' | 'subagent';
-  archived: boolean;
-  state: WorkHubSessionState;
-  /** Authoritative live Turn IDs when the Session catalog provides them. */
-  runningTurnIds?: readonly string[];
-  latestResult?: string;
-  updatedAt: number;
-}
-
-export type WorkHubSessionSummary = Omit<WorkHubSessionFacts, 'kind' | 'runningTurnIds'>;
-
-export type WorkHubProjectedTurnState = 'running' | 'completed' | 'aborted' | 'failed';
-
-export type WorkHubDelegationExecutionState =
-  | 'accepted'
-  | 'running'
-  | 'waiting_for_user'
-  | 'completed'
-  | 'failed'
-  | 'aborted'
-  | 'recovering';
-
-export interface WorkHubDelegationReference {
-  readonly delegationId: string;
-  readonly targetSessionId: string;
-  /** Stable delegated work identity; targetTurnId is only its admission location. */
-  readonly targetMessageId: string;
-  readonly targetTurnId: string;
-}
-
-export interface WorkHubDelegationFeedback {
-  readonly delegationId: string;
-  readonly state: WorkHubDelegationExecutionState;
-}
-
-export interface WorkHubProjectedTurn {
-  messageId: string;
-  target: WorkHubSessionTarget;
-  turnId: string;
-  text: string;
-  state: WorkHubProjectedTurnState;
-  result?: string;
-  updatedAt: number;
-}
-
-export interface WorkHubCoordinationTurn {
-  messageId: string;
-  turnId: string;
-  text: string;
-  state: WorkHubProjectedTurnState;
-  result?: string;
-  assignment?: {
-    readonly actionId: string;
-    readonly delegationId: string;
-    readonly targetSessionId: string;
-    readonly targetSessionName: string;
-    readonly targetMessageId: string;
-    readonly targetTurnId: string;
-    readonly feedbackState: WorkHubDelegationExecutionState;
-    readonly linkState: WorkHubDelegationLinkState;
-    readonly createdNew?: true;
-  };
-  stop?: {
-    readonly targetSessionId: string;
-    readonly targetSessionName: string;
-    readonly outcome?: Extract<WorkHubCoordinationActResult, { disposition: 'stop_work' }>['outcome'];
-  };
-  updatedAt: number;
-}
-
-export type WorkHubDelegationLinkState = 'active' | 'superseded' | 'aborted' | 'stopped';
-
-/** Unbounded, rebuildable linkage state kept separate from the bounded timeline. */
-export interface WorkHubActiveDelegation {
-  readonly actionId: string;
-  readonly targetSessionId: string;
-  readonly sequence: number;
-}
-
-const WORKHUB_TIMELINE_TEXT_LIMIT = 600;
-
-export function boundedWorkHubTimelineText(value: string): string {
-  const text = value.trim();
-  const chars = Array.from(text);
-  return chars.length <= WORKHUB_TIMELINE_TEXT_LIMIT
-    ? text
-    : `${chars.slice(0, WORKHUB_TIMELINE_TEXT_LIMIT - 1).join('')}…`;
-}
-
-export interface WorkHubProjection {
-  sessions: WorkHubSessionSummary[];
-  turns: WorkHubProjectedTurn[];
-}
-
-export interface WorkHubSubmitInput {
-  requestId: string;
-  text: string;
-  retryAction?: true;
-  explicitTarget?: WorkHubSessionTarget;
-  correction?: WorkHubCorrectionContext;
-}
-
-export interface WorkHubCorrectionContext {
-  from: WorkHubSessionTarget;
-  sourceActionId: string;
-}
-
-export interface WorkHubReadInput {
-  focus?: WorkHubSessionTarget;
-}
-
-export const WORKHUB_ROUTING_STRATEGY_ID = 'wh-r2.4-session-context-continuity' as const;
-export type WorkHubRoutingStrategyId = typeof WORKHUB_ROUTING_STRATEGY_ID;
-
-export type WorkHubSubmission = (
-  | {
-      kind: 'submitted';
-      requestId: string;
-      target: WorkHubSessionTarget;
-      turnId: string;
-      steered?: true;
-      evidence: WorkHubRouteEvidence | 'new_session';
-      correctedFrom?: WorkHubSessionTarget;
-    }
-  | {
-      kind: 'clarification';
-      requestId: string;
-      text: string;
-      options: Array<Pick<WorkHubSessionSummary, 'target' | 'projectName' | 'sessionName'>>;
-      reason?: 'ambiguous_command' | WorkHubStopClarificationReason;
-      correction?: WorkHubCorrectionContext;
-    }
-  | {
-      kind: 'discussion';
-      requestId: string;
-      text: string;
-    }
-  | {
-      kind: 'waiting';
-      requestId: string;
-      text: string;
-      target: WorkHubSessionTarget;
-    }
-  | {
-      kind: 'stop';
-      requestId: string;
-      target: WorkHubSessionTarget;
-      outcome: Extract<WorkHubCoordinationActResult, { disposition: 'stop_work' }>['outcome'];
-      targetTurnId?: string;
-    }
-) & { strategyId: WorkHubRoutingStrategyId };
-
-/**
- * Internal seam. The renderer bridge is the production adapter; interface
- * tests use an in-memory adapter.
- */
-export interface WorkHubSessionPort {
-  list(): Promise<WorkHubSessionFacts[]>;
-  /**
-   * Rebuilds a bounded recent conversation from the authoritative Session
-   * transcripts. Missing transcripts are omitted rather than copied elsewhere.
-   */
-  recentTurns(targets: readonly WorkHubSessionTarget[]): Promise<WorkHubProjectedTurn[]>;
-  /**
-   * Rebuilds exact target-Turn execution facts for durable delegation links.
-   * The target Session remains authoritative; results are read-only and may
-   * conservatively report `recovering` while that authority is unavailable.
-   */
-  delegationFeedback(
-    references: readonly WorkHubDelegationReference[],
-  ): Promise<readonly WorkHubDelegationFeedback[]>;
-  /**
-   * Returns rebuildable routing evidence read from the authoritative Session
-   * log. Implementations must not persist a second writable copy of it.
-   */
-  routingEvidence(
-    targets: readonly WorkHubSessionTarget[],
-  ): Promise<Array<{ target: WorkHubSessionTarget; originPrompt?: string }>>;
-  subscribe(handler: () => void): () => void;
-}
-
-export interface WorkHubCoordinationPort {
-  open(
-    handler: (
-      turns: readonly WorkHubCoordinationTurn[],
-      activeDelegations: readonly WorkHubActiveDelegation[],
-    ) => void,
-    onError: (error: unknown) => void,
-  ): Promise<{ close(): Promise<void> }>;
-  record(input: {
-    turnId: string;
-    userText: string;
-    assistantText: string;
-  }): Promise<{ turnId: string }>;
-  candidates(): Promise<WorkHubCoordinationCandidatesResult>;
-  act(input: Omit<WorkHubCoordinationActInput, 'create'>): Promise<WorkHubCoordinationActResult>;
-}
-
-export interface WorkHubController {
-  read(input?: WorkHubReadInput): Promise<WorkHubProjection>;
-  submit(input: WorkHubSubmitInput): Promise<WorkHubSubmission>;
-  openConversation(
-    handler: (turns: readonly WorkHubCoordinationTurn[]) => void,
-    onError: (error: unknown) => void,
-  ): Promise<{ close(): Promise<void> }>;
-  recordConversationTurn(input: {
-    turnId: string;
-    userText: string;
-    assistantText: string;
-    disposition?: 'clarify' | 'summary';
-  }): Promise<{ turnId: string }>;
-  subscribe(handler: () => void): () => void;
-  resetVisitContext(): void;
-}
+import {
+  WORKHUB_ROUTING_STRATEGY_ID,
+  WorkHubCoordinationFailure,
+  type WorkHubActiveDelegation,
+  type WorkHubController,
+  type WorkHubCoordinationPort,
+  type WorkHubCoordinationTurn,
+  type WorkHubCorrectionContext,
+  type WorkHubDelegationFeedback,
+  type WorkHubRouteEvidence,
+  type WorkHubSessionFacts,
+  type WorkHubSessionPort,
+  type WorkHubSessionTarget,
+  type WorkHubSubmission,
+  type WorkHubSubmitInput,
+} from './application/contracts/workhub.js';
 
 export function createWorkHubController(deps: {
   sessions: WorkHubSessionPort;

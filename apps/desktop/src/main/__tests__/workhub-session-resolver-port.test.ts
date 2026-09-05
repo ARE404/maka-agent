@@ -22,7 +22,7 @@ import test from 'node:test';
 import type {
   WorkHubSessionResolution,
   WorkHubSessionResolver,
-} from '../../renderer/application/contracts/workhub-request-intent.js';
+} from '@maka/core/workhub-session-resolver';
 import { createWorkHubRoutePolicy } from '../../renderer/workhub-route-policy.js';
 
 const routable = (sessionId: string, sessionName: string) => ({

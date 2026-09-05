@@ -21,18 +21,18 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import type { WorkHubCoordinationActInput } from '@maka/runtime-host/protocol';
+import { createWorkHubController as createGatedWorkHubController } from '../../renderer/workhub-controller.js';
 import {
-  createWorkHubController as createGatedWorkHubController,
   WORKHUB_ROUTING_STRATEGY_ID,
+  WorkHubCoordinationFailure,
+  type WorkHubCoordinationTurn,
   type WorkHubSessionFacts,
   type WorkHubSessionPort,
-  type WorkHubCoordinationTurn,
-} from '../../renderer/workhub-controller.js';
+} from '../../renderer/application/contracts/workhub.js';
 import {
   createWorkHubRoutePolicy,
   workHubNewSessionName,
 } from '../../renderer/workhub-route-policy.js';
-import { WorkHubCoordinationFailure } from '../../renderer/workhub-coordination-port.js';
 
 const appShellUrl = [
   new URL('../../renderer/app-shell.tsx', import.meta.url),

@@ -29,7 +29,7 @@ import type {
   WorkHubCoordinationTurn,
   WorkHubActiveDelegation,
   WorkHubProjectedTurnState,
-} from './workhub-controller.js';
+} from './application/contracts/workhub.js';
 import type {
   WorkHubCoordinationActInput,
   WorkHubCoordinationActResult,
@@ -37,9 +37,10 @@ import type {
   OperationOutcome,
   OperationError,
 } from '@maka/runtime-host/protocol';
-import { boundedWorkHubTimelineText, WorkHubCoordinationFailure } from './workhub-controller.js';
-
-export { WorkHubCoordinationFailure };
+import {
+  boundedWorkHubTimelineText,
+  WorkHubCoordinationFailure,
+} from './application/contracts/workhub.js';
 import type { WorkHubDesktopTranscriptBridge } from './workhub-session-port.js';
 
 const WORKHUB_COORDINATION_TURN_LIMIT = 40;

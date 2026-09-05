@@ -18,13 +18,19 @@
  */
 
 import {
-  createExactNameSessionResolver,
   readWorkHubRequestIntent,
   workHubCorrectionAdmitsReference,
   type WorkHubRequestIntent,
+} from '@maka/core/workhub-creation-intent';
+import {
+  createExactNameSessionResolver,
   type WorkHubResolverSession,
   type WorkHubSessionResolver,
-} from './application/contracts/workhub-request-intent.js';
+} from '@maka/core/workhub-session-resolver';
+import type {
+  WorkHubRouteEvidence,
+  WorkHubStopClarificationReason,
+} from './application/contracts/workhub.js';
 
 interface WorkHubRouteTarget {
   sessionId: string;
@@ -37,13 +43,6 @@ interface WorkHubRoutableSession {
   latestResult?: string;
   updatedAt: number;
 }
-
-export type WorkHubRouteEvidence =
-  | 'explicit_target'
-  | 'exact_session_name'
-  | 'route_correction'
-  | 'core_entity'
-  | 'recent_focus';
 
 export type WorkHubRouteDecision =
   | {
@@ -73,14 +72,6 @@ export type WorkHubRouteDecision =
  * reload, a reconnect. So a resolved reference submits, and a Session with
  * nothing to stop is refused by the Gate.
  */
-export type WorkHubStopClarificationReason =
-  /** The stop names no safe target of its own — a pronoun or a bare noun. */
-  | 'stop_target_required'
-  /** The stop names more than one existing Session. */
-  | 'stop_target_ambiguous'
-  /** The Host refused the stop; its conflict is the whole answer. */
-  | 'stop_target_unavailable';
-
 /**
  * A stop clarification never offers route options. Choosing one re-sends the
  * original text as work, and stop-shaped text is exactly what must not be

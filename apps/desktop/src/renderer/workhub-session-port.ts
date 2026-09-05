@@ -36,8 +36,8 @@ import type {
   WorkHubSessionPort,
   WorkHubSessionState,
   WorkHubSessionTarget,
-} from './workhub-controller.js';
-import { boundedWorkHubTimelineText } from './workhub-controller.js';
+} from './application/contracts/workhub.js';
+import { boundedWorkHubTimelineText } from './application/contracts/workhub.js';
 
 export interface WorkHubDesktopSession {
   id: string;

@@ -35,12 +35,12 @@ import type {
   WorkHubSessionSummary,
   WorkHubSubmission,
   WorkHubSubmitInput,
-} from './workhub-controller.js';
+} from './application/contracts/workhub.js';
 import {
   WorkHubSendLease,
   type WorkHubSendAttempt,
 } from './workhub-send-lease.js';
-import { WorkHubCoordinationFailure } from './workhub-coordination-port.js';
+import { WorkHubCoordinationFailure } from './application/contracts/workhub.js';
 
 export interface WorkHubConversationTurn {
   requestId: string;

@@ -35,14 +35,14 @@ import {
   workHubSurfaceFailure,
   workHubSubmissionClearsDraft,
 } from '../../renderer/workhub-surface.js';
+import { createWorkHubController } from '../../renderer/workhub-controller.js';
 import {
-  createWorkHubController,
   WORKHUB_ROUTING_STRATEGY_ID,
   type WorkHubController,
   type WorkHubCoordinationTurn,
   type WorkHubDelegationExecutionState,
   type WorkHubSubmitInput,
-} from '../../renderer/workhub-controller.js';
+} from '../../renderer/application/contracts/workhub.js';
 import { WorkHubSendLease } from '../../renderer/workhub-send-lease.js';
 import {
   createDesktopWorkHubSessionPort,
