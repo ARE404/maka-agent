@@ -21,12 +21,12 @@ import {
   readWorkHubRequestIntent,
   workHubCorrectionAdmitsReference,
   type WorkHubRequestIntent,
-} from '@maka/core/workhub-creation-intent';
+} from './application/contracts/workhub-action-intent.js';
 import {
   createExactNameSessionResolver,
   type WorkHubResolverSession,
   type WorkHubSessionResolver,
-} from '@maka/core/workhub-session-resolver';
+} from './application/contracts/workhub-session-resolver.js';
 import type {
   WorkHubRouteEvidence,
   WorkHubStopClarificationReason,

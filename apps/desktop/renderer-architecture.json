@@ -4580,8 +4580,8 @@
         "unresolvedDependencies": 0,
         "actionFactories": [],
         "dependencyPaths": {
-          "@maka/core/workhub-creation-intent": 1,
-          "@maka/core/workhub-session-resolver": 1
+          "./application/contracts/workhub-action-intent.js": 1,
+          "./application/contracts/workhub-session-resolver.js": 1
         }
       },
       "src/renderer/workhub-send-lease.ts": {
