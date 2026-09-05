@@ -29,6 +29,9 @@ current R2.4 routing behavior remains a transitional deterministic baseline or
 target resolver; it does not define the final WorkHub coordination semantics. The
 decision and authority boundaries are recorded in the
 [WorkHub Coordination Session ADR](./architecture/workhub-coordination-session-adr.md).
+The relationship between the vertical authority view and the horizontal decision
+pipeline is mapped in
+[WorkHub decision and authority architecture](./architecture/workhub-decision-and-authority-architecture.md).
 
 ## Terms
 
