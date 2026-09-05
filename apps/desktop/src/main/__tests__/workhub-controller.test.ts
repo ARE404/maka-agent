@@ -32,6 +32,11 @@ import {
   createWorkHubRoutePolicy,
   workHubNewSessionName,
 } from '../../renderer/workhub-route-policy.js';
+import {
+  createWorkHubR3ARoutingStrategy,
+  WORKHUB_R3A_ROUTING_STRATEGY_ID,
+  type WorkHubRoutingStrategy,
+} from '../../renderer/workhub-routing-strategy.js';
 import { WorkHubCoordinationFailure } from '../../renderer/workhub-coordination-port.js';
 
 const appShellUrl = [
@@ -103,10 +108,17 @@ function port(sessions: WorkHubSessionFacts[]): TestSessionPort {
   };
 }
 
-function createWorkHubController({ sessions }: { sessions: TestSessionPort }) {
+function createWorkHubController({
+  sessions,
+  routingStrategy,
+}: {
+  sessions: TestSessionPort;
+  routingStrategy?: WorkHubRoutingStrategy;
+}) {
   let candidateByRef = new Map<string, WorkHubSessionFacts>();
   return createGatedWorkHubController({
     sessions,
+    ...(routingStrategy ? { routingStrategy } : {}),
     coordination: {
       open: async () => ({ close: async () => undefined }),
       record: async (input) => ({ turnId: input.turnId }),
@@ -685,6 +697,42 @@ test('submit routes a unique complete Session name without asking', async () => 
     target: { sessionId: 'payment' },
     turnId: 'turn-exact',
     evidence: 'exact_session_name',
+  });
+  assert.deepEqual(submitted, ['payment']);
+});
+
+test('an injected R3 strategy still delegates through the shared controller and Action Gate', async () => {
+  const submitted: string[] = [];
+  const sessions = port([
+    session('login', { sessionName: '登录刷新令牌' }),
+    session('payment', { sessionName: '支付回调幂等性' }),
+  ]);
+  sessions.submit = async (target) => {
+    submitted.push(target.sessionId);
+    return { turnId: 'turn-model-payment' };
+  };
+  const routingStrategy = createWorkHubR3ARoutingStrategy({
+    model: {
+      decide: async () => ({
+        disposition: 'delegate_existing',
+        candidateRef: 'candidate-payment',
+      }),
+    },
+  });
+  const controller = createWorkHubController({ sessions, routingStrategy });
+
+  const result = await controller.submit({
+    requestId: 'request-r3-a',
+    text: '继续处理支付回调',
+  });
+
+  assert.deepEqual(result, {
+    kind: 'submitted',
+    strategyId: WORKHUB_R3A_ROUTING_STRATEGY_ID,
+    requestId: 'request-r3-a',
+    target: { sessionId: 'payment' },
+    turnId: 'turn-model-payment',
+    evidence: 'model_candidate',
   });
   assert.deepEqual(submitted, ['payment']);
 });
