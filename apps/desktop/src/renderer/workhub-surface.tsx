@@ -28,6 +28,7 @@ import { Button } from '@astryxdesign/core/Button';
 import type { UiLocale } from '@maka/core/ui-locale';
 import { ChatSurfaceLayout, Composer } from '@maka/ui';
 import type {
+  WorkHubActiveDelegation,
   WorkHubController,
   WorkHubCoordinationTurn,
   WorkHubDelegationLinkState,
@@ -233,6 +234,7 @@ export function WorkHubSurface(props: {
   const copy = workHubCopy(props.locale);
   const [projection, setProjection] = useState<WorkHubProjection>({ sessions: [], turns: [] });
   const [coordinationTurns, setCoordinationTurns] = useState<readonly WorkHubCoordinationTurn[]>([]);
+  const [activeDelegations, setActiveDelegations] = useState<readonly WorkHubActiveDelegation[]>([]);
   const [turns, setTurns] = useState<WorkHubConversationTurn[]>([]);
   const [pending, setPending] = useState(false);
   const [initialLoadSettled, setInitialLoadSettled] = useState(false);
@@ -278,9 +280,10 @@ export function WorkHubSurface(props: {
     setConversationReady(false);
     setConversationError(false);
     void props.controller.openConversation(
-      (next) => {
+      (next, nextActiveDelegations) => {
         if (disposed) return;
         setCoordinationTurns(next);
+        setActiveDelegations(nextActiveDelegations);
         setConversationReady(true);
         setConversationError(false);
       },
@@ -373,19 +376,16 @@ export function WorkHubSurface(props: {
   const visible = visibleWorkHubConversation(coordinationTurns, turns);
   const visibleCoordinationTurns = visible.coordination;
   const visibleLocalTurns = visible.local;
-  const delegatedSessionIds = useMemo(() => [
-    ...[...coordinationTurns].reverse().flatMap((turn) =>
-      turn.assignment ? [turn.assignment.targetSessionId] : []),
-    ...[...turns].reverse().flatMap((turn) =>
-      turn.outcome?.kind === 'submitted' ? [turn.outcome.target.sessionId] : []),
-  ], [coordinationTurns, turns]);
-  const anchorFocusSessionId = delegatedSessionIds[0] ?? props.initialFocusSessionId;
+  const delegatedSessionIds = useMemo(
+    () => activeDelegations.map((delegation) => delegation.targetSessionId),
+    [activeDelegations],
+  );
   const anchors = useMemo(() => deriveWorkHubAnchors({
     sessions: projection.sessions,
-    focusSessionId: anchorFocusSessionId,
+    focusSessionId: props.initialFocusSessionId,
     delegatedSessionIds,
     filter: workFilter,
-  }), [anchorFocusSessionId, delegatedSessionIds, projection.sessions, workFilter]);
+  }), [delegatedSessionIds, projection.sessions, props.initialFocusSessionId, workFilter]);
   const filteredWorkCount = useMemo(() => projection.sessions.filter((session) =>
     matchesWorkHubFilter(session, workFilter)).length, [projection.sessions, workFilter]);
   const conversationEmpty = visibleCoordinationTurns.length === 0 && visibleLocalTurns.length === 0;
@@ -972,6 +972,15 @@ function workHubCopy(locale: UiLocale) {
     return {
       locale,
       subtitle: '在一個入口繼續、建立和檢視一般 Session',
+      work: '工作', workNavigation: '工作導覽', filterWork: '篩選工作', focused: '目前',
+      filteredWorkCount: (visible: number, total: number) => `${visible}/${total}`,
+      noFilteredWork: '此篩選下沒有工作',
+      filters: [
+        { id: 'all' as const, label: '全部' },
+        { id: 'active' as const, label: '進行中' },
+        { id: 'attention' as const, label: '待處理' },
+        { id: 'stopped' as const, label: '已停止' },
+      ],
       emptyTitle: '從這裡繼續所有工作',
       emptyBody: (count: number) => count > 0
         ? `WorkHub 會根據現有 ${count} 個 Session 判斷目標；不確定時會先詢問你。`

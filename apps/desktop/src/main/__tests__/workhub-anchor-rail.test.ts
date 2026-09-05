@@ -74,6 +74,18 @@ test("anchors prioritize focus and delegation before recent Session facts", () =
   );
 });
 
+test("a recent delegation is not relabeled as focus", () => {
+  const anchors = deriveWorkHubAnchors({
+    sessions,
+    delegatedSessionIds: ["delegated"],
+    filter: "all",
+  });
+  assert.deepEqual(anchors[0], {
+    session: sessions[2],
+    reason: "delegated",
+  });
+});
+
 test("filters are derived from Session state and archive facts only", () => {
   assert.deepEqual(
     sessions

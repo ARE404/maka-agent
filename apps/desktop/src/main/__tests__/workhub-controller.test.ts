@@ -241,6 +241,7 @@ test('conversation acknowledges a durable assignment before projecting target ex
     references.map(({ delegationId }) => ({ delegationId, state: feedbackState }));
   const assignment = coordinationAssignmentTurn();
   const snapshots: string[] = [];
+  const activeSnapshots: string[][] = [];
   const controller = createGatedWorkHubController({
     sessions,
     coordination: {
@@ -254,12 +255,14 @@ test('conversation acknowledges a durable assignment before projecting target ex
     },
   });
 
-  const handle = await controller.openConversation((turns) => {
+  const handle = await controller.openConversation((turns, activeDelegations) => {
     snapshots.push(turns[0]?.assignment?.feedbackState ?? 'missing');
+    activeSnapshots.push(activeDelegations.map(({ targetSessionId }) => targetSessionId));
   }, () => undefined);
   await Promise.resolve();
 
   assert.deepEqual(snapshots.slice(0, 2), ['accepted', 'completed']);
+  assert.deepEqual(activeSnapshots, [['payment'], ['payment']]);
 
   feedbackState = 'waiting_for_user';
   onSessionChanged?.();
