@@ -343,6 +343,9 @@ flowchart TD
 
 Unified Session UI 是一个普通对话外壳。复杂性集中在 Work Orchestrator deep module；renderer 不实现候选检索、置信度、workspace availability、archive restore 或跨 Work 调度。
 
+这张纵向组件图回答 ownership 与 authority；一次输入的横向决策流则是
+`Intent → Recall → Action → Gate → Execute → Project`。两者不是两套架构：组件图定义决策发生在哪里、谁有权做，流水线定义决策按什么顺序发生。Work Orchestrator 是交点，但具体分类、召回、策略与 Gate 都是它的内部 module，不扩张 external interface。
+
 ### 9.2 Work Orchestrator external interface
 
 外部 seam 保持小：命令进入，typed event 出来。
@@ -435,6 +438,28 @@ interface UnifiedTurnBinding {
 全局层最多缓存 derived metadata。任何 cache 都必须携带 WorkRef、source revision 与 purge path，不能成为隐藏的第二份记忆。
 
 ## 11. Referent resolution pipeline
+
+代码中的决策流水线固定为四个内部 contract：
+
+~~~ts
+interface IntentClassifier {
+  classify(context: DecisionContext): IntentResult;
+}
+
+interface WorkRetriever {
+  recall(intent: IntentResult, context: DecisionContext): Promise<WorkRecall>;
+}
+
+interface ActionPolicy {
+  select(intent: IntentResult, recall: WorkRecall, context: DecisionContext): Promise<ActionProposal>;
+}
+
+interface ActionGate {
+  evaluate(proposal: ActionProposal, recall: WorkRecall, context: DecisionContext): Promise<GateDecision>;
+}
+~~~
+
+`ActionProposal` 不能产生副作用。只有 `ActionGate` 返回 `allow` 后，Orchestrator 才能创建或恢复 Work、启动 Runtime；`clarify` 和 `block` 都留在无执行路径。每次流水线结果产生有界 `DecisionTrace`，记录 intent、候选 identity、proposal、Gate 结果、证据与 policy version，不记录完整 transcript 或 secret。
 
 优先级固定：
 
@@ -629,9 +654,15 @@ Unified 可以保留无内容 tombstone 维持时间线顺序，但不能留下�
 新增 `apps/desktop/src/main/unified-session/`：
 
 - `work-orchestrator.ts`：唯一 deep module；
+- `decision/decision-pipeline.ts`：串联 Intent、Recall、Action 与 Gate；
+- `decision/intent-classifier.ts`：提取硬绑定、交互与执行信号；
+- `decision/work-retriever.ts`：按 Workspace privacy/availability 召回有界候选；
+- `decision/action-policy.ts`：确定性策略与受限模型策略的 seam；
+- `decision/action-gate.ts`：执行前唯一许可出口；
+- `decision/decision-types.ts`：内部 contract 与有界 Decision Trace；
 - `workspace-host-registry.ts`：全局 registry 与 host lifecycle；
 - `workspace-host-adapter.ts`：包装每个 Workspace 的现有 runtime；
-- `referent-resolver.ts`：内部候选与模型 rerank；
+- `model-intent-resolver.ts`：只在有界候选上做模型语义判断；
 - `unified-projection-store.ts`：Discussion、binding、block 与 tombstone；
 - `coordination-graph.ts`：外层 Graph composition；
 - `unified-events.ts`：多 Session event multiplexing。

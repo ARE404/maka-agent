@@ -7,80 +7,39 @@ import type {
   UnifiedCoordinationPlan,
   UnifiedCoordinationStep,
   UnifiedDiscussionMessage,
-  UnifiedIntentDisposition,
   UnifiedRouteOption,
-  UnifiedRouteTrace,
   UnifiedSendInput,
   UnifiedSendResult,
   UnifiedSnapshot,
   UnifiedWorkBlock,
   UnifiedWorkContentProjection,
   UnifiedWorkEndedEvent,
-  UnifiedWorkspaceSummary,
   WorkRef,
 } from '@maka/core/unified-session';
 import type { UnifiedProjectionStore } from './projection-store.js';
+import { createActionGate } from './decision/action-gate.js';
+import { createActionPolicy, resolveUnifiedIntent } from './decision/action-policy.js';
+import { createDecisionPipeline } from './decision/decision-pipeline.js';
+import { createIntentClassifier } from './decision/intent-classifier.js';
+import type {
+  DecisionPipeline,
+  DecisionTrace,
+  UnifiedIntentResolver,
+  WorkCandidate,
+  WorkspaceHostDirectory,
+  WorkspaceHostPort,
+} from './decision/decision-types.js';
+import { createWorkRetriever } from './decision/work-retriever.js';
 
-export interface WorkCandidate {
-  work: WorkRef;
-  workspaceName: string;
-  workName: string;
-  searchableText: string;
-  semanticCard?: {
-    objective: string;
-    recentOutcome: string;
-    terms: string[];
-  };
-  permissionMode: PermissionMode;
-  archived: boolean;
-  updatedAt: number;
-}
-
-export type UnifiedTargetEvent =
-  | { kind: 'session_event'; event: SessionEvent }
-  | { kind: 'started'; turnId: string }
-  | { kind: 'waiting_for_user'; detail?: string }
-  | { kind: 'running'; detail?: string }
-  | { kind: 'completed'; detail?: string }
-  | { kind: 'failed'; detail: string }
-  | { kind: 'blocked'; detail: string }
-  | { kind: 'stopped'; detail?: string };
-
-export interface WorkspaceHostPort {
-  summary(): Promise<UnifiedWorkspaceSummary>;
-  listWorkCandidates(query: string, limit: number): Promise<WorkCandidate[]>;
-  findWork(sessionId: string): Promise<WorkCandidate | undefined>;
-  createWork(input: { title: string; permissionMode: PermissionMode }): Promise<WorkCandidate>;
-  restoreWork(work: WorkRef): Promise<void>;
-  startTurn(
-    work: WorkRef,
-    text: string,
-    onEvent: (event: UnifiedTargetEvent) => void,
-  ): Promise<{ turnId: string }>;
-  readWorkProjection(work: WorkRef, turnId: string): Promise<UnifiedWorkContentProjection>;
-  inspectWork(work: WorkRef): Promise<UnifiedWorkBlock['status'] | undefined>;
-  respondToSandboxBoundary(work: WorkRef, response: SandboxBoundaryResponse): Promise<void>;
-  respondToUserQuestion(work: WorkRef, response: UserQuestionResponse): Promise<void>;
-  setPermissionMode(work: WorkRef, mode: PermissionMode): Promise<void>;
-  stopWork(work: WorkRef): Promise<void>;
-  relink?(): Promise<void>;
-}
-
-export interface WorkspaceHostDirectory {
-  list(): Promise<WorkspaceHostPort[]>;
-  get(workspaceId: string): Promise<WorkspaceHostPort | undefined>;
-}
-
-export interface UnifiedIntentResolverInput {
-  input: UnifiedSendInput;
-  snapshot: UnifiedSnapshot;
-  workspaces: UnifiedWorkspaceSummary[];
-  candidates: WorkCandidate[];
-}
-
-export type UnifiedIntentResolver = (
-  input: UnifiedIntentResolverInput,
-) => Promise<UnifiedIntentDisposition>;
+export { resolveUnifiedIntent };
+export type {
+  UnifiedIntentResolver,
+  UnifiedIntentResolverInput,
+  UnifiedTargetEvent,
+  WorkCandidate,
+  WorkspaceHostDirectory,
+  WorkspaceHostPort,
+} from './decision/decision-types.js';
 
 export interface WorkOrchestrator {
   snapshot(): Promise<UnifiedSnapshot>;
@@ -108,6 +67,8 @@ export function createWorkOrchestrator(deps: {
   projections: UnifiedProjectionStore;
   hosts: WorkspaceHostDirectory;
   resolveIntent?: UnifiedIntentResolver;
+  decisionPipeline?: DecisionPipeline;
+  onDecisionTrace?: (trace: DecisionTrace) => void;
   answerDiscussion?: (
     text: string,
     snapshot: UnifiedSnapshot,
@@ -122,6 +83,13 @@ export function createWorkOrchestrator(deps: {
   const now = deps.now ?? Date.now;
   const createId = deps.createId ?? randomUUID;
   const resolveIntent = deps.resolveIntent ?? resolveUnifiedIntent;
+  const decisionPipeline = deps.decisionPipeline ?? createDecisionPipeline({
+    intentClassifier: createIntentClassifier(),
+    workRetriever: createWorkRetriever(deps.hosts),
+    actionPolicy: createActionPolicy(resolveIntent),
+    actionGate: createActionGate(),
+    ...(deps.onDecisionTrace ? { onTrace: deps.onDecisionTrace } : {}),
+  });
   const listeners = new Set<(snapshot: UnifiedSnapshot) => void>();
   const eventListeners = new Set<
     (event: { blockId: string; work: WorkRef; event: SessionEvent }) => void
@@ -604,23 +572,14 @@ export function createWorkOrchestrator(deps: {
         }
       }
       const snapshot = await deps.projections.read();
-      const hosts = await deps.hosts.list();
-      const hostSummaries = await Promise.all(hosts.map((host) => host.summary()));
-      const routableHosts = hosts.filter(
-        (_host, index) =>
-          hostSummaries[index]?.available && !hostSummaries[index]?.incognitoActive,
-      );
-      const candidates = (
-        await Promise.all(
-          routableHosts.map((host) => host.listWorkCandidates(text, 8).catch(() => [])),
-        )
-      ).flat();
-      const disposition = await resolveIntent({
+      const pipelineResult = await decisionPipeline.decide({
         input: { ...input, text },
         snapshot,
-        workspaces: hostSummaries,
-        candidates,
       });
+      const { decision } = pipelineResult;
+      const disposition = decision.kind === 'allow'
+        ? decision.action.proposal
+        : decision.proposal;
 
       if (disposition.kind === 'discussion') {
         const user = await appendDiscussion('user', text, {
@@ -679,36 +638,28 @@ export function createWorkOrchestrator(deps: {
       }
 
       if (disposition.kind === 'coordinate') {
+        if (decision.kind !== 'allow' || decision.action.kind !== 'coordinate') {
+          throw new Error('Action Gate did not authorize coordination');
+        }
         const plan = await appendCoordination(text, disposition.steps);
         return { kind: 'coordination', plan };
       }
 
-      const host = await deps.hosts.get(
-        disposition.kind === 'create_work'
-          ? disposition.workspaceId
-          : disposition.work.workspaceId,
-      );
-      if (!host) {
-        const assistant = await appendDiscussion(
-          'assistant',
-          '目标 Workspace 当前不可用。请重新连接或重新定位后再继续。',
-          { status: 'completed' },
-        );
-        return { kind: 'register_workspace', messageId: assistant.id };
+      if (decision.kind !== 'allow') {
+        throw new Error('Action Gate did not authorize execution');
       }
+      if (decision.action.kind === 'coordinate') {
+        throw new Error('Coordinated execution requires a confirmed plan');
+      }
+      const { host } = decision.action;
 
       const candidate =
-        disposition.kind === 'create_work'
+        decision.action.kind === 'create_work'
           ? await host.createWork({
-              title: disposition.title,
+              title: decision.action.proposal.title,
               permissionMode: await deps.defaultPermissionMode(),
             })
-          : candidates.find(
-              (item) =>
-                item.work.workspaceId === disposition.work.workspaceId &&
-                item.work.sessionId === disposition.work.sessionId,
-            ) ?? await host.findWork(disposition.work.sessionId);
-      if (!candidate) throw new Error('Resolved Work is no longer available');
+          : decision.action.candidate;
 
       const timestamp = now();
       const background = buildDiscussionBackground(snapshot, timestamp);
@@ -722,7 +673,7 @@ export function createWorkOrchestrator(deps: {
         status: 'queued',
         createdAt: timestamp,
         updatedAt: timestamp,
-        ...(disposition.kind === 'create_work' ? { createdNew: true } : {}),
+        ...(decision.action.kind === 'create_work' ? { createdNew: true } : {}),
         ...(candidate.archived ? { resumedFromArchive: true } : {}),
         ...(input.replacesBlockId ? { reroutedFromBlockId: input.replacesBlockId } : {}),
         ...(disposition.route ? { route: disposition.route } : {}),
@@ -961,238 +912,6 @@ export function createWorkOrchestrator(deps: {
   };
 }
 
-/**
- * Deterministic bounded resolver. A model resolver may replace it, but the
- * model can only select identities supplied in this candidate set.
- */
-export async function resolveUnifiedIntent(
-  input: UnifiedIntentResolverInput,
-): Promise<UnifiedIntentDisposition> {
-  const { explicitWork, explicitWorkspaceId, replyToBlockId } = input.input;
-  if (explicitWork) {
-    return {
-      kind: 'resume_work',
-      work: explicitWork,
-      route: routeTrace('explicit', 1, ['用户明确选择了目标 Work']),
-    };
-  }
-  if (explicitWorkspaceId) {
-    const workspace = input.workspaces.find(
-      (candidate) => candidate.id === explicitWorkspaceId && candidate.available && !candidate.incognitoActive,
-    );
-    if (workspace) {
-      return {
-        kind: 'create_work',
-        workspaceId: workspace.id,
-        title: deriveWorkTitle(input.input.text),
-        route: routeTrace('explicit', 1, [`用户明确选择了 ${workspace.name}`]),
-      };
-    }
-  }
-  if (replyToBlockId) {
-    const bound = input.snapshot.items.find(
-      (item) => item.kind === 'work' && item.block.id === replyToBlockId,
-    );
-    if (bound?.kind === 'work') {
-      return {
-        kind: 'resume_work',
-        work: bound.block.work,
-        route: routeTrace('explicit', 1, ['消息回复绑定到已有工作气泡']),
-      };
-    }
-  }
-
-  const text = input.input.text.trim();
-  if (isInteractionReply(text)) {
-    const waiting = input.snapshot.items.flatMap((item) =>
-      item.kind === 'work' && item.block.status === 'waiting_for_user'
-        ? [item.block]
-        : [],
-    );
-    if (waiting.length > 0) {
-      const scope = waiting.length === 1
-        ? `${waiting[0]!.workspaceName} / ${waiting[0]!.workName}`
-        : waiting.map((block) => `${block.workspaceName} / ${block.workName}`).join('、');
-      return {
-        kind: 'clarify',
-        options: waiting.map((block, index) => ({
-          id: `waiting-${index}`,
-          kind: 'work' as const,
-          workspaceId: block.work.workspaceId,
-          workspaceName: block.workspaceName,
-          work: block.work,
-          workName: block.workName,
-          reason: '正在等待你的决定',
-        })),
-        question: waiting.length === 1
-          ? `“${text}”是回答 ${scope} 吗？请在该工作的交互卡片中确认。`
-          : `目前有多项工作等待你的决定：${scope}。你指的是哪一项？`,
-        route: routeTrace('interaction', 1, ['存在等待用户输入的工作']),
-      };
-    }
-  }
-  if (!looksExecutable(text)) {
-    return {
-      kind: 'discussion',
-      route: routeTrace('fallback', 0.72, ['未发现明确执行意图']),
-    };
-  }
-
-  const unavailableMatches = input.workspaces
-    .filter((workspace) => !workspace.available && !workspace.incognitoActive)
-    .map((workspace) => ({ workspace, score: workspaceMatchScore(text, workspace) }))
-    .filter((entry) => entry.score >= 10)
-    .sort((left, right) => right.score - left.score);
-  if (
-    unavailableMatches[0] &&
-    unavailableMatches[0].score !== unavailableMatches[1]?.score
-  ) {
-    return { kind: 'relink_workspace', workspaceId: unavailableMatches[0].workspace.id };
-  }
-
-  const available = input.workspaces.filter(
-    (workspace) => workspace.available && !workspace.incognitoActive,
-  );
-  if (available.length === 0) return { kind: 'register_workspace' };
-
-  const coordination = detectCoordination(text, available, input.candidates);
-  if (coordination) return { kind: 'coordinate', steps: coordination };
-
-  const rankedCandidates = input.candidates
-    .map((candidate) => ({ candidate, score: candidateMatchScore(text, candidate) }))
-    .filter((entry) => entry.score > 0)
-    .sort(
-      (left, right) =>
-        right.score - left.score ||
-        right.candidate.updatedAt - left.candidate.updatedAt ||
-        left.candidate.work.sessionId.localeCompare(right.candidate.work.sessionId),
-    );
-  const best = rankedCandidates[0];
-  const second = rankedCandidates[1];
-  const margin = best ? best.score - (second?.score ?? 0) : 0;
-  if (best && best.score >= 3 && (!second || margin >= 2)) {
-    return {
-      kind: 'resume_work',
-      work: best.candidate.work,
-      route: routeTrace('lexical', Math.min(0.96, 0.68 + margin * 0.06), [
-        `语义名片匹配 ${best.candidate.workspaceName} / ${best.candidate.workName}`,
-        `领先候选 ${margin} 分`,
-      ]),
-    };
-  }
-  if (best && best.score >= 2) {
-    return {
-      kind: 'clarify',
-      options: rankedCandidates.slice(0, 3).map((entry, index) =>
-        workRouteOption(entry.candidate, `candidate-${index}`, `匹配分 ${entry.score}`)),
-      question: '我找到了几项相近的工作。你指的是哪一项？',
-      route: routeTrace('lexical', 0.45, ['候选领先幅度不足，避免静默绑定']),
-    };
-  }
-
-  const focused = input.snapshot.workFocus;
-  if (focused && isFollowUp(text)) {
-    return {
-      kind: 'resume_work',
-      work: focused,
-      route: routeTrace('focus', 0.9, ['输入是承接表达，使用最近聚焦工作']),
-    };
-  }
-
-  const workspaceScores = available
-    .map((workspace) => ({ workspace, score: lexicalScore(text, `${workspace.name} ${workspace.path}`) }))
-    .sort((left, right) => right.score - left.score || left.workspace.id.localeCompare(right.workspace.id));
-  const topWorkspace = workspaceScores[0];
-  const nextWorkspace = workspaceScores[1];
-  if ((!topWorkspace || topWorkspace.score === 0) && mentionsWorkspaceScope(text)) {
-    return { kind: 'register_workspace', hint: text };
-  }
-  if (
-    available.length > 1 &&
-    (!topWorkspace || topWorkspace.score === 0 || topWorkspace.score === nextWorkspace?.score)
-  ) {
-    return {
-      kind: 'clarify',
-      options: available.map((workspace, index) => ({
-        id: `project-${index}`,
-        kind: 'new_work' as const,
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        reason: '在此 Project 中创建新工作',
-      })),
-      question: '这项工作要在哪个 Project 中进行？请说出项目名或相关文件。',
-      route: routeTrace('fallback', 0.35, ['多个 Project 同样可能']),
-    };
-  }
-  const workspaceId = topWorkspace?.workspace.id ?? available[0]!.id;
-  return {
-    kind: 'create_work',
-    workspaceId,
-    title: deriveWorkTitle(text),
-    route: routeTrace(
-      topWorkspace?.score ? 'lexical' : 'fallback',
-      topWorkspace?.score ? 0.86 : 0.62,
-      [topWorkspace?.score
-        ? `匹配 Project ${topWorkspace.workspace.name}`
-        : '当前只有一个可用 Project'],
-    ),
-  };
-}
-
-const EXECUTABLE_PATTERNS = [
-  /(?:修复|修掉|实现|创建|新增|删除|更新|修改|改一下|改掉|运行|执行|测试|检查|排查|重构|写|补完|继续|处理|分析一下|看一下|看看)/u,
-  /\b(?:fix|implement|create|add|delete|remove|update|change|run|test|check|debug|refactor|write|continue)\b/iu,
-];
-
-const FOLLOW_UP_PATTERNS = [
-  /^(?:继续|接着|再|然后|顺便|把它|这个|那就)/u,
-  /^(?:continue|then|also|now|do it|that)\b/iu,
-];
-
-export function looksExecutable(text: string): boolean {
-  return EXECUTABLE_PATTERNS.some((pattern) => pattern.test(text));
-}
-
-function isFollowUp(text: string): boolean {
-  return FOLLOW_UP_PATTERNS.some((pattern) => pattern.test(text));
-}
-
-function isInteractionReply(text: string): boolean {
-  return /^(?:可以|同意|允许|继续|是|否|好的|确认|ok|okay|yes|no|allow|continue)[。.!！]?$/iu.test(text);
-}
-
-function lexicalScore(query: string, candidate: string): number {
-  const target = candidate.toLocaleLowerCase();
-  const tokens = tokenize(query);
-  let score = 0;
-  for (const token of tokens) {
-    if (target.includes(token)) score += token.length >= 4 ? 2 : 1;
-  }
-  return score;
-}
-
-function candidateMatchScore(query: string, candidate: WorkCandidate): number {
-  const card = candidate.semanticCard;
-  return (
-    lexicalScore(query, candidate.workName) * 4 +
-    lexicalScore(query, card?.objective ?? candidate.searchableText) * 3 +
-    lexicalScore(query, card?.terms.join(' ') ?? '') * 2 +
-    lexicalScore(query, card?.recentOutcome ?? '')
-  );
-}
-
-function routeTrace(
-  resolver: UnifiedRouteTrace['resolver'],
-  confidence: number,
-  evidence: string[],
-): UnifiedRouteTrace {
-  return {
-    resolver,
-    confidence: Math.max(0, Math.min(1, confidence)),
-    evidence: evidence.slice(0, 4),
-  };
-}
-
 function workRouteOption(
   candidate: WorkCandidate,
   id: string,
@@ -1213,31 +932,6 @@ function sameWork(left: WorkRef, right: WorkRef): boolean {
   return left.workspaceId === right.workspaceId && left.sessionId === right.sessionId;
 }
 
-function tokenize(text: string): string[] {
-  const latin = text.toLocaleLowerCase().match(/[a-z0-9_./-]{2,}/giu) ?? [];
-  const chineseRuns = text.match(/[\p{Script=Han}]{2,}/gu) ?? [];
-  const chinese = chineseRuns.flatMap((run) => {
-    const points = [...run];
-    const grams: string[] = [];
-    for (const size of [2, 3, 4]) {
-      for (let index = 0; index + size <= points.length; index += 1) {
-        grams.push(points.slice(index, index + size).join(''));
-      }
-    }
-    return grams;
-  });
-  return [...new Set([...latin, ...chinese])].slice(0, 128);
-}
-
-function deriveWorkTitle(text: string): string {
-  const title = text.replace(/[。！？!?]+$/u, '').trim();
-  return [...title].slice(0, 40).join('') || '新工作';
-}
-
-function mentionsWorkspaceScope(text: string): boolean {
-  return /(?:项目|工程|代码库|仓库|\bworkspace\b|\bproject\b|\brepo(?:sitory)?\b)/iu.test(text);
-}
-
 function findCoordinationPlan(
   snapshot: UnifiedSnapshot,
   planId: string,
@@ -1250,105 +944,6 @@ function findCoordinationPlan(
 
 function isTerminalWorkStatus(status: UnifiedWorkBlock['status']): boolean {
   return ['blocked', 'failed', 'completed', 'stopped'].includes(status);
-}
-
-const SEQUENCE_CONNECTOR = /(?:然后|之后|接着|随后|再由|再在|再去|\bthen\b|\bafter that\b|\bnext\b)/iu;
-const COORDINATION_BOUNDARY = /(?:[,，;；。]\s*|然后|之后|接着|随后|再由|再在|再去|\bthen\b|\bafter that\b|\bnext\b)/iu;
-
-function detectCoordination(
-  text: string,
-  workspaces: UnifiedWorkspaceSummary[],
-  candidates: WorkCandidate[],
-): UnifiedCoordinationDraftStep[] | undefined {
-  const segments = text
-    .split(COORDINATION_BOUNDARY)
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-  const sequential = SEQUENCE_CONNECTOR.test(text);
-  const selected: Array<{
-    segment: string;
-    workspace: UnifiedWorkspaceSummary;
-    targetWork?: WorkRef;
-    title?: string;
-  }> = [];
-  for (const segment of segments) {
-    const rankedWorkspaces = workspaces
-      .map((workspace) => ({ workspace, score: workspaceMatchScore(segment, workspace) }))
-      .filter((entry) => entry.score > 0)
-      .sort((left, right) => right.score - left.score || left.workspace.id.localeCompare(right.workspace.id));
-    const rankedCandidates = candidates
-      .map((candidate) => ({
-        candidate,
-        score:
-          lexicalScore(segment, candidate.workName) * 3 +
-          candidateMatchScore(segment, candidate),
-      }))
-      .filter((entry) => entry.score >= 3)
-      .sort(
-        (left, right) =>
-          right.score - left.score ||
-          right.candidate.updatedAt - left.candidate.updatedAt ||
-          left.candidate.work.sessionId.localeCompare(right.candidate.work.sessionId),
-      );
-    const explicitWorkspace = rankedWorkspaces[0]?.score >= 10 &&
-      rankedWorkspaces[0].score !== rankedWorkspaces[1]?.score
-      ? rankedWorkspaces[0].workspace
-      : undefined;
-    const matchingCandidate = rankedCandidates.find(
-      (entry) => !explicitWorkspace || entry.candidate.work.workspaceId === explicitWorkspace.id,
-    );
-    const uniqueCandidate = matchingCandidate &&
-      !rankedCandidates.some(
-        (entry) =>
-          entry !== matchingCandidate &&
-          entry.score === matchingCandidate.score &&
-          entry.candidate.work.workspaceId !== matchingCandidate.candidate.work.workspaceId,
-      )
-      ? matchingCandidate.candidate
-      : undefined;
-    const workspace = explicitWorkspace ?? (
-      uniqueCandidate
-        ? workspaces.find((candidate) => candidate.id === uniqueCandidate.work.workspaceId)
-        : rankedWorkspaces[0]?.score !== rankedWorkspaces[1]?.score
-          ? rankedWorkspaces[0]?.workspace
-          : undefined
-    );
-    if (!workspace) continue;
-    selected.push({
-      segment,
-      workspace,
-      ...(uniqueCandidate ? {
-        targetWork: uniqueCandidate.work,
-        title: uniqueCandidate.workName,
-      } : {}),
-    });
-  }
-
-  if (new Set(selected.map((entry) => entry.workspace.id)).size < 2) {
-    const named = workspaces.filter((workspace) => workspaceMatchScore(text, workspace) >= 10);
-    if (named.length < 2) return undefined;
-    selected.splice(
-      0,
-      selected.length,
-      ...named.map((workspace) => ({ segment: text, workspace })),
-    );
-  }
-
-  return selected.map((entry, index) => ({
-    workspaceId: entry.workspace.id,
-    workspaceName: entry.workspace.name,
-    title: entry.title ?? deriveWorkTitle(entry.segment),
-    prompt: entry.segment,
-    ...(entry.targetWork ? { targetWork: entry.targetWork } : {}),
-    dependsOnStepIndexes: sequential && index > 0 ? [index - 1] : [],
-  }));
-}
-
-function workspaceMatchScore(text: string, workspace: UnifiedWorkspaceSummary): number {
-  const normalized = text.toLocaleLowerCase();
-  const name = workspace.name.trim().toLocaleLowerCase();
-  const exactNameScore = name && normalized.includes(name) ? 10 : 0;
-  return exactNameScore + lexicalScore(text, `${workspace.name} ${workspace.path}`);
 }
 
 function buildDiscussionBackground(

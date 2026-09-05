@@ -17,6 +17,7 @@ import {
 } from '../unified-session/work-orchestrator.js';
 import { createBoundedModelIntentResolver } from '../unified-session/model-intent-resolver.js';
 import { createUnifiedWorkspaceRegistry } from '../unified-session/workspace-registry.js';
+import type { DecisionTrace } from '../unified-session/decision/decision-types.js';
 
 const temporaryRoots: string[] = [];
 
@@ -136,6 +137,53 @@ describe('Work Orchestrator', () => {
     assert.equal(fixture.hosts[0]!.created.length, 0);
     const snapshot = await fixture.orchestrator.snapshot();
     assert.deepEqual(snapshot.items.map((item) => item.kind), ['discussion', 'discussion']);
+  });
+
+  test('emits a structured Decision Trace for every routed input', async () => {
+    const traces: DecisionTrace[] = [];
+    const fixture = await createFixture([host('ws-a', 'maka-agent')], {
+      onDecisionTrace: (trace) => traces.push(trace),
+    });
+
+    await fixture.orchestrator.send({ text: '登录超时可能有问题' });
+    await waitForAsync(async () => {
+      const item = (await fixture.orchestrator.snapshot()).items.at(-1);
+      return item?.kind === 'discussion' && item.status === 'completed';
+    });
+
+    assert.deepEqual(traces, [{
+      policyVersion: 'workhub-decision-v1',
+      intent: 'discussion_candidate',
+      recalledCandidateIds: [],
+      proposedAction: 'discussion',
+      gateDecision: 'block',
+      evidence: [
+        'no deterministic execution signal',
+        '未发现明确执行意图',
+        'proposal does not authorize execution',
+      ],
+    }]);
+  });
+
+  test('does not create or start a Work when Action Gate rejects an invented target', async () => {
+    const target = host('ws-a', 'maka-agent');
+    const traces: DecisionTrace[] = [];
+    const resolver: UnifiedIntentResolver = async () => ({
+      kind: 'resume_work',
+      work: { workspaceId: 'ws-a', sessionId: 'invented-session' },
+    });
+    const fixture = await createFixture([target], {
+      resolveIntent: resolver,
+      onDecisionTrace: (trace) => traces.push(trace),
+    });
+
+    const result = await fixture.orchestrator.send({ text: '继续修改登录问题' });
+
+    assert.equal(result.kind, 'register_workspace');
+    assert.deepEqual(target.created, []);
+    assert.deepEqual(target.started, []);
+    assert.equal(traces[0]?.gateDecision, 'block');
+    assert.match(traces[0]?.evidence.at(-1) ?? '', /target Work/u);
   });
 
   test('carries a bounded Discussion background into the target Work with provenance', async () => {
@@ -928,6 +976,7 @@ async function createFixture(
   options: {
     answerDiscussion?: (text: string) => Promise<string>;
     resolveIntent?: UnifiedIntentResolver;
+    onDecisionTrace?: (trace: DecisionTrace) => void;
   } = {},
 ) {
   const root = await temporaryRoot();
@@ -957,6 +1006,7 @@ async function createFixture(
         answerDiscussion: (text: string) => options.answerDiscussion!(text),
       } : {}),
       ...(options.resolveIntent ? { resolveIntent: options.resolveIntent } : {}),
+      ...(options.onDecisionTrace ? { onDecisionTrace: options.onDecisionTrace } : {}),
     }),
   };
 }
