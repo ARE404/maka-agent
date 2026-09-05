@@ -25,13 +25,11 @@
 
 import {
   boundedWorkHubText,
-  type WorkHubRouteEvidence,
-  type WorkHubStopClarificationReason,
-} from './workhub-route-policy.js';
-import {
   createWorkHubR24RoutingStrategy,
+  type WorkHubRouteEvidence,
   type WorkHubRoutingStrategy,
   type WorkHubRoutingStrategyId,
+  type WorkHubStopClarificationReason,
   WORKHUB_R24_ROUTING_STRATEGY_ID,
 } from './features/workhub/index.js';
 import type {

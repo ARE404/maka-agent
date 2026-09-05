@@ -20,7 +20,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { WorkHubSessionFacts } from "../../renderer/workhub-controller.js";
-import type { WorkHubRoutePolicy } from "../../renderer/workhub-route-policy.js";
+import type { WorkHubRoutePolicy } from "../../renderer/features/workhub/index.js";
 import {
   createWorkHubR24RoutingStrategy,
   createWorkHubR3ARoutingStrategy,

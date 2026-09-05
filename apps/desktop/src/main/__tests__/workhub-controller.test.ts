@@ -31,7 +31,7 @@ import {
 import {
   createWorkHubRoutePolicy,
   workHubNewSessionName,
-} from '../../renderer/workhub-route-policy.js';
+} from '../../renderer/features/workhub/index.js';
 import {
   createWorkHubR3ARoutingStrategy,
   WORKHUB_R3A_ROUTING_STRATEGY_ID,

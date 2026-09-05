@@ -246,7 +246,6 @@
     "src/renderer/workhub-coordination-host-scope.ts",
     "src/renderer/workhub-coordination-lifecycle.ts",
     "src/renderer/workhub-coordination-port.ts",
-    "src/renderer/workhub-route-policy.ts",
     "src/renderer/workhub-send-lease.ts",
     "src/renderer/workhub-session-port.ts",
     "src/renderer/workhub-surface.tsx",
@@ -4553,8 +4552,7 @@
         "unresolvedDependencies": 0,
         "actionFactories": [],
         "dependencyPaths": {
-          "./features/workhub/index.js": 1,
-          "./workhub-route-policy.js": 1
+          "./features/workhub/index.js": 1
         }
       },
       "src/renderer/workhub-coordination-host-scope.ts": {
@@ -4590,17 +4588,6 @@
           "./desktop-transcript-range-store.js": 1,
           "./workhub-controller.js": 1,
           "@maka/core/session": 1
-        }
-      },
-      "src/renderer/workhub-route-policy.ts": {
-        "bridgePaths": {},
-        "environmentCapabilities": {},
-        "hookCalls": {},
-        "lifecycleMethods": {},
-        "unresolvedDependencies": 0,
-        "actionFactories": [],
-        "dependencyPaths": {
-          "./features/workhub/index.js": 1
         }
       },
       "src/renderer/workhub-send-lease.ts": {
