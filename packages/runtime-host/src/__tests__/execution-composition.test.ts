@@ -680,6 +680,31 @@ test('WorkHub creates new work through the production assignment composition', a
       const session = (await manager.listSessions()).find(({ id }) => id === targetSessionId);
       assert.equal(session?.name, 'Login stability');
       assert.equal(session?.llmConnectionId, connectionId);
+
+      const current = await composition.handlers['workhub.coordination.candidates']({}, context);
+      assert.equal(current.ok, true);
+      if (!current.ok) return;
+      assert.deepEqual(current.result.delegations, [
+        {
+          actionId: 'workhub-create-action',
+          targetSessionId,
+          sequence: 0,
+        },
+      ]);
+      const stopped = await composition.handlers['workhub.coordination.act'](
+        {
+          actionId: 'workhub-create-stop-action',
+          userText: 'Stop Login stability',
+          confirmation: { kind: 'user_stop' },
+          proposal: {
+            disposition: 'stop_work',
+            expects: { targetSessionId },
+          },
+        },
+        context,
+      );
+      assert.equal(stopped.ok, true, JSON.stringify(stopped));
+      if (stopped.ok) assert.equal(stopped.result.disposition, 'stop_work');
     } finally {
       await composition.close();
     }

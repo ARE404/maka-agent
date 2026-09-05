@@ -1425,7 +1425,7 @@ export async function createExecutionRuntimeHostComposition(
           disposition satisfies never;
           throw new Error('Unhandled WorkHub Message retirement disposition');
         },
-        assign: async (input) => {
+        assign: async (input, _context, publishCommittedAssignment) => {
           const durable = await stores.sessionStore.readWorkHubAssignment(input.actionId);
           if (durable) {
             await messages.consumePendingAdmissions([durable.targetSessionId]);
@@ -1447,9 +1447,6 @@ export async function createExecutionRuntimeHostComposition(
             .slice(0, 48);
           const messageId = `whm_${suffix}`;
           const content = normalizeMessageContent({ text: input.userText });
-          let committedAssignment:
-            | { readonly sequence: number; readonly assignment: WorkHubDelegationAssignedMessage }
-            | undefined;
           const persisted =
             durable ??
             (await sessionAdmission.runMany(
@@ -1533,10 +1530,13 @@ export async function createExecutionRuntimeHostComposition(
                   ...(supersession ? { supersession } : {}),
                 });
                 if (result.kind === 'assigned') {
-                  committedAssignment = {
+                  // Publish the rebuildable Host index before this shared
+                  // admission is released, so readers cannot observe the
+                  // durable assignment without its active linkage.
+                  await publishCommittedAssignment({
                     sequence: result.sequence,
                     assignment: result.assignment,
-                  };
+                  });
                 }
                 // Keep the durable steering identity and its live queue owner
                 // under one Session admission. A terminal transition must not
@@ -1559,7 +1559,6 @@ export async function createExecutionRuntimeHostComposition(
           return {
             turnId: persisted.targetTurnId,
             ...(persisted.steered ? { steered: true as const } : {}),
-            ...(committedAssignment ? { committedAssignment } : {}),
           };
         },
       },

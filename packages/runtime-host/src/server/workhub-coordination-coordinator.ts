@@ -133,11 +133,12 @@ export interface HostWorkHubCoordinationCoordinatorOptions {
     WorkHubActionGateEffects,
     'readDelegationRetirement' | 'retireDelegation'
   > & {
-    assign(...args: Parameters<WorkHubActionGateEffects['assign']>): Promise<
-      Awaited<ReturnType<WorkHubActionGateEffects['assign']>> & {
-        readonly committedAssignment?: ActiveWorkHubAssignment;
-      }
-    >;
+    assign(
+      ...args: [
+        ...Parameters<WorkHubActionGateEffects['assign']>,
+        publishCommittedAssignment: (assignment: ActiveWorkHubAssignment) => Promise<void>,
+      ]
+    ): ReturnType<WorkHubActionGateEffects['assign']>;
   };
   readonly resolveCreateTarget: () => Promise<CoordinationCreateTarget>;
   readonly requestDrain: () => void;
@@ -188,7 +189,8 @@ export class HostWorkHubCoordinationCoordinator {
       probeTargetRemoval: async (sessionId) =>
         (await this.#stores.probeSessionRemoval(sessionId)).kind,
       readAssignment: (actionId) => this.#stores.readWorkHubAssignment(actionId),
-      listActiveAssignments: () => this.#listActiveAssignments(),
+      listActiveAssignments: () =>
+        this.#admission.run(WORKHUB_COORDINATION_SESSION_ID, () => this.#listActiveAssignments()),
       readReplacement: (delegationId) => this.#stores.readWorkHubReplacement(delegationId),
       readReplacementAbort: (delegationId) =>
         this.#stores.readWorkHubReplacementAbort(delegationId),
@@ -212,14 +214,9 @@ export class HostWorkHubCoordinationCoordinator {
         }
       },
       assign: async (input, context) => {
-        const result = await options.sessionActions.assign(input, context);
-        if (result.committedAssignment) {
-          await this.#applyActiveMessage(
-            result.committedAssignment.sequence,
-            result.committedAssignment.assignment,
-          );
-        }
-        return result;
+        return options.sessionActions.assign(input, context, (assignment) =>
+          this.#applyActiveMessage(assignment.sequence, assignment.assignment),
+        );
       },
       prepareReplacement: (input) => this.#prepareReplacement(input),
       abortReplacement: (input) => this.#abortReplacement(input),
@@ -482,7 +479,9 @@ export class HostWorkHubCoordinationCoordinator {
     try {
       const [result, activeAssignments] = await Promise.all([
         this.#actionGate.candidates(),
-        this.#listActiveAssignmentRecords(),
+        this.#admission.run(WORKHUB_COORDINATION_SESSION_ID, () =>
+          this.#listActiveAssignmentRecords(),
+        ),
       ]);
       return {
         ok: true,
