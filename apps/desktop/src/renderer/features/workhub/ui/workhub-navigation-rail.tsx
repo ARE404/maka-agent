@@ -25,7 +25,7 @@ import {
   type WorkHubWorkFilter,
 } from '../model/anchor-rail.js';
 
-export interface WorkHubNavigationRailCopy {
+interface WorkHubNavigationRailCopy {
   readonly work: string;
   readonly workNavigation: string;
   readonly filterWork: string;
@@ -105,4 +105,3 @@ export function WorkHubNavigationRail(props: {
     </aside>
   );
 }
-
