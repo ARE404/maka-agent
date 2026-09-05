@@ -24,7 +24,6 @@
 - Scope: WorkHub architecture
 - Decision source: [Discussion #3286](https://github.com/apache/maka/discussions/3286#discussioncomment-18135855)
 - Delivery tracker: [Issue #3492](https://github.com/apache/maka/issues/3492)
-- Architecture map: [WorkHub decision and authority architecture](./workhub-decision-and-authority-architecture.md)
 
 ## Context
 
