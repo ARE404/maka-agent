@@ -101,7 +101,9 @@ export const RUNTIME_HOST_REGISTRATION_SCHEMA_VERSION = 1 as const;
 export const RUNTIME_HOST_PROTOCOL_VERSION = 0 as const;
 // Increment when the same protocol version no longer guarantees safe Client-Host
 // interoperability. Mismatches are rejected before domain commands are admitted.
-export const RUNTIME_HOST_COMPATIBILITY_EPOCH = 119 as const;
+export const RUNTIME_HOST_COMPATIBILITY_EPOCH = 120 as const;
+// 120: WorkHub admits named resume proposals with an explicit resumesActionId
+// and returns a transient resume outcome. Older peers cannot decode this action.
 // 119: Session Guest principals expose optional display names and an owner-only
 // rename command. Older peers reject named principal projections.
 // 118: External-session import publishes distinct `model_unavailable` and

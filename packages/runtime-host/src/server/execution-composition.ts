@@ -181,7 +181,10 @@ import type { TurnOperationHandlerMap } from './operation-dispatcher.js';
 import { HostUsagePricingCoordinator } from './usage-pricing-coordinator.js';
 import { HostWebSearchCoordinator } from './web-search-coordinator.js';
 import { HostWorkHubCoordinationCoordinator } from './workhub-coordination-coordinator.js';
-import { WorkHubActionEffectFailure } from './workhub-coordination-action-gate.js';
+import {
+  WorkHubActionEffectFailure,
+  workHubResumedTurnId,
+} from './workhub-coordination-action-gate.js';
 
 type ExecutionConnectionRef = Parameters<
   RuntimePolicyStoresWriter['operations']['resolveExecutionConnection']
@@ -565,6 +568,8 @@ export async function createExecutionRuntimeHostComposition(
     let deepResearch: HostDeepResearchCoordinator | undefined;
     let dailyReview: HostDailyReviewCoordinator | undefined;
     const rootPort: HostMessageRootPort = {
+      readLatestRootTurnLineage: (identity) =>
+        requireRootCoordinator(rootCoordinator).readLatestRootTurnLineage(identity),
       readSessionHeader: (sessionId) =>
         requireRootCoordinator(rootCoordinator).readSessionHeader(sessionId),
       readRootState: (sessionId) =>
@@ -1380,11 +1385,105 @@ export async function createExecutionRuntimeHostComposition(
             turnId: disposition.turnId,
             runId: disposition.runId,
           };
-          if (isActiveWorkHubRoot(coordinator, identity)) return 'not_retired';
+          const latest = await coordinator.readLatestRootTurnLineage(identity);
+          if (isActiveWorkHubRoot(coordinator, latest)) return 'not_retired';
           // The same restart window as `stopOwnedWorkHubRoot`: an unregistered
           // root is not evidence that its work ended.
-          const snapshot = await coordinator.read(identity);
+          const snapshot = await coordinator.read(latest);
           return isHostedExecutionTerminal(snapshot) ? 'retired' : 'recovering';
+        },
+        // Resolve and resume only the execution lineage owned by this
+        // delegation. A Session-wide latest-failure query could otherwise
+        // continue unrelated work started directly in the same Session.
+        resumeDelegation: async (assignment, context, actionId) => {
+          const disposition = await messages.readMessageExecutionDisposition(
+            assignment.targetSessionId,
+            assignment.targetMessageId,
+          );
+          if (disposition.kind === 'recovering') {
+            throw new WorkHubActionEffectFailure(
+              'host_not_ready',
+              'WorkHub is still recovering the delegated execution',
+            );
+          }
+          if (disposition.kind !== 'owned_root') {
+            throw new WorkHubActionEffectFailure(
+              'operation_conflict',
+              'WorkHub delegated execution is not resumable',
+            );
+          }
+          const source = await coordinator.readLatestRootTurnLineage({
+            sessionId: assignment.targetSessionId,
+            turnId: disposition.turnId,
+            runId: disposition.runId,
+          });
+          if (isActiveWorkHubRoot(coordinator, source)) {
+            return { outcome: 'already_running' as const };
+          }
+          const snapshot = await coordinator.read(source);
+          if (!isHostedExecutionTerminal(snapshot)) {
+            throw new WorkHubActionEffectFailure(
+              'host_not_ready',
+              'WorkHub is still recovering the delegated execution',
+            );
+          }
+          if (snapshot.status !== 'failed' && snapshot.status !== 'cancelled') {
+            throw new WorkHubActionEffectFailure(
+              'operation_conflict',
+              'WorkHub delegated execution is not resumable',
+            );
+          }
+          const plan = await coordinator.handlers['turn.resume.query'](
+            { sessionId: assignment.targetSessionId, sourceRunId: source.runId },
+            context,
+          );
+          if (!plan.ok) throw new WorkHubActionEffectFailure(plan.error.code, plan.error.message);
+          if (plan.result.disposition === 'parked') {
+            throw new WorkHubActionEffectFailure(
+              plan.result.reason === 'resume_feature_disabled'
+                ? 'operation_unavailable'
+                : 'operation_conflict',
+              plan.result.reason === 'resume_feature_disabled'
+                ? 'Safe-boundary resume is disabled for this Runtime Host'
+                : 'WorkHub delegated execution is not resumable',
+            );
+          }
+          if (
+            plan.result.sourceRunId !== source.runId ||
+            plan.result.sourceTurnId !== source.turnId
+          ) {
+            throw new WorkHubActionEffectFailure(
+              'operation_conflict',
+              'WorkHub resume source lineage changed during planning',
+            );
+          }
+          const targetTurnId = workHubResumedTurnId(actionId);
+          const started = await coordinator.handlers['turn.resume.start'](
+            {
+              sessionId: assignment.targetSessionId,
+              turnId: targetTurnId,
+              sourceRunId: plan.result.sourceRunId,
+              sourceRuntimeEventHighWater: plan.result.sourceRuntimeEventHighWater,
+            },
+            context,
+          );
+          if (!started.ok) {
+            throw new WorkHubActionEffectFailure(started.error.code, started.error.message);
+          }
+          if (started.result.kind === 'parked') {
+            throw new WorkHubActionEffectFailure(
+              started.result.plan.reason === 'resume_feature_disabled'
+                ? 'operation_unavailable'
+                : 'operation_conflict',
+              started.result.plan.reason === 'resume_feature_disabled'
+                ? 'Safe-boundary resume is disabled for this Runtime Host'
+                : 'WorkHub delegated execution is not resumable',
+            );
+          }
+          return {
+            outcome: 'resume_started' as const,
+            targetTurnId: started.result.turn.turnId,
+          };
         },
         retireDelegation: async (assignment, retirement) => {
           const disposition = await messages.cancelMessageIfPending(
@@ -1405,11 +1504,11 @@ export async function createExecutionRuntimeHostComposition(
             return { outcome: 'not_owned' as const, targetTurnId: disposition.turnId };
           }
           if (disposition.kind === 'owned_root') {
-            const identity = {
+            const identity = await coordinator.readLatestRootTurnLineage({
               sessionId: assignment.targetSessionId,
               turnId: disposition.turnId,
               runId: disposition.runId,
-            };
+            });
             return retirement.cause === 'direct_stop'
               ? stopOwnedWorkHubRoot(coordinator, identity, retirement.cancellationClaimId)
               : stopReplacedWorkHubRoot(coordinator, identity);
