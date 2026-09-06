@@ -78,6 +78,7 @@ import {
   resolveTaskReadinessModelTarget,
   transcriptReadingPosition,
   type TranscriptHistoryGates,
+  type TranscriptHistoryPending,
 } from './features/conversation';
 import { deriveWorkspaceReadinessRecovery } from './workspace-readiness-recovery';
 import { LiveTurnReconciler } from './live-turn-reconciler';
@@ -438,11 +439,7 @@ function AppShellContent({
   const [newChatOrchestrationMode, setNewChatOrchestrationMode] = useState<OrchestrationMode>('default');
   const [newTaskPermissionChoice, setNewTaskPermissionChoice, clearNewTaskPermissionChoice] =
     useNewTaskChoice<ChatDefaultPermissionMode>(currentNewTaskDraftKey);
-  const [historyLoadPendingSessionId, setHistoryLoadPendingSessionId] = useState<string>();
-  // The state above is what the transcript renders; this is what the guard
-  // reads. A scroller can ask twice in one task — two scroll events before
-  // React has re-rendered anything — and a state read is still the old value
-  // for both of them.
+  const [historyLoadPending, setHistoryLoadPending] = useState<TranscriptHistoryPending>();
   const historyLoadGatesRef = useRef<TranscriptHistoryGates>(new WeakMap());
   const [transcriptTurnIndex, setTranscriptTurnIndex] = useState<{
     sessionId: string;
@@ -1019,6 +1016,7 @@ function AppShellContent({
     setSearchModalOpen,
     searchScrollTarget,
     setSearchScrollTarget,
+    consumeSearchScrollTarget,
     closeSearchModal,
     searchModalDeps,
     searchModalOnNavigate,
@@ -2242,7 +2240,7 @@ function AppShellContent({
   }), [ownerActiveId, activeIdRef, newestDurablePromptSequence, transcriptTurnIndex]);
   useEffect(() => transcriptReadingPosition.restoreRange({
     sessionId: activeId,
-    searchTarget: searchScrollTarget,
+    searchTarget: searchScrollTarget?.handled ? null : searchScrollTarget,
     readingAnchor: activeId
       ? sessionUiController.transcriptReadingAnchorBySessionRef.current[activeId]
       : undefined,
@@ -2264,7 +2262,7 @@ function AppShellContent({
         ),
       }));
     },
-  }), [activeId, activeSession?.profileId, messages, searchScrollTarget?.nonce]);
+  }), [activeId, activeSession?.profileId, messages, searchScrollTarget]);
   useShellRunUpdates({
     activeId,
     setShellRunUpdatesBySession: sessionUiController.setShellRunUpdatesBySession,
@@ -2443,14 +2441,15 @@ function AppShellContent({
     const controller = transcriptRangeRef.current;
     const sessionId = activeId;
     if (!controller || !sessionId) return;
+    if (target !== 'earlier') handleTranscriptReadingAnchorChange();
     return transcriptReadingPosition.loadHistory({
       gates: historyLoadGatesRef.current,
+      sessionId,
       request: { target, anchorTurnId },
       controller,
       maxBytes: DESKTOP_TRANSCRIPT_RANGE_MAX_BYTES,
       isCurrent: () => activeIdRef.current === sessionId && transcriptRangeRef.current === controller,
-      setPending: (pending) => setHistoryLoadPendingSessionId((current) =>
-        pending ? sessionId : current === sessionId ? undefined : current),
+      setPending: setHistoryLoadPending,
       onError: (error) => showSessionError(
         sessionId,
         desktopConversationCopy.actions.messageReadFailedTitle,
@@ -2746,6 +2745,9 @@ function AppShellContent({
                 scrollToBottomLabel={
                   desktopConversationCopy.actions.scrollMainToBottom
                 }
+                onReturnToTail={activeTranscriptRange?.hasNewer
+                  ? () => loadTranscriptHistory('latest')
+                  : undefined}
                 hidden={navSelection.section !== 'sessions'}
                 composer={
                   <>
@@ -2954,9 +2956,9 @@ function AppShellContent({
                   <ChatMessageSurface
                 sessionUiController={sessionUiController}
                 activeSessionId={activeId}
-                hasOlderHistory={activeTranscriptRange?.hasOlder === true}
-                hasNewerHistory={activeTranscriptRange?.hasNewer === true}
-                historyLoadPending={historyLoadPendingSessionId === activeId}
+                hasOlderHistory={activeTranscriptRange?.hasOlder}
+                hasNewerHistory={activeTranscriptRange?.hasNewer}
+                historyLoadPending={historyLoadPending}
                 onLoadHistory={loadTranscriptHistory}
                 liveContentSeedRevision={liveContent.liveContentSeedRevision(activeEventSeed, activeId)}
                 messages={messages}
@@ -3001,16 +3003,11 @@ function AppShellContent({
                           }
                     : undefined
                 }
-                restoreTargetTurn={activeTranscriptReadingAnchor
-                  ? {
-                      turnId: activeTranscriptReadingAnchor.turnId,
-                      unavailable:
-                        activeUnavailableTranscriptRestore
-                        === activeTranscriptReadingAnchor.turnId,
-                    }
-                  : activeUnavailableTranscriptRestore
-                    ? { turnId: activeUnavailableTranscriptRestore, unavailable: true }
-                    : undefined}
+                onScrollTargetHandled={consumeSearchScrollTarget}
+                restoreTargetTurn={transcriptReadingPosition.restoreTarget(
+                  activeTranscriptReadingAnchor,
+                  activeUnavailableTranscriptRestore,
+                )}
                 onReadingAnchorChange={activeId
                   ? handleTranscriptReadingAnchorChange
                   : undefined}

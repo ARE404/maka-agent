@@ -17,6 +17,10 @@
       "tests": 1,
       "electron": "renderer reload is the whole contract: an explicit new task must not reopen history"
     },
+    "partial-history-notice.spec.ts": {
+      "tests": 1,
+      "electron": "bounded paging crosses renderer, preload and Host transcript storage; the return-to-tail assertion also uses a real pointer hit-test"
+    },
     "proxy-password-editing.spec.ts": {
       "tests": 1,
       "electron": "the password never reaches the renderer; only the Host can report passwordConfigured and authenticate offline"

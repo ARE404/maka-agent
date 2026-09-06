@@ -893,7 +893,7 @@
           "react": 1
         },
         "importSpecifiers": 121,
-        "nonTriviaTokens": 15007
+        "nonTriviaTokens": 14996
       },
       "src/renderer/use-app-shell-composer-quotes.ts": {
         "importDeclarations": 2,
@@ -1157,7 +1157,6 @@
         "actionFactories": [],
         "dependencyPaths": {
           "./chat-recovery-notice": 1,
-          "./locales/conversation-copy": 1,
           "./locales/shell-copy": 1,
           "./onboarding-hero": 1,
           "./use-app-shell-session-ui-reads": 1,
