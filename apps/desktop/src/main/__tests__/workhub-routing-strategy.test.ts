@@ -403,6 +403,9 @@ function trackingBaseline(): {
 } {
   let calls = 0;
   const policy: WorkHubRoutePolicy = {
+    resolveResume() {
+      return { kind: "not_requested" };
+    },
     resolveStop() {
       return { kind: "not_requested" };
     },

@@ -67,6 +67,7 @@ export interface WorkHubRoutingTranscriptTurn {
 
 export interface WorkHubRoutingStrategy {
   readonly strategyId: WorkHubRoutingStrategyId;
+  resolveResume: WorkHubRoutePolicy["resolveResume"];
   resolveStop: WorkHubRoutePolicy["resolveStop"];
   resolve(input: WorkHubRoutingInput): Promise<WorkHubRouteDecision>;
   initializeFocus(targets: readonly WorkHubRoutingTarget[]): void;
@@ -133,6 +134,7 @@ export function createWorkHubR24RoutingStrategy(
 ): WorkHubRoutingStrategy {
   return {
     strategyId: WORKHUB_R24_ROUTING_STRATEGY_ID,
+    resolveResume: policy.resolveResume,
     resolveStop: policy.resolveStop,
     async resolve(input) {
       return policy.resolve({
@@ -192,6 +194,7 @@ function createModelRoutingStrategy(input: {
     input.strategyId === WORKHUB_R3A_ROUTING_STRATEGY_ID;
   return {
     strategyId: input.strategyId,
+    resolveResume: input.baseline.resolveResume,
     resolveStop: input.baseline.resolveStop,
     async resolve(routeInput) {
       const boundedInput = boundedRoutingInput(routeInput);
