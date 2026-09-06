@@ -100,7 +100,7 @@ export function refreshTranscriptTurnLandmarks<T>(options: {
 }
 
 export interface TranscriptHistoryRequest {
-  readonly target: 'earlier' | 'latest';
+  readonly target: 'earlier' | 'later' | 'latest';
   readonly anchorTurnId?: string;
 }
 
@@ -118,6 +118,7 @@ export async function loadTranscriptHistory(options: {
   readonly request: TranscriptHistoryRequest;
   readonly controller: {
     loadBefore(maxBytes: number, anchorTurnId?: string): Promise<void>;
+    loadAfter(maxBytes: number, anchorTurnId?: string): Promise<void>;
     loadLatest(): Promise<void>;
   };
   readonly maxBytes: number;
@@ -137,9 +138,10 @@ export async function loadTranscriptHistory(options: {
   gate.pending = true;
   options.setPending(true);
   try {
-    if (request.target === 'earlier') {
-      await options.controller.loadBefore(options.maxBytes, request.anchorTurnId);
-    } else await options.controller.loadLatest();
+    if (request.target === 'latest') await controller.loadLatest();
+    else await controller[request.target === 'earlier' ? 'loadBefore' : 'loadAfter'](
+      options.maxBytes, request.anchorTurnId,
+    );
   } catch (error) {
     if (options.isCurrent()) options.onError(error);
   } finally {

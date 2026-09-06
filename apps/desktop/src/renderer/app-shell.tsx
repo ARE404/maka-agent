@@ -2538,7 +2538,7 @@ function AppShellContent({
       setAnchor: sessionUiController.setTranscriptReadingAnchor,
     });
   }
-  function loadTranscriptHistory(target: 'earlier' | 'latest', anchorTurnId?: string) {
+  function loadTranscriptHistory(target: 'earlier' | 'later' | 'latest', anchorTurnId?: string) {
     const controller = transcriptRangeRef.current;
     const sessionId = activeId;
     if (!controller || !sessionId) return;
@@ -3050,9 +3050,7 @@ function AppShellContent({
                 hasOlderHistory={activeTranscriptRange?.hasOlder === true}
                 hasNewerHistory={activeTranscriptRange?.hasNewer === true}
                 historyLoadPending={historyLoadPendingSessionId === activeId}
-                onLoadEarlierHistory={(anchorTurnId) =>
-                  loadTranscriptHistory('earlier', anchorTurnId)}
-                onReturnToLatestHistory={() => loadTranscriptHistory('latest')}
+                onLoadHistory={loadTranscriptHistory}
                 liveContentSeedRevision={liveContent.liveContentSeedRevision(activeEventSeed, activeId)}
                 messages={messages}
                 transientMessages={transientMessages}

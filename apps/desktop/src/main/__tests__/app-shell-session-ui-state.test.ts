@@ -75,6 +75,7 @@ function deferred() {
 
 function deferredHistoryController() {
   const before = deferred();
+  const after = deferred();
   const latest = deferred();
   const calls: string[] = [];
   return {
@@ -83,6 +84,10 @@ function deferredHistoryController() {
         calls.push('before');
         return before.promise;
       },
+      loadAfter: (maxBytes: number, anchorTurnId?: string) => {
+        calls.push(`after:${maxBytes}:${anchorTurnId}`);
+        return after.promise;
+      },
       loadLatest: () => {
         calls.push('latest');
         return latest.promise;
@@ -90,6 +95,7 @@ function deferredHistoryController() {
     },
     calls,
     settleBefore: before.resolve,
+    settleAfter: after.resolve,
     settleLatest: latest.resolve,
     failBefore: before.reject,
   };
@@ -115,7 +121,7 @@ function crossSessionGateScenario() {
     },
     load(
       id: 'a' | 'b',
-      request: { target: 'earlier' | 'latest'; anchorTurnId?: string },
+      request: { target: 'earlier' | 'later' | 'latest'; anchorTurnId?: string },
     ) {
       const side = sides[id];
       return transcriptReadingPosition.loadHistory({
@@ -579,19 +585,34 @@ describe('app shell session UI state controller', () => {
     assert.deepEqual(scenario.pending.a, [true, false, true, false]);
   });
 
-  it('keeps the queued latest load when an earlier request arrives after it', async () => {
+  it('replays a queued forward load with its reading anchor after a backward load settles', async () => {
+    const scenario = crossSessionGateScenario();
+    const inFlight = scenario.load('a', { target: 'earlier' });
+    const queued = scenario.load('a', { target: 'later', anchorTurnId: 'turn-anchor' });
+    assert.deepEqual(scenario.sides.a.calls, ['before']);
+
+    scenario.sides.a.settleBefore();
+    await inFlight;
+    assert.deepEqual(scenario.sides.a.calls, ['before', 'after:4096:turn-anchor']);
+    scenario.sides.a.settleAfter();
+    await queued;
+    assert.deepEqual(scenario.pending.a, [true, false, true, false]);
+  });
+
+  it('keeps the queued latest load when adjacent requests arrive after it', async () => {
     const scenario = crossSessionGateScenario();
     const inFlight = scenario.load('a', { target: 'earlier' });
     await new Promise<void>((resolve) => setImmediate(resolve));
     const queuedLatest = scenario.load('a', { target: 'latest' });
     const queuedEarlier = scenario.load('a', { target: 'earlier', anchorTurnId: 'turn-anchor' });
+    const queuedLater = scenario.load('a', { target: 'later', anchorTurnId: 'turn-anchor' });
     assert.deepEqual(scenario.sides.a.calls, ['before']);
 
     scenario.sides.a.settleBefore();
     await inFlight;
     assert.deepEqual(scenario.sides.a.calls, ['before', 'latest']);
     scenario.sides.a.settleLatest();
-    await Promise.allSettled([queuedLatest, queuedEarlier]);
+    await Promise.allSettled([queuedLatest, queuedEarlier, queuedLater]);
     assert.deepEqual(scenario.pending.a, [true, false, true, false]);
   });
 
