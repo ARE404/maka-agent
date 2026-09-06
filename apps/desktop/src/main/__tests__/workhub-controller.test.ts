@@ -270,9 +270,9 @@ test('conversation acknowledges a durable assignment before projecting target ex
     },
   });
 
-  const handle = await controller.openConversation((turns, activeDelegations) => {
+  const handle = await controller.openConversation((turns) => {
     snapshots.push(turns[0]?.assignment?.feedbackState ?? 'missing');
-    activeSnapshots.push(activeDelegations.map(({ targetSessionId }) => targetSessionId));
+    activeSnapshots.push(turns.flatMap((turn) => turn.assignment?.linkState === 'active' ? [turn.assignment.targetSessionId] : []));
   }, () => undefined);
   await Promise.resolve();
 

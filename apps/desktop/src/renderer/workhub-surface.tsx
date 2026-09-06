@@ -278,12 +278,12 @@ export function WorkHubSurface(props: {
     setConversationReady(false);
     setConversationError(false);
     void props.controller.openConversation(
-      (next, nextActiveDelegations) => {
+      (next) => {
         if (disposed) return;
         setCoordination({
           turns: next,
-          delegatedSessionIds: nextActiveDelegations.map(
-            (delegation) => delegation.targetSessionId,
+          delegatedSessionIds: [...next].sort((left, right) => right.updatedAt - left.updatedAt).flatMap(
+            (turn) => turn.assignment?.linkState === 'active' ? [turn.assignment.targetSessionId] : [],
           ),
         });
         setConversationReady(true);

@@ -192,7 +192,7 @@ it is not the final architecture or authority boundary of WorkHub.
 | --- | --- |
 | Action Intent | [`workhub-creation-intent.ts`](../packages/core/src/workhub-creation-intent.ts) |
 | Session Resolver | [`workhub-session-resolver.ts`](../packages/core/src/workhub-session-resolver.ts) |
-| Action Policy | [`workhub-route-policy.ts`](../apps/desktop/src/renderer/workhub-route-policy.ts) |
+| Action Policy | [`route-policy.ts`](../apps/desktop/src/renderer/features/workhub/model/route-policy.ts) |
 | Action Proposal | [`workhub-coordination.ts`](../packages/runtime-host/src/protocol/workhub-coordination.ts) |
 | Action Gate | [`workhub-coordination-action-gate.ts`](../packages/runtime-host/src/server/workhub-coordination-action-gate.ts) |
 | Projection | Coordination: [`workhub-coordination-port.ts`](../apps/desktop/src/renderer/workhub-coordination-port.ts); ordinary Sessions: [`workhub-session-port.ts`](../apps/desktop/src/renderer/workhub-session-port.ts) |

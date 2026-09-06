@@ -262,7 +262,6 @@ export interface WorkHubController {
   openConversation(
     handler: (
       turns: readonly WorkHubCoordinationTurn[],
-      activeDelegations: readonly WorkHubActiveDelegation[],
     ) => void,
     onError: (error: unknown) => void,
   ): Promise<{ close(): Promise<void> }>;
@@ -333,7 +332,6 @@ export function createWorkHubController(deps: {
       let disposed = false;
       let generation = 0;
       let latestTurns: readonly WorkHubCoordinationTurn[] = [];
-      let latestActiveDelegations: readonly WorkHubActiveDelegation[] = [];
 
       const refreshFeedback = async () => {
         const refreshGeneration = ++generation;
@@ -368,7 +366,7 @@ export function createWorkHubController(deps: {
           return next
             ? { ...turn, assignment: { ...turn.assignment, feedbackState: next.state } }
             : turn;
-        }), latestActiveDelegations);
+        }));
       };
 
       const unsubscribe = deps.sessions.subscribe(() => {
@@ -379,9 +377,6 @@ export function createWorkHubController(deps: {
         handle = await coordination.open((turns) => {
           if (disposed) return;
           latestTurns = turns;
-          latestActiveDelegations = [...activeDelegations].sort(
-            (left, right) => right.sequence - left.sequence,
-          );
           routingTranscript = turns.slice(-12).map((turn) => ({
             userText: boundedWorkHubTimelineText(turn.text),
             ...(turn.result
@@ -391,7 +386,7 @@ export function createWorkHubController(deps: {
           generation += 1;
           // The atomic assignment is already durable acknowledgement, so emit
           // it immediately before enriching it with target-owned lifecycle.
-          handler(turns, latestActiveDelegations);
+          handler(turns);
           void refreshFeedback();
         }, onError);
       } catch (error) {

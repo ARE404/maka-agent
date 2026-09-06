@@ -355,7 +355,7 @@ test('surface keeps clarification and successful routing in WorkHub', async () =
   const controller: WorkHubController = {
     read: async () => ({ sessions: [], turns: [] }),
     openConversation: async (handler) => {
-      handler([], []);
+      handler([]);
       return { close: async () => undefined };
     },
     recordConversationTurn: async ({ turnId }) => ({ turnId }),
@@ -498,7 +498,7 @@ test('surface leaves discussion in WorkHub instead of creating a task view', asy
   const controller: WorkHubController = {
     read: async () => ({ sessions: [], turns: [] }),
     openConversation: async (handler) => {
-      handler([], []);
+      handler([]);
       return { close: async () => undefined };
     },
     recordConversationTurn: async ({ turnId }) => ({ turnId }),
