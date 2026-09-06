@@ -2988,9 +2988,9 @@ const workbarLayoutWithOneFace: WorkbarLayoutState = reduceWorkbarLayout(
 
 function WorkbarInShell() {
   const [layout, dispatch] = useReducer(reduceWorkbarLayout, workbarLayoutWithOneFace);
+  const rightCollapsed = isSessionWorkbarCollapsed(layout);
   const collapseRight = (collapsed: boolean) =>
     dispatch({ type: 'collapse', placement: 'right', collapsed });
-  const rightCollapsed = isSessionWorkbarCollapsed(layout);
   return (
     <ToastProvider>
       <WorkbarServicesProvider services={createFakeWorkbarServices()}>
