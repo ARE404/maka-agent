@@ -18,7 +18,7 @@
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, waitFor } from 'storybook/test';
+import { expect, userEvent, within, waitFor } from 'storybook/test';
 import type {
   WorkHubController,
   WorkHubCoordinationTurn,
@@ -135,4 +135,41 @@ export const SubmittedWorkKeepsTargetMetadataInside: Story = {
       project.getBoundingClientRect().bottom,
     );
   },
+};
+
+// Real path: the production WorkHubSurface derives the Rail from Session facts.
+// Filtering and responsive geometry need a renderer, not an Electron/Host fixture.
+const anchorRailPlay: NonNullable<Story['play']> = async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  const rail = await canvas.findByRole('complementary', { name: '工作导航' });
+  const navigation = within(rail);
+  await expect(await navigation.findByRole('button', { name: new RegExp(SESSION_NAME) })).toBeVisible();
+  await userEvent.click(navigation.getByRole('button', { name: '待处理' }));
+  await expect(navigation.getByText('此筛选下没有工作')).toBeVisible();
+  await expect(navigation.queryByRole('button', { name: new RegExp(SESSION_NAME) })).toBeNull();
+  await userEvent.click(navigation.getByRole('button', { name: '全部' }));
+  await expect(await navigation.findByRole('button', { name: new RegExp(SESSION_NAME) })).toBeVisible();
+  const conversation = canvasElement.querySelector<HTMLElement>('.workhub-conversation-shell');
+  const composer = canvasElement.querySelector<HTMLElement>('.workhub-surface .maka-composer-editor');
+  if (!conversation || !composer) throw new Error('WorkHub conversation or composer missing');
+  const railBox = rail.getBoundingClientRect();
+  const conversationBox = conversation.getBoundingClientRect();
+  const composerBox = composer.getBoundingClientRect();
+  if (window.innerWidth <= 1240) {
+    expect(railBox.bottom).toBeLessThanOrEqual(conversationBox.top + 1);
+  } else {
+    expect(railBox.right).toBeLessThanOrEqual(conversationBox.left);
+    expect(Math.abs(composerBox.left + composerBox.width / 2 -
+      (conversationBox.left + conversationBox.width / 2))).toBeLessThanOrEqual(4);
+  }
+};
+
+export const AnchorRailFiltersAndReflows: Story = {
+  render: () => <Surface turns={[submittedTurn()]} />,
+  play: anchorRailPlay,
+};
+
+// The render smoke runner selects its narrow viewport from this story ID.
+export const AnchorRailFiltersAndReflowsNarrow: Story = {
+  ...AnchorRailFiltersAndReflows,
 };
