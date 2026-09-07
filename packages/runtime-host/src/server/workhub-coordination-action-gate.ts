@@ -17,6 +17,7 @@
  * under the License.
  */
 
+import type { AttachmentRef } from '@maka/core/events';
 import { createHash } from 'node:crypto';
 import type {
   SessionHeader,
@@ -116,7 +117,7 @@ export interface WorkHubActionGateEffects {
     delegationId: string,
   ): Promise<WorkHubDelegationStopResolvedMessage | undefined>;
   answer(
-    input: { readonly turnId: string; readonly text: string },
+    input: { readonly turnId: string; readonly text: string; readonly attachments?: AttachmentRef[] },
     context: ConnectionContext,
   ): Promise<void>;
   clarify(input: {
@@ -181,6 +182,7 @@ export interface WorkHubDelegationAssignmentInput {
   readonly targetSessionName: string;
   readonly disposition: WorkHubDelegationDisposition;
   readonly userText: string;
+  readonly attachments?: AttachmentRef[];
   readonly create?: WorkHubDelegationCreateSpec;
   readonly replacesActionId?: string;
   readonly replacesDelegationId?: string;
@@ -360,7 +362,7 @@ export class WorkHubCoordinationActionGate {
     if (proposal.disposition === 'answer_here') {
       const turnId = coordinationTurnId(input.actionId, 'answer');
       await this.#claimAction(input.actionId, 'answer_here', fingerprint, turnId);
-      await this.#effects.answer({ turnId, text: input.userText }, context);
+      await this.#effects.answer({ turnId, text: input.userText, ...(input.attachments ? { attachments: input.attachments } : {}) }, context);
       return { disposition: 'answer_here', coordinationTurnId: turnId };
     }
     if (proposal.disposition === 'clarify') {
@@ -762,7 +764,8 @@ export class WorkHubCoordinationActionGate {
         targetSessionName: target.title,
         disposition: 'create_new',
         userText: input.userText,
-        create: { title: target.title, workspace: input.create.workspace },
+    ...(input.attachments ? { attachments: input.attachments } : {}),
+        create: { title: target.title, workspace: input.create.workspace, ...(input.newWorkDefaults ? { defaults: input.newWorkDefaults } : {}) },
         replacesActionId: replaced.actionId,
         replacesDelegationId: replaced.delegationId,
         replacedTargetSessionId: replaced.targetSessionId,
@@ -807,6 +810,7 @@ export class WorkHubCoordinationActionGate {
       targetSessionName: destination.sessionName,
       disposition: 'delegate_existing',
       userText: input.userText,
+    ...(input.attachments ? { attachments: input.attachments } : {}),
       replacesActionId: replaced.actionId,
       replacesDelegationId: replaced.delegationId,
       replacedTargetSessionId: replaced.targetSessionId,
@@ -1085,6 +1089,7 @@ function delegationAssignment(
     targetSessionName,
     disposition: input.proposal.disposition,
     userText: input.userText,
+    ...(input.attachments ? { attachments: input.attachments } : {}),
   } as const;
   if (input.proposal.disposition === 'delegate_existing') return base;
   if (!create) {
@@ -1098,6 +1103,7 @@ function delegationAssignment(
     create: {
       title: input.proposal.title,
       workspace: create.workspace,
+      ...(input.newWorkDefaults ? { defaults: input.newWorkDefaults } : {}),
     },
   };
 }
@@ -1137,6 +1143,8 @@ function digest(value: unknown): `sha256:${string}` {
 function actionFingerprint(input: WorkHubCoordinationActInput): `sha256:${string}` {
   return digest({
     userText: input.userText,
+    ...(input.attachments ? { attachments: input.attachments } : {}),
+    ...(input.newWorkDefaults ? { newWorkDefaults: input.newWorkDefaults } : {}),
     disposition: input.proposal.disposition,
     ...(input.proposal.disposition === 'delegate_existing'
       ? { candidateRef: input.proposal.candidateRef }
@@ -1171,6 +1179,8 @@ function replacementActionFingerprint(
   }
   return digest({
     userText: input.userText,
+    ...(input.attachments ? { attachments: input.attachments } : {}),
+    ...(input.newWorkDefaults ? { newWorkDefaults: input.newWorkDefaults } : {}),
     disposition: input.proposal.disposition,
     replacesActionId: input.proposal.replacesActionId,
     target: {
@@ -1261,6 +1271,7 @@ function assignmentInputFromRecord(
     targetSessionName: assignment.targetSessionName,
     disposition: assignment.disposition,
     userText: assignment.userText,
+    ...(assignment.attachments ? { attachments: assignment.attachments } : {}),
     ...(assignment.create ? { create: assignment.create } : {}),
     ...(assignment.replacesActionId && assignment.replacesDelegationId
       ? {
@@ -1281,6 +1292,7 @@ function assignmentInputFromReplacement(
     targetSessionName: replacement.targetSessionName,
     disposition: replacement.disposition,
     userText: replacement.userText,
+    ...(replacement.attachments ? { attachments: replacement.attachments } : {}),
     ...(replacement.create ? { create: replacement.create } : {}),
     replacesActionId: replacement.replacesActionId,
     replacesDelegationId: replacement.replacesDelegationId,
