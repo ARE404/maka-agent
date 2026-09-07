@@ -18,7 +18,7 @@
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, userEvent, waitFor, within } from 'storybook/test';
+import { expect, fn, userEvent, waitFor, within } from 'storybook/test';
 import { useEffect, useReducer, useState, type CSSProperties, type ReactNode } from 'react';
 import type { ComponentProps } from 'react';
 import type { ProjectRecord } from '@maka/core/project';
@@ -288,6 +288,7 @@ function ShellFrame(props: {
   height?: number | string;
   motionEnabled?: boolean;
   sidebarCollapsed?: boolean;
+  workbarWidth?: number;
 }) {
   return (
     <div
@@ -312,6 +313,9 @@ function ShellFrame(props: {
              left to the CSS rule, exactly as in the app.
              `SessionListPanel`'s own default width. */
           ...(props.sidebarCollapsed ? null : { '--maka-sidenav-width': '260px' }),
+          ...(props.workbarWidth === undefined
+            ? null
+            : { '--maka-session-workbar-width': `${props.workbarWidth}px` }),
         } as CSSProperties
       }
     >
@@ -357,6 +361,8 @@ function ComposedShell(props: {
   updateReminder?: SessionListPanelProps['updateReminder'];
   workbarCollapsed?: boolean;
   onToggleWorkbar?: () => void;
+  workbarWidth?: number;
+  titlebarAction?: ComponentProps<typeof TitlebarSessionIdentity>['action'];
 }) {
   const [collapsed, setCollapsed] = useState(props.sidebarCollapsed ?? false);
   const [viewMode, setViewMode] = useState<SessionViewMode>(props.initialViewMode ?? 'conversation');
@@ -403,6 +409,7 @@ function ComposedShell(props: {
       height={props.frameHeight}
       motionEnabled={props.motionEnabled}
       sidebarCollapsed={collapsed}
+      workbarWidth={props.workbarWidth}
     >
       <header className="maka-window-titlebar">
         <AppShellTopbarActions
@@ -418,6 +425,7 @@ function ComposedShell(props: {
           <TitlebarSessionIdentity
             sessionName={active.name}
             onRenameSession={noop}
+            action={props.titlebarAction}
             project={(() => {
               const name = deriveTitlebarProjectName({
                 projectName: catalogProjects.find((item) => item.id === active.projectId)?.name,
@@ -3036,23 +3044,31 @@ const workbarLayoutWithOneFace: WorkbarLayoutState = reduceWorkbarLayout(
   { type: 'open', placement: 'right', tab: { id: 'workbar:files', kind: 'files' } },
 );
 
-function WorkbarInShell() {
+function WorkbarInShell(props: {
+  sessionName?: string;
+  titlebarAction?: ComponentProps<typeof TitlebarSessionIdentity>['action'];
+  workbarWidth?: number;
+}) {
   const [layout, dispatch] = useReducer(reduceWorkbarLayout, workbarLayoutWithOneFace);
   const rightCollapsed = isSessionWorkbarCollapsed(layout);
   const collapseRight = (collapsed: boolean) =>
     dispatch({ type: 'collapse', placement: 'right', collapsed });
+  const workbarWidth = props.workbarWidth ?? layout.rightWidth;
   return (
     <ToastProvider>
       <WorkbarServicesProvider services={createFakeWorkbarServices()}>
         <ComposedShell
           motionEnabled
+          session={props.sessionName ? { name: props.sessionName } : undefined}
+          titlebarAction={props.titlebarAction}
           workbarCollapsed={rightCollapsed}
           onToggleWorkbar={() => collapseRight(!rightCollapsed)}
+          workbarWidth={workbarWidth}
           detailChildren={
             <div
               className="maka-detail-with-artifacts"
               style={
-                { '--maka-session-workbar-width': `${layout.rightWidth}px` } as CSSProperties
+                { '--maka-session-workbar-width': `${workbarWidth}px` } as CSSProperties
               }
             >
               <div className="mainColumn" />
@@ -3234,6 +3250,100 @@ export const WorkbarCollapseKeepsOneToggleInPlace: Story = {
   },
 };
 
+const longWorkbarTitle =
+  'Investigate why the completed plan session title overlaps the token usage dashboard';
+
+const wideWorkbarShare = fn();
+
+export const WorkbarKeepsTitlebarClear: Story = {
+  render: () => (
+    <WorkbarInShell
+      sessionName={longWorkbarTitle}
+      titlebarAction={{ label: '分享此任务', onClick: wideWorkbarShare }}
+      workbarWidth={600}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    wideWorkbarShare.mockClear();
+    const canvas = within(canvasElement);
+    const identity = canvasElement.querySelector<HTMLElement>(
+      '[data-maka-contract="titlebar-identity"]',
+    );
+    const workbar = canvasElement.querySelector<HTMLElement>(
+      '.maka-session-workbar[data-placement="right"]:not([data-collapsed])',
+    );
+    if (!identity || !workbar) throw new Error('the titlebar or right workbar is missing');
+
+    await waitFor(() => expect(workbar.getBoundingClientRect().width).toBeCloseTo(600, 0));
+    expect(identity.getBoundingClientRect().right).toBeLessThanOrEqual(
+      workbar.getBoundingClientRect().left,
+    );
+
+    await userEvent.click(canvas.getByRole('button', { name: '分享此任务' }));
+    expect(wideWorkbarShare).toHaveBeenCalledOnce();
+  },
+};
+
+const narrowWorkbarShare = fn();
+
+export const NarrowWorkbarClearsTitlebarReserve: Story = {
+  render: () => (
+    <WorkbarInShell
+      sessionName={longWorkbarTitle}
+      titlebarAction={{ label: '分享此任务', onClick: narrowWorkbarShare }}
+      workbarWidth={600}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    narrowWorkbarShare.mockClear();
+    const canvas = within(canvasElement);
+    const titlebar = canvasElement.querySelector<HTMLElement>('.maka-window-titlebar');
+    const identity = canvasElement.querySelector<HTMLElement>(
+      '[data-maka-contract="titlebar-identity"]',
+    );
+    const detail = canvasElement.querySelector<HTMLElement>('.maka-detail-with-artifacts');
+    const workbar = canvasElement.querySelector<HTMLElement>(
+      '.maka-session-workbar[data-placement="right"]:not([data-collapsed])',
+    );
+    if (!titlebar || !identity || !detail || !workbar) {
+      throw new Error('the titlebar, identity, detail area, or right workbar is missing');
+    }
+
+    // A bottom Workbar must not take width from the title. Share can remain
+    // clickable even when a stale right-side reserve squeezes the title away.
+    await userEvent.click(canvas.getByRole('button', { name: '收起任务工作栏' }));
+    const restore = await canvas.findByRole('button', { name: '展开任务工作栏' });
+    await waitFor(() => expect(workbar).not.toBeVisible());
+    const collapsedIdentityWidth = identity.getBoundingClientRect().width;
+    expect(collapsedIdentityWidth).toBeGreaterThan(0);
+
+    await userEvent.click(restore);
+    await waitFor(() => {
+      expect(workbar).toBeVisible();
+      // Collapsing adds a titlebar toggle, so expanding may give space back.
+      expect(identity.getBoundingClientRect().width).toBeGreaterThanOrEqual(
+        collapsedIdentityWidth - 1,
+      );
+    });
+
+    const share = canvas.getByRole('button', { name: '分享此任务' });
+    await waitFor(() =>
+      expect(share.getBoundingClientRect().left).toBeGreaterThanOrEqual(
+        titlebar.getBoundingClientRect().left,
+      ),
+    );
+    expect(workbar.getBoundingClientRect().width).toBeCloseTo(
+      detail.getBoundingClientRect().width,
+      0,
+    );
+    expect(share.getBoundingClientRect().right).toBeLessThanOrEqual(
+      titlebar.getBoundingClientRect().right,
+    );
+
+    await userEvent.click(share);
+    expect(narrowWorkbarShare).toHaveBeenCalledOnce();
+  },
+};
 
 // Real path (#3587): an explicit compaction runs as its own host Turn. The
 // transcript shows a live "正在压缩上下文…" row driven by the live Turn snapshot
