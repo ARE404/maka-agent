@@ -17,10 +17,12 @@
  * under the License.
  */
 
-export * from './model/anchor-rail.js';
-export * from './model/route-policy.js';
-export * from './model/routing-strategy.js';
-export * from './model/routing-experiment.js';
-export { WorkHubNavigationRail } from './ui/workhub-navigation-rail.js';
+import { useChatLayoutContext } from '@astryxdesign/core/Chat';
+import { PromptAnchorRail, type PromptAnchorRailTurn } from '@maka/ui';
 
-export { WorkHubPromptRail } from './ui/workhub-prompt-rail.js';
+/** Uses the enclosing chat layout's scroller, never the Session navigation. */
+export function WorkHubPromptRail({ turns }: { turns: readonly PromptAnchorRailTurn[] }) {
+  const layout = useChatLayoutContext();
+  if (!layout) throw new Error('WorkHubPromptRail requires ChatSurfaceLayout');
+  return <PromptAnchorRail turns={turns} scrollRef={layout.scrollContainerRef} />;
+}

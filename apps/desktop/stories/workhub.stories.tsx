@@ -184,3 +184,56 @@ export const AnchorRailFiltersAndReflows: Story = {
 export const AnchorRailFiltersAndReflowsNarrow: Story = {
   ...AnchorRailFiltersAndReflows,
 };
+
+// Production scroll container and message frames: enough real turns to require
+// scrolling, with two messages sharing a Turn ID to exercise message identity.
+const promptRailTurns: WorkHubCoordinationTurn[] = Array.from({ length: 14 }, (_, index) => ({
+  messageId: `prompt-${index}`,
+  turnId: `conversation-${Math.floor(index / 2)}`,
+  text: `第 ${index + 1} 次讨论：支付回调的并发与重试`,
+  result: '已检查当前处理路径。需要同时覆盖重复投递、并发请求和失败后的重试，确认每个请求只产生一次业务变更。',
+  state: 'completed',
+  updatedAt: index,
+}));
+
+const promptRailPlay: NonNullable<Story['play']> = async ({ canvasElement }) => {
+  const root = canvasElement.querySelector<HTMLElement>('[data-chat-scroll-container]');
+  if (!root) throw new Error('WorkHub scroll container missing');
+  await waitFor(() => expect(canvasElement.querySelectorAll('.maka-prompt-rail-tick')).toHaveLength(14));
+  await waitFor(() => expect(canvasElement.querySelectorAll('.workhub-turn[data-turn-id]')).toHaveLength(14));
+  const ticks = Array.from(canvasElement.querySelectorAll<HTMLButtonElement>('.maka-prompt-rail-tick'));
+  const frames = Array.from(canvasElement.querySelectorAll<HTMLElement>('.workhub-turn[data-turn-id]'));
+  expect(new Set(frames.map((frame) => frame.dataset.turnId)).size).toBe(14);
+  expect(root.scrollHeight).toBeGreaterThan(root.clientHeight);
+  await userEvent.click(ticks[0]!);
+  await waitFor(() => {
+    expect(ticks[0]).toHaveAttribute('aria-current', 'true');
+    expect(Math.abs(frames[0]!.getBoundingClientRect().top - root.getBoundingClientRect().top)).toBeLessThan(4);
+  });
+  const navigation = within(await within(canvasElement).findByRole('complementary', { name: '工作导航' }));
+  await userEvent.click(navigation.getByRole('button', { name: '待处理' }));
+  expect(canvasElement.querySelectorAll('.maka-prompt-rail-tick')).toHaveLength(14);
+  await userEvent.click(navigation.getByRole('button', { name: '全部' }));
+  ticks[6]!.focus();
+  await userEvent.keyboard('{Enter}');
+  await waitFor(() => {
+    expect(ticks[6]).toHaveAttribute('aria-current', 'true');
+    expect(Math.abs(frames[6]!.getBoundingClientRect().top - root.getBoundingClientRect().top)).toBeLessThan(4);
+  });
+  // A reader wheel gesture releases the shared rail's short jump hold.
+  root.dispatchEvent(new WheelEvent('wheel', { deltaY: root.scrollHeight, bubbles: true }));
+  root.scrollTo({ top: root.scrollHeight, behavior: 'instant' });
+  await waitFor(() => expect(ticks[13]).toHaveAttribute('aria-current', 'true'));
+  // Leave a middle prompt selected for visual evidence of the rail and target.
+  await userEvent.click(ticks[6]!);
+  await waitFor(() => expect(ticks[6]).toHaveAttribute('aria-current', 'true'));
+};
+
+export const ConversationPromptAnchors: Story = {
+  render: () => <Surface turns={promptRailTurns} />,
+  play: promptRailPlay,
+};
+
+export const ConversationPromptAnchorsNarrow: Story = {
+  ...ConversationPromptAnchors,
+};

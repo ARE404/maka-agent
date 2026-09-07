@@ -41,7 +41,7 @@ import {
   WorkHubSendLease,
   type WorkHubSendAttempt,
 } from './workhub-send-lease.js';
-import { WorkHubNavigationRail } from './features/workhub/index.js';
+import { WorkHubNavigationRail, WorkHubPromptRail } from './features/workhub/index.js';
 import { getWorkHubRailCopy } from './locales/workhub-copy.js';
 
 export interface WorkHubConversationTurn {
@@ -418,6 +418,17 @@ export function WorkHubSurface(props: {
           />
 
           <div className="maka-chat-shell workhub-conversation-shell">
+            <WorkHubPromptRail turns={[
+              ...visibleCoordinationTurns.map((turn) => ({
+                turnId: `workhub-message-${turn.messageId}`,
+                label: turn.text,
+                reply: turn.result,
+              })),
+              ...visibleLocalTurns.map((turn) => ({
+                turnId: `workhub-request-${turn.requestId}`,
+                label: turn.text,
+              })),
+            ]} />
             <ChatMessageList
               className="maka-chat-message-list maka-chatContent workhub-message-list"
               density="compact"
@@ -598,6 +609,7 @@ export function WorkHubCoordinationTurnView(props: {
     : undefined;
   return (
     <WorkHubMessageFrame
+      anchorId={`workhub-message-${props.turn.messageId}`}
       text={props.turn.text}
       state={props.turn.stop?.outcome ?? (assignment?.linkState === 'active'
         ? assignment.feedbackState
@@ -718,7 +730,7 @@ function WorkHubTurnView(props: {
     : undefined;
 
   return (
-    <WorkHubMessageFrame text={turn.text} state={turn.state}>
+    <WorkHubMessageFrame anchorId={`workhub-request-${turn.requestId}`} text={turn.text} state={turn.state}>
           {turn.state === 'routing' ? (
             <p className="workhub-status" role="status">{copy.routing}</p>
           ) : turn.state === 'failed' ? (
@@ -799,6 +811,7 @@ function WorkHubTurnView(props: {
 }
 
 function WorkHubMessageFrame(props: {
+  anchorId: string;
   text: string;
   state: string;
   linkState?: WorkHubDelegationLinkState;
@@ -808,6 +821,8 @@ function WorkHubMessageFrame(props: {
   return (
     <section
       className={`workhub-turn${props.projected ? ' workhub-projected-turn' : ''}`}
+      data-turn-id={props.anchorId}
+      data-transcript-turn-id={props.anchorId}
       data-state={props.state}
       data-link-state={props.linkState}
     >
