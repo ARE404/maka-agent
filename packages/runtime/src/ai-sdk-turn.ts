@@ -641,6 +641,7 @@ export class AiSdkTurn {
   aborted = false;
   loopStopRequested = false;
   loopStopReason: CompleteEvent['stopReason'] | undefined;
+  private handoffPaused = false;
   watchdog: StreamWatchdog | null = null;
   runTrace: RunTrace | null = null;
   readonly imageBudget: ProviderImageBudget = { used: 0, decisions: new Map() };
@@ -859,7 +860,7 @@ export class AiSdkTurn {
 
   private async *runWithinScope(input: BackendSendInput): AsyncIterable<SessionEvent> {
     const turnId = input.turnId;
-    const maxSteps = input.maxSteps ?? this.deps.maxSteps;
+    const maxSteps = input.maxSteps === null ? undefined : (input.maxSteps ?? this.deps.maxSteps);
     const toolRuntime = this.toolRuntime;
     const turnAbortController = this.abortController;
 
@@ -2423,6 +2424,16 @@ export class AiSdkTurn {
           }
           const mayTakeAnotherStep = !stepLimitReached && !this.loopStopRequested && !this.aborted;
           if (returnedToolCalls.length > 0 && mayTakeAnotherStep) {
+            if (
+              (await input.handoffBoundary?.(
+                turnAbortController.signal,
+                maxSteps === undefined ? null : maxSteps - runtimeSteps,
+              )) === 'pause'
+            ) {
+              this.handoffPaused = true;
+              break agentLoop;
+            }
+            if (this.aborted || this.loopStopRequested) break agentLoop;
             currentStepMessageId = this.deps.newId();
             continue agentLoop;
           }
@@ -2453,6 +2464,17 @@ export class AiSdkTurn {
               !this.loopStopRequested &&
               !this.aborted
             ) {
+              await queue.waitUntilConsumedThroughCurrent();
+              if (
+                (await input.handoffBoundary?.(
+                  turnAbortController.signal,
+                  maxSteps === undefined ? null : maxSteps - runtimeSteps,
+                )) === 'pause'
+              ) {
+                this.handoffPaused = true;
+                break agentLoop;
+              }
+              if (this.aborted || this.loopStopRequested) break agentLoop;
               currentStepMessageId = this.deps.newId();
               continue agentLoop;
             }
@@ -2581,6 +2603,9 @@ export class AiSdkTurn {
         // win even when it arrives during post-stream usage persistence.
         if (this.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
         if (terminalProviderError) throw terminalProviderError;
+        // Usage above still belongs to this physical attempt. Its Runtime owner
+        // seals the drained stream; no complete/abort event ends the logical Turn.
+        if (this.handoffPaused) return;
         const stopReason =
           this.loopStopReason ??
           (maxSteps !== undefined && finishReason === 'tool-calls'
@@ -2865,9 +2890,11 @@ export class AiSdkTurn {
         diagnostics: [],
       };
     }
-    const rawPriorRuntimeContext = input.runtimeContext.filter(
-      (event) => event.turnId !== input.turnId,
-    );
+    // A handoff changes the physical Run, not the logical Turn. Its admitted
+    // replay is all predecessor history, including events with this turnId.
+    const rawPriorRuntimeContext = input.continuation
+      ? input.runtimeContext
+      : input.runtimeContext.filter((event) => event.turnId !== input.turnId);
     // Everything below reads EFFECTIVE model history: raw events folded through
     // the durable projection-transition reducer (#4283). Replay, budgeting and
     // compaction share one input, so no RuntimeEvent replay path can resurrect
