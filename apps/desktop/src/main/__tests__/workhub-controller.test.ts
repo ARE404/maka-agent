@@ -914,7 +914,7 @@ test('submit routes a unique complete Session name without asking', async () => 
   assert.equal((await controller.read()).focusSessionId, 'payment');
 });
 
-test('an injected R3 strategy still delegates through the shared controller and Action Gate', async () => {
+test('an injected R3 strategy still delegates through the shared controller and coordination.act port', async () => {
   const submitted: string[] = [];
   const sessions = port([
     session('login', { sessionName: '登录刷新令牌' }),
@@ -926,17 +926,16 @@ test('an injected R3 strategy still delegates through the shared controller and 
   };
   const routingStrategy = createWorkHubR3ARoutingStrategy({
     model: {
-      decide: async () => ({
-        disposition: 'delegate_existing',
-        candidateRef: 'candidate-payment',
-      }),
+      decide: async (input) => input.stage === 'intent'
+        ? { intent: 'work' }
+        : { kind: 'ranked', candidateRefs: ['candidate-payment'] },
     },
   });
   const controller = createWorkHubController({ sessions, routingStrategy });
 
   const result = await controller.submit({
     requestId: 'request-r3-a',
-    text: '继续处理支付回调',
+    text: '请实现账本边界检查器',
   });
 
   assert.deepEqual(result, {
@@ -950,7 +949,7 @@ test('an injected R3 strategy still delegates through the shared controller and 
   assert.deepEqual(submitted, ['payment']);
 });
 
-test('the routing experiment repeats every strategy inside the same controller and Action Gate shell', async () => {
+test('the routing experiment repeats every strategy inside the same controller and coordination.act fixture', async () => {
   let modelCalls = 0;
   const shellContexts: unknown[] = [];
   const observations = await runWorkHubRoutingExperiment({
@@ -980,9 +979,9 @@ test('the routing experiment repeats every strategy inside the same controller a
     model: {
       async decide(input) {
         modelCalls += 1;
-        return input.mayChooseCandidate
-          ? { disposition: 'delegate_existing', candidateRef: 'candidate-payment' }
-          : { disposition: 'delegate_existing' };
+        return input.stage === 'resolver'
+          ? { kind: 'ranked', candidateRefs: ['candidate-payment'] }
+          : { intent: 'work' };
       },
     },
     createShell({ strategy, context }) {
@@ -998,7 +997,7 @@ test('the routing experiment repeats every strategy inside the same controller a
   });
 
   assert.equal(observations.length, 6);
-  assert.equal(modelCalls, 4);
+  assert.equal(modelCalls, 6);
   assert.equal(new Set(shellContexts).size, 1);
   assert.equal(Object.isFrozen(shellContexts[0]), true);
   assert.deepEqual(
@@ -3434,7 +3433,7 @@ test('subscribe exposes Session invalidations without inventing WorkHub state', 
 
 for (const createStrategy of [createWorkHubR24RoutingStrategy, () => createWorkHubR3ARoutingStrategy({ model: { decide: async () => assert.fail('named resume must not invoke a model') } }), () => createWorkHubR3BRoutingStrategy({ model: { decide: async () => assert.fail('named resume must not invoke a model') } })]) {
   const routingStrategy = createStrategy();
-  test(`named resume retains ${routingStrategy.strategyId} through the shared Gate`, async () => {
+  test(`named resume retains ${routingStrategy.strategyId} through the shared coordination.act port`, async () => {
     const controller = createGatedWorkHubController({
       sessions: port([session('payments', { sessionName: 'Payments' })]),
       routingStrategy,
@@ -3455,3 +3454,37 @@ for (const createStrategy of [createWorkHubR24RoutingStrategy, () => createWorkH
     if (result.kind === 'resume') assert.equal(result.outcome, 'resume_started');
   });
 }
+
+for (const makeStrategy of [createWorkHubR24RoutingStrategy, () => createWorkHubR3ARoutingStrategy({ model: { decide: async (input) => input.stage === 'intent' ? { intent: 'work' } : { kind: 'none' } } }), () => createWorkHubR3BRoutingStrategy({ model: { decide: async () => ({ intent: 'work' }) } })]) {
+  test(`all combinations preserve Policy exact naming outside model recall budget: ${makeStrategy().strategyId}`, async () => {
+    const entries = Array.from({ length: 14 }, (_, i) => session(`work-${i}`, { sessionName: `任务编号${i}边界`, updatedAt: 14 - i }));
+    const controller = createWorkHubController({ sessions: port(entries), routingStrategy: makeStrategy() });
+    const result = await controller.submit({ requestId: 'outside-recall-budget', text: '任务编号13边界：补充测试' });
+    assert.equal(result.kind, 'submitted');
+    if (result.kind === 'submitted') assert.equal(result.target.sessionId, 'work-13');
+  });
+}
+
+test('Policy freezes visit focus before awaiting replaceable Intent', async () => {
+  let release!: () => void;
+  let started!: () => void;
+  const entered = new Promise<void>((resolve) => { started = resolve; });
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  const strategy = createWorkHubR24RoutingStrategy();
+  const controller = createWorkHubController({
+    sessions: port([session('login'), session('payment')]),
+    routingStrategy: { ...strategy, intent: { async classify(input) {
+      started();
+      await pending;
+      return strategy.intent.classify(input);
+    } } },
+  });
+  await controller.read({ focus: { sessionId: 'login' } });
+  const result = controller.submit({ requestId: 'frozen-focus', text: '继续它' });
+  await entered;
+  await controller.read({ focus: { sessionId: 'payment' } });
+  release();
+  const submitted = await result;
+  assert.equal(submitted.kind, 'submitted');
+  if (submitted.kind === 'submitted') assert.equal(submitted.target.sessionId, 'login');
+});

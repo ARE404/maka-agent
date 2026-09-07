@@ -19,6 +19,11 @@
 
 # WorkHub Slice 6 / Slice 8 中文模拟验收记录
 
+> 历史记录：以下模拟描述的是重构前的整体 routing strategy 实验。
+> 当前实现已改为独立 Intent / Resolver 组合，共用固定 Policy / Gate；
+> 旧 R3 disposition 描述和 Gate 集成表述不代表当前架构或真实 Host 验证。
+> 当前组件契约与组合表以 `workhub-domain-language.md` 为准，当前验证以 PR 最新 head 为准。
+
 本记录按实验分支上的《WorkHub 中文手工验收指南》逐项模拟，但被测对象是正式的
 **Coordination Session WorkHub**。旧指南包含 Unified Session experiment 的 Work 色彩、
 消息级 Anchor Rail、纠错学习和跨 Work 依赖图；这些不能当成正式 tracking issue 已承诺的能力。

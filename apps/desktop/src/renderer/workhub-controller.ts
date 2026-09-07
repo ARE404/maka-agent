@@ -26,6 +26,10 @@
 import {
   boundedWorkHubText,
   createWorkHubR24RoutingStrategy,
+  createWorkHubRoutePolicy,
+  boundedRoutingInput,
+  readWorkHubRoutingEvidence,
+  type WorkHubRoutePolicy,
   type WorkHubRouteEvidence,
   type WorkHubRoutingStrategy,
   type WorkHubRoutingStrategyId,
@@ -288,7 +292,8 @@ export function createWorkHubController(deps: {
   routingStrategy?: WorkHubRoutingStrategy;
 }): WorkHubController {
   const { coordination } = deps;
-  let routePolicy = deps.routingStrategy ?? createWorkHubR24RoutingStrategy();
+  const routingStrategy = deps.routingStrategy ?? createWorkHubR24RoutingStrategy();
+  let routePolicy = createWorkHubRoutePolicy();
   let routingTranscript: Array<{ userText: string; assistantText?: string }> = [];
   let focusReadVersion = 0;
   let pendingFocusReadVersion: number | undefined;
@@ -303,7 +308,7 @@ export function createWorkHubController(deps: {
     return { from, sourceActionId };
   };
   const reconcileFocus = (
-    policy: WorkHubRoutingStrategy,
+    policy: WorkHubRoutePolicy,
     sessions: readonly WorkHubSessionFacts[],
   ) => {
     policy.initializeFocus(sessions
@@ -313,7 +318,7 @@ export function createWorkHubController(deps: {
   };
   const completeSubmission = (
     input: WorkHubSubmitInput,
-    policy: WorkHubRoutingStrategy,
+    policy: WorkHubRoutePolicy,
     admitted: Extract<
       WorkHubCoordinationActResult,
       { disposition: 'delegate_existing' | 'create_new' | 'replace' }
@@ -325,7 +330,7 @@ export function createWorkHubController(deps: {
     policy.rememberTarget(target);
     return {
       kind: 'submitted',
-      strategyId: policy.strategyId,
+      strategyId: routingStrategy.strategyId,
       requestId: input.requestId,
       target,
       turnId: admitted.targetTurnId,
@@ -578,13 +583,13 @@ export function createWorkHubController(deps: {
         text: input.text,
         sessions: ordinary,
       });
-      const resume = await submitNamedDelegationAction(input, resumeDecision, 'resume', submissionPolicy.strategyId);
+      const resume = await submitNamedDelegationAction(input, resumeDecision, 'resume', routingStrategy.strategyId);
       if (resume) return resume;
       const stopDecision = submissionPolicy.resolveStop({
         text: input.text,
         sessions: ordinary,
       });
-      const stop = await submitNamedDelegationAction(input, stopDecision, 'stop', submissionPolicy.strategyId);
+      const stop = await submitNamedDelegationAction(input, stopDecision, 'stop', routingStrategy.strategyId);
       if (stop) return stop;
       const candidateSet = await coordination.candidates();
       const candidateBySessionId = new Map(
@@ -601,7 +606,7 @@ export function createWorkHubController(deps: {
       const routingEvidence = input.explicitTarget
         ? []
         : await deps.sessions.routingEvidence(routable.map((session) => session.target));
-      const decision = await submissionPolicy.resolve({
+      const routingInput = boundedRoutingInput({
         text: input.text,
         sessions: routable,
         originPromptBySessionId: new Map(
@@ -613,13 +618,30 @@ export function createWorkHubController(deps: {
         coordinationTranscript: routingTranscript,
         ...(input.explicitTarget ? { explicitTarget: input.explicitTarget } : {}),
       });
+      // Only Policy owns focus and produces proposals. Component output is evidence.
+      const decisionPolicy = submissionPolicy.snapshot();
+      const evidence = input.explicitTarget ? undefined : await readWorkHubRoutingEvidence(routingStrategy, routingInput);
+      const decision = decisionPolicy.resolve({
+        text: input.text,
+        // Every arm receives the same trusted Policy context. Model input
+        // limits must not hide a known Session from exact-name/correction rules.
+        sessions: routable,
+        originPromptBySessionId: new Map(routingEvidence.map((entry) => [entry.target.sessionId, entry.originPrompt])),
+        ...(input.explicitTarget ? { explicitTarget: input.explicitTarget } : {}),
+        ...(evidence ? { interpretation: {
+          classification: evidence.classification,
+          resolution: evidence.resolution.kind,
+          recalledSessionIds: evidence.resolution.kind === 'none' ? [] : evidence.resolution.candidateRefs.flatMap((ref) =>
+            [...routingInput.candidateRefBySessionId].filter(([, value]) => value === ref).map(([sessionId]) => sessionId)),
+        } } : {}),
+      });
       if (decision.kind === 'clarification') {
         const correction = decision.correctedFrom
           ? correctionFor(decision.correctedFrom, candidateBySessionId)
           : undefined;
         return {
           kind: 'clarification',
-          strategyId: submissionPolicy.strategyId,
+          strategyId: routingStrategy.strategyId,
           requestId: input.requestId,
           text: input.text,
           options: decision.options.map((session) => ({
@@ -639,7 +661,7 @@ export function createWorkHubController(deps: {
         });
         return {
           kind: 'discussion',
-          strategyId: submissionPolicy.strategyId,
+          strategyId: routingStrategy.strategyId,
           requestId: input.requestId,
           text: input.text,
         };
@@ -695,7 +717,7 @@ export function createWorkHubController(deps: {
       if (targetSession?.state === 'waiting_for_user' && !input.retryAction) {
         return {
           kind: 'waiting',
-          strategyId: submissionPolicy.strategyId,
+          strategyId: routingStrategy.strategyId,
           requestId: input.requestId,
           text: input.text,
           target,

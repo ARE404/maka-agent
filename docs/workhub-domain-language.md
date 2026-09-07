@@ -197,13 +197,24 @@ it is not the final architecture or authority boundary of WorkHub.
 | Action Gate | [`workhub-coordination-action-gate.ts`](../packages/runtime-host/src/server/workhub-coordination-action-gate.ts) |
 | Projection | Coordination: [`workhub-coordination-port.ts`](../apps/desktop/src/renderer/workhub-coordination-port.ts); ordinary Sessions: [`workhub-session-port.ts`](../apps/desktop/src/renderer/workhub-session-port.ts) |
 
-**Routing strategy**: A versioned, replaceable proposal module behind one shared
-interface and the same Action Gate. `R3-A` lets a model select a disposition and,
-for `delegate_existing`, exactly one opaque candidate reference. `R3-B` lets a
-model select only the disposition and invokes R2.4 only to resolve an existing
-target after `delegate_existing`; an R2.4 `create_new` result is not executable in
-that branch. Every model request is bounded, every returned candidate is validated
-against the issued set, and failures resolve to clarification or local discussion.
+**Routing strategy**: A named combination of one independently replaceable
+Action Intent classifier and one independently replaceable Session Resolver.
+It owns neither Action Policy nor Action Gate. Ordinary routing experiments use:
+
+| Configuration | Intent | Resolver | Policy / Gate |
+| --- | --- | --- | --- |
+| R2.4 | Deterministic | Deterministic | Shared and unchanged |
+| R3-A | Model-assisted | Model-ranked candidates | Shared and unchanged |
+| R3-B | Model-assisted | Deterministic | Shared and unchanged |
+
+Model Intent carries no target, and model recall carries no disposition or creation
+request. The fixed Policy combines these advisory results with trusted input,
+exact-name/related/focus rules, and action-specific constraints. Named stop/resume
+retain their deterministic reference requirements and Host admission. Component
+failures become uncertain evidence; no component can write or directly submit a
+proposal. Each arm receives the same bounded component input and the same trusted Policy
+snapshot. The model recall limit does not remove known Sessions from the fixed
+Policy's exact-name and correction rules. Production still uses R2.4.
 
 _Avoid_: copied execution transcripts, self-routing, a second Session/WorkHub
 storage substrate, or treating model/routing output as execution authority.

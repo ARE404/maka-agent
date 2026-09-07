@@ -116,6 +116,11 @@ export interface WorkHubRoutePolicy {
     sessions: WorkHubRoutableSession[];
     originPromptBySessionId: ReadonlyMap<string, string | undefined>;
     explicitTarget?: WorkHubRouteTarget;
+    interpretation?: {
+      readonly classification: 'work' | 'discussion' | 'uncertain';
+      readonly resolution: 'none' | 'ranked' | 'ambiguous';
+      readonly recalledSessionIds: readonly string[];
+    };
   }): WorkHubRouteDecision;
   initializeFocus(targets: readonly WorkHubRouteTarget[]): void;
   focusSnapshot(): {
@@ -252,7 +257,7 @@ function createWorkHubRoutePolicyVisit(
         'resume_target_ambiguous',
       );
     },
-    resolve({ text, sessions, originPromptBySessionId, explicitTarget }) {
+    resolve({ text, sessions, originPromptBySessionId, explicitTarget, interpretation }) {
       const intent = readWorkHubRequestIntent(text);
       if (intent.execution === 'ambiguous') {
         return { kind: 'clarification', options: [], reason: 'ambiguous_command' };
@@ -318,6 +323,11 @@ function createWorkHubRoutePolicyVisit(
 
       if (looksLikeExplicitNewSession(intent)) {
         return { kind: 'new_session', title: workHubNewSessionName(text, intent) };
+      }
+
+      // A failed or uncertain interpretation never authorizes a guessed target.
+      if (interpretation?.classification === 'uncertain') {
+        return { kind: 'clarification', options: sessions.slice(0, MAX_UNCERTAINTY_OPTIONS) };
       }
 
       const exact = rankExactSessions(text, sessions);
@@ -397,7 +407,22 @@ function createWorkHubRoutePolicyVisit(
             .map(({ session }) => session),
         };
       }
-      return looksExecutable(intent)
+      // Resolver output is ranked recall, not a final target. Policy requires
+      // trusted imperative text, one candidate, and no unresolved baseline evidence.
+      if (interpretation && interpretation.resolution !== 'none') {
+        const recalled = interpretation.recalledSessionIds.flatMap((id) => {
+          const session = sessions.find((candidate) => candidate.target.sessionId === id);
+          return session ? [session] : [];
+        });
+        if (interpretation.classification === 'work' && looksExecutable(intent) &&
+          interpretation.resolution === 'ranked' && recalled.length === 1) {
+          return { kind: 'target', target: recalled[0]!.target, evidence: 'model_candidate' };
+        }
+        if (recalled.length > 0 || interpretation.resolution === 'ambiguous') {
+          return { kind: 'clarification', options: recalled.slice(0, MAX_UNCERTAINTY_OPTIONS) };
+        }
+      }
+      return looksExecutable(intent) && interpretation?.classification !== 'discussion'
         ? { kind: 'new_session', title: workHubNewSessionName(text, intent) }
         : { kind: 'discussion' };
     },

@@ -95,13 +95,22 @@ trusted user text, claims the source delegation in Coordination transcript order
 and rejects any later competing replacement intent. Neither a model nor a routing
 policy can directly authorize a write, Stop, or expansion of execution authority.
 
-Routing experiments use a versioned strategy interface in front of this unchanged
-gate. R2.4, R3-A (model disposition plus one bounded candidate), and R3-B (model
-disposition plus R2.4 target resolution for delegation only) receive the same
-request text, bounded candidate snapshot, summaries, and routing evidence. Model
-adapters own structured-output parsing and call telemetry; strategies validate the
-closed disposition and candidate namespaces and fail closed. R3-B never promotes
-an R2.4 `create_new` result from its delegation-only target-resolution branch.
+Routing experiments replace Action Intent classification and/or Session Resolver
+recall behind the fixed Action Policy and unchanged Action Gate. A strategy names
+one Intent component and one Resolver component; it has no proposal-producing
+`resolve()` method and owns no visit focus. R2.4 pairs deterministic components;
+R3-A pairs model-assisted intent with model-ranked recall; R3-B pairs model-assisted
+intent with deterministic recall. These are experiment configurations, not separate
+policy implementations or a production model rollout.
+
+Intent output contains no target. Resolver output contains only ranked or ambiguous
+opaque candidate references, or no match; it cannot return creation or a disposition.
+The controller bounds component inputs once for every arm and passes their
+validated evidence through the same Policy with the same trusted Session snapshot.
+A model recall budget does not hide known Sessions from exact-name or correction
+rules in that fixed Policy. Policy retains trusted-text creation,
+ambiguity, correction and focus constraints. Model ranking alone cannot authorize
+work, and every resulting proposal still goes through the Host-owned Gate.
 
 ## Delegation links rather than copies transcripts
 
