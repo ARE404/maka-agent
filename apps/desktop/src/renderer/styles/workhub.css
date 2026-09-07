@@ -139,67 +139,6 @@
   flex-direction: column;
 }
 
-.workhub-anchor-button {
-  border-bottom: 1px solid var(--color-border-subtle, var(--border));
-}
-
-.workhub-anchor-content {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-  text-align: left;
-}
-
-.workhub-anchor-title {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 7px;
-}
-
-.workhub-anchor-title strong {
-  overflow: hidden;
-  font-size: var(--font-size-body-sm, 12px);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workhub-anchor-state {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 auto;
-  border: 1px solid currentColor;
-  border-radius: 50%;
-  color: var(--color-text-secondary, var(--muted-foreground));
-}
-
-.workhub-anchor-button[data-state="running"] .workhub-anchor-state {
-  border-color: var(--color-accent, var(--accent));
-  background: var(--color-accent, var(--accent));
-}
-
-.workhub-anchor-button[data-state="waiting_for_user"] .workhub-anchor-state,
-.workhub-anchor-button[data-state="blocked"] .workhub-anchor-state {
-  border-color: var(--color-text-warning, var(--warning));
-  background: var(--color-text-warning, var(--warning));
-}
-
-.workhub-anchor-button[data-state="aborted"] .workhub-anchor-state,
-.workhub-anchor-button[data-state="archived"] .workhub-anchor-state {
-  opacity: 0.55;
-}
-
-.workhub-anchors small {
-  padding-left: 14px;
-  overflow: hidden;
-  color: var(--color-text-secondary, var(--muted-foreground));
-  font-size: var(--font-size-body-xs, 12px);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .workhub-anchor-empty {
   margin: 0;
   padding: 12px 0;

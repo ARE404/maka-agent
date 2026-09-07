@@ -18,7 +18,7 @@
  */
 
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, userEvent, within, waitFor } from 'storybook/test';
+import { expect, fn, userEvent, within, waitFor } from 'storybook/test';
 import type {
   WorkHubController,
   WorkHubCoordinationTurn,
@@ -101,7 +101,9 @@ function controller(turns: readonly WorkHubCoordinationTurn[]): WorkHubControlle
   };
 }
 
-function Surface(props: { turns: readonly WorkHubCoordinationTurn[] }) {
+const openRailSession = fn();
+
+function Surface(props: { turns: readonly WorkHubCoordinationTurn[]; onOpenSession?: (sessionId: string) => void }) {
   return (
     <div className="maka-detail-with-artifacts" style={{ height: '100dvh' }}>
       <div className="mainColumn">
@@ -109,7 +111,7 @@ function Surface(props: { turns: readonly WorkHubCoordinationTurn[] }) {
           controller={controller(props.turns)}
           leaseScope="session-workhub-coordination"
           locale={LOCALE}
-          onOpenSession={() => {}}
+          onOpenSession={props.onOpenSession ?? (() => {})}
         />
       </div>
     </div>
@@ -140,10 +142,19 @@ export const SubmittedWorkKeepsTargetMetadataInside: Story = {
 // Real path: the production WorkHubSurface derives the Rail from Session facts.
 // Filtering and responsive geometry need a renderer, not an Electron/Host fixture.
 const anchorRailPlay: NonNullable<Story['play']> = async ({ canvasElement }) => {
+  openRailSession.mockClear();
   const canvas = within(canvasElement);
   const rail = await canvas.findByRole('complementary', { name: '工作导航' });
   const navigation = within(rail);
   await expect(await navigation.findByRole('button', { name: new RegExp(SESSION_NAME) })).toBeVisible();
+  const sessionEntry = navigation.getByRole('button', { name: new RegExp(SESSION_NAME) });
+  await userEvent.click(sessionEntry);
+  await expect(openRailSession).toHaveBeenCalledTimes(1);
+  await expect(openRailSession).toHaveBeenLastCalledWith('session-workhub-target');
+  sessionEntry.focus();
+  await userEvent.keyboard('{Enter}');
+  await expect(openRailSession).toHaveBeenCalledTimes(2);
+  await expect(openRailSession).toHaveBeenLastCalledWith('session-workhub-target');
   await userEvent.click(navigation.getByRole('button', { name: '待处理' }));
   await expect(navigation.getByText('此筛选下没有工作')).toBeVisible();
   await expect(navigation.queryByRole('button', { name: new RegExp(SESSION_NAME) })).toBeNull();
@@ -165,7 +176,7 @@ const anchorRailPlay: NonNullable<Story['play']> = async ({ canvasElement }) => 
 };
 
 export const AnchorRailFiltersAndReflows: Story = {
-  render: () => <Surface turns={[submittedTurn()]} />,
+  render: () => <Surface turns={[submittedTurn()]} onOpenSession={openRailSession} />,
   play: anchorRailPlay,
 };
 

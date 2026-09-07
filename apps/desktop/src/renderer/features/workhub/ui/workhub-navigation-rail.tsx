@@ -18,7 +18,9 @@
  */
 
 import { useState } from 'react';
-import { Button } from '@maka/ui';
+import type { UiLocale } from '@maka/core/ui-locale';
+import { Button, dotForStatus, presentSessionStatus } from '@maka/ui';
+import { List, ListItem, StatusDot } from '@astryxdesign/core';
 import {
   deriveWorkHubAnchors,
   matchesWorkHubFilter,
@@ -42,6 +44,7 @@ interface WorkHubNavigationRailCopy {
 }
 
 export function WorkHubNavigationRail(props: {
+  readonly locale: UiLocale;
   readonly sessions: readonly WorkHubAnchorSession[];
   readonly focusSessionId?: string;
   readonly delegatedSessionIds: readonly string[];
@@ -77,36 +80,30 @@ export function WorkHubNavigationRail(props: {
           />
         ))}
       </div>
-      <nav className="workhub-anchors" aria-label={props.copy.workNavigation}>
-        {anchors.length > 0 ? anchors.map((anchor) => {
-          const state = anchor.session.archived
-            ? props.copy.archived
-            : props.copy.states[anchor.session.state];
-          return (
-            <Button
-              key={anchor.session.target.sessionId}
-              className="workhub-anchor-button"
-              variant="ghost"
-              size="sm"
-              width="100%"
-              label={`${anchor.session.sessionName}, ${state}`}
-              aria-current={anchor.reason === 'focus' ? 'page' : undefined}
-              data-state={anchor.session.archived ? 'archived' : anchor.session.state}
-              onClick={() => props.onOpenSession(anchor.session.target.sessionId)}
-            >
-              <span className="workhub-anchor-content">
-                <span className="workhub-anchor-title">
-                  <span className="workhub-anchor-state" aria-hidden="true" />
-                  <strong>{anchor.session.sessionName}</strong>
-                </span>
-                <small>
-                  {anchor.reason === 'focus' ? props.copy.focused : anchor.session.projectName}
-                  {' · '}{state}
-                </small>
-              </span>
-            </Button>
-          );
-        }) : (
+      <nav aria-label={props.copy.workNavigation}>
+        {anchors.length > 0 ? (
+          <List className="workhub-anchors" density="compact" hasDividers>
+            {anchors.map((anchor) => {
+              const state = anchor.session.archived
+                ? props.copy.archived
+                : props.copy.states[anchor.session.state];
+              const variant = anchor.session.archived
+                ? dotForStatus('neutral')
+                : presentSessionStatus(anchor.session.state, props.locale).variant;
+              return (
+                <ListItem
+                  key={anchor.session.target.sessionId}
+                  label={anchor.session.sessionName}
+                  description={`${anchor.reason === 'focus' ? props.copy.focused : anchor.session.projectName} · ${state}`}
+                  startContent={variant ? <StatusDot variant={variant} label={state} /> : undefined}
+                  isSelected={anchor.reason === 'focus'}
+                  aria-current={anchor.reason === 'focus' ? 'page' : undefined}
+                  onClick={() => props.onOpenSession(anchor.session.target.sessionId)}
+                />
+              );
+            })}
+          </List>
+        ) : (
           <p className="workhub-anchor-empty">{props.copy.noFilteredWork}</p>
         )}
       </nav>

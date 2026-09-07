@@ -409,6 +409,7 @@ export function WorkHubSurface(props: {
 
         <div className="workhub-body">
           <WorkHubNavigationRail
+            locale={props.locale}
             sessions={projection.sessions}
             focusSessionId={projection.focusSessionId}
             delegatedSessionIds={coordination.delegatedSessionIds}

@@ -143,6 +143,7 @@ test("rail copy distinguishes bounded anchors from all matching work", () => {
     session(`session-${index}`, "active", index),
   );
   const markup = renderToStaticMarkup(createElement(WorkHubNavigationRail, {
+    locale: "en",
     sessions: many,
     delegatedSessionIds: [],
     copy: getWorkHubRailCopy("en"),
@@ -150,5 +151,5 @@ test("rail copy distinguishes bounded anchors from all matching work", () => {
   }));
 
   assert.match(markup, /8\/20 anchors · 20 total/u);
-  assert.equal(markup.match(/workhub-anchor-content/gu)?.length, 8);
+  assert.equal(markup.match(/<li[ >]/gu)?.length, 8);
 });
