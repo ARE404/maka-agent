@@ -101,7 +101,17 @@ export const RUNTIME_HOST_REGISTRATION_SCHEMA_VERSION = 1 as const;
 export const RUNTIME_HOST_PROTOCOL_VERSION = 0 as const;
 // Increment when the same protocol version no longer guarantees safe Client-Host
 // interoperability. Mismatches are rejected before domain commands are admitted.
-export const RUNTIME_HOST_COMPATIBILITY_EPOCH = 120 as const;
+export const RUNTIME_HOST_COMPATIBILITY_EPOCH = 124 as const;
+// 124: PTY delivery is independent of the ordered Session state stream. A
+// bounded PTY overflow requests terminal-only snapshot recovery.
+// 123: Failed turns carry canonical retry decisions through bounded projections.
+// 122: Authenticated physical handoff continuations retain logical Turn identity.
+// Older peers cannot decode the handoff source and sealed invocation facts.
+// 121: Host diagnostics report `upgradeBlockingActivity`, the Host's
+// authoritative activity answer for maintenance probes, computed by the same
+// authority that gates `host.upgrade.prepare`. Older Clients reject the
+// unknown key when decoding diagnostics, so the pair must refuse each other
+// at the handshake.
 // 120: WorkHub admits named resume proposals with an explicit resumesActionId
 // and returns a transient resume outcome. Older peers cannot decode this action.
 // 119: Session Guest principals expose optional display names and an owner-only
@@ -117,6 +127,7 @@ export const RUNTIME_HOST_COMPATIBILITY_EPOCH = 120 as const;
 // 113: Client Capability tool schemas add `patternProperties` and draft-07 tuple
 // `additionalItems`; validation and projection share one per-keyword shape table.
 // Older peers reject these keywords and fail the handshake.
+
 // 112: Owners can query the Host execution environment through an extensible,
 // bounded resource-envelope contract. Older Hosts do not implement the query.
 // 111: Client Capability tool schemas may use draft-07 tuple additionalItems.
@@ -375,6 +386,8 @@ export interface ClientHello {
   compositionId: string;
   generation?: string;
   takeover?: { expectedHostEpoch: string };
+  /** Opt in before a Host adds maintenance evidence to the strict activity record. */
+  activitySnapshotVersion?: 2;
 }
 
 export interface HostAccepted {
@@ -387,6 +400,7 @@ export interface HostAccepted {
   compositionId: string;
   compositionRevision: string;
   state: Exclude<HostLifecycleState, 'draining'>;
+  cooperativeHandoff?: true;
 }
 
 export interface HostIncompatible {
@@ -483,6 +497,7 @@ export function decodeClientFrame(value: unknown): ClientFrame {
     }
     return {
       kind: 'hello',
+      ...(frame.activitySnapshotVersion === 2 ? { activitySnapshotVersion: 2 as const } : {}),
       clientInstanceId: requireClientInstanceId(frame.clientInstanceId),
       protocolMin,
       protocolMax,
@@ -501,8 +516,12 @@ export function decodeClientFrame(value: unknown): ClientFrame {
 export function decodeHostFrame(value: unknown): HostFrame {
   const frame = requireRecord(value, 'host frame');
   if (frame.kind === 'accepted') {
+    if (frame.cooperativeHandoff !== undefined && frame.cooperativeHandoff !== true) {
+      throw invalidProtocolFrame('Invalid Runtime Host cooperative handoff capability');
+    }
     return {
       kind: 'accepted',
+      ...(frame.cooperativeHandoff === true ? { cooperativeHandoff: true as const } : {}),
       rootId: requireHostRootId(frame.rootId),
       hostEpoch: requireId(frame.hostEpoch, 'hostEpoch'),
       connectionId: requireId(frame.connectionId, 'connectionId'),
