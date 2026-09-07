@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   ChatMessage,
   ChatMessageBubble,
@@ -43,6 +43,11 @@ import {
 } from './workhub-send-lease.js';
 import { WorkHubNavigationRail, WorkHubPromptRail } from './features/workhub/index.js';
 import { getWorkHubRailCopy } from './locales/workhub-copy.js';
+
+const WorkHubHighlightContext = createContext<{
+  sessionId: string | undefined;
+  highlight(sessionId: string | undefined): void;
+}>({ sessionId: undefined, highlight: () => {} });
 
 export interface WorkHubConversationTurn {
   requestId: string;
@@ -376,6 +381,7 @@ export function WorkHubSurface(props: {
       },
     });
   }, [conversationReady, initialLoadSettled, route, routeGate, sendLease]);
+  const [highlightedWork, setHighlightedWork] = useState<string>();
   const visible = visibleWorkHubConversation(coordination.turns, turns);
   const visibleCoordinationTurns = visible.coordination;
   const visibleLocalTurns = visible.local;
@@ -383,6 +389,7 @@ export function WorkHubSurface(props: {
   const surfaceReady = initialLoadSettled && conversationReady;
 
   return (
+    <WorkHubHighlightContext.Provider value={{ sessionId: highlightedWork, highlight: setHighlightedWork }}>
     <ChatSurfaceLayout
       className="workhub-surface"
       composer={(
@@ -393,6 +400,7 @@ export function WorkHubSurface(props: {
           onStop={() => {}}
           sendBlocked={pending || !surfaceReady}
           modelLabel="WorkHub"
+          showStaticModelUnavailableStatus={false}
         />
       )}
     >
@@ -493,6 +501,7 @@ export function WorkHubSurface(props: {
         </div>
       </section>
     </ChatSurfaceLayout>
+    </WorkHubHighlightContext.Provider>
   );
 }
 
@@ -524,6 +533,7 @@ export function WorkHubCoordinationStatus(props: {
           onStop={() => {}}
           sendBlocked
           modelLabel="WorkHub"
+          showStaticModelUnavailableStatus={false}
         />
       )}
     >
@@ -614,6 +624,12 @@ export function WorkHubCoordinationTurnView(props: {
         : assignment?.linkState ?? props.turn.state)}
       linkState={assignment?.linkState}
       projected
+      work={assignment || props.turn.stop ? {
+        sessionId: assignment?.targetSessionId ?? props.turn.stop!.targetSessionId,
+        name: session?.sessionName ?? stoppedSession?.sessionName ?? assignment?.targetSessionName ?? props.turn.stop!.targetSessionName,
+        projectName: session?.projectName ?? stoppedSession?.projectName,
+      } : undefined}
+      onOpenSession={props.onOpenSession}
     >
       {props.turn.stop ? (
         <SubmittedWorkView
@@ -728,7 +744,17 @@ function WorkHubTurnView(props: {
     : undefined;
 
   return (
-    <WorkHubMessageFrame anchorId={`workhub-request-${turn.requestId}`} text={turn.text} state={turn.state}>
+    <WorkHubMessageFrame
+      anchorId={`workhub-request-${turn.requestId}`}
+      text={turn.text}
+      state={turn.state}
+      work={submitted ? {
+        sessionId: submitted.target.sessionId,
+        name: target?.sessionName ?? copy.sessionFallback,
+        projectName: target?.projectName,
+      } : undefined}
+      onOpenSession={props.onOpenSession}
+    >
           {turn.state === 'routing' ? (
             <p className="workhub-status" role="status">{copy.routing}</p>
           ) : turn.state === 'failed' ? (
@@ -808,24 +834,64 @@ function WorkHubTurnView(props: {
   );
 }
 
+/** Stable across refreshes and reordering; color supplements the visible work name. */
+function workHubIdentityHue(sessionId: string): number {
+  let hash = 0;
+  for (const char of sessionId) hash = (Math.imul(hash, 31) + char.charCodeAt(0)) >>> 0;
+  const hues = [250, 165, 65, 315, 205, 25];
+  return hues[hash % hues.length]!;
+}
+
 function WorkHubMessageFrame(props: {
   anchorId: string;
   text: string;
   state: string;
   linkState?: WorkHubDelegationLinkState;
   projected?: boolean;
+  work?: { sessionId: string; name: string; projectName?: string };
+  onOpenSession?(sessionId: string): void;
   children: ReactNode;
 }) {
+  const highlight = useContext(WorkHubHighlightContext);
+  const work = props.work;
+  const rail = work ? (
+    <span
+      className="workhub-work-rail"
+      aria-hidden="true"
+      onMouseEnter={() => highlight.highlight(work.sessionId)}
+      onMouseLeave={() => highlight.highlight(undefined)}
+    />
+  ) : null;
   return (
     <section
-      className={`workhub-turn${props.projected ? ' workhub-projected-turn' : ''}`}
+      className={`workhub-turn${props.projected ? ' workhub-projected-turn' : ''}${props.work ? ' workhub-bound-turn' : ''}`}
+      style={props.work ? { '--workhub-work-hue': workHubIdentityHue(props.work.sessionId) } as CSSProperties : undefined}
       data-turn-id={props.anchorId}
       data-transcript-turn-id={props.anchorId}
+      data-work-session-id={props.work?.sessionId}
+      data-work-highlighted={Boolean(work && highlight.sessionId === work.sessionId)}
       data-state={props.state}
       data-link-state={props.linkState}
     >
+      {props.work ? (
+        <div className="workhub-message-identity">
+          <Button
+            variant="ghost"
+            label={[props.work.projectName, props.work.name].filter(Boolean).join(' / ')}
+            onMouseEnter={() => highlight.highlight(work!.sessionId)}
+            onMouseLeave={() => highlight.highlight(undefined)}
+            onFocus={() => highlight.highlight(work!.sessionId)}
+            onBlur={() => highlight.highlight(undefined)}
+            onClick={() => props.onOpenSession?.(props.work!.sessionId)}
+          >
+            {props.work.projectName ? <span>{props.work.projectName}<span aria-hidden="true"> / </span></span> : null}
+            <strong>{props.work.name}</strong>
+          </Button>
+        </div>
+      ) : null}
       <ChatMessage sender="user" className="workhub-message">
         <ChatMessageBubble className="maka-chat-message-bubble maka-chat-message-bubble-user workhub-user-bubble">
+          {rail}
           <p>{props.text}</p>
         </ChatMessageBubble>
       </ChatMessage>
@@ -835,6 +901,7 @@ function WorkHubMessageFrame(props: {
           width="100%"
           className="maka-chat-message-bubble maka-chat-message-bubble-assistant workhub-assistant-bubble"
         >
+          {rail}
           {props.children}
         </ChatMessageBubble>
       </ChatMessage>

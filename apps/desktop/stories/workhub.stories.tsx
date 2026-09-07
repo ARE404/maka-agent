@@ -275,3 +275,27 @@ export const ConversationPromptAnchors: Story = {
 export const ConversationPromptAnchorsNarrow: Story = {
   ...ConversationPromptAnchors,
 };
+
+// Repeated messages for one work must highlight together, independently of
+// intervening work. This is the same durable assignment seam as production.
+export const WorkIdentityAcrossTurns: Story = {
+  render: () => {
+    const first = submittedTurn();
+    const other: WorkHubCoordinationTurn = {
+      ...first, messageId: 'other-message', turnId: 'other-turn',
+      text: '检查另一个工作的界面布局。',
+      assignment: { ...first.assignment!, targetSessionId: 'other-work', targetSessionName: '界面布局' },
+    };
+    const followup = { ...first, messageId: 'followup-message', turnId: 'followup-turn', text: '继续支付回调，检查失败重试。' };
+    return <Surface turns={[first, other, followup]} />;
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(canvasElement.querySelectorAll('.workhub-bound-turn')).toHaveLength(3));
+    const turns = Array.from(canvasElement.querySelectorAll<HTMLElement>('.workhub-bound-turn'));
+    const rail = turns[0]!.querySelector<HTMLElement>('.workhub-work-rail')!;
+    await userEvent.hover(rail);
+    await waitFor(() => expect(turns.map(turn => turn.dataset.workHighlighted)).toEqual(['true', 'false', 'true']));
+    await userEvent.unhover(rail);
+    await waitFor(() => expect(turns.map(turn => turn.dataset.workHighlighted)).toEqual(['false', 'false', 'false']));
+  },
+};
