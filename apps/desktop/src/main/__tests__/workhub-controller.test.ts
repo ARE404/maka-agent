@@ -2092,7 +2092,6 @@ test('production clarification is persisted through the typed Action Gate dispos
     turnId: 'clarification-action',
     userText: '继续稳定性问题',
     assistantText: '请选择目标 Session',
-    disposition: 'clarify',
   }), { turnId: 'clarification-turn' });
   assert.deepEqual(actions, [{
     actionId: 'clarification-action',

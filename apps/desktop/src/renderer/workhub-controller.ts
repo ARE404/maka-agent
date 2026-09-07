@@ -282,7 +282,6 @@ export interface WorkHubController {
     turnId: string;
     userText: string;
     assistantText: string;
-    disposition: 'clarify';
   }): Promise<{ turnId: string }>;
   subscribe(handler: () => void): () => void;
   resetVisitContext(): void;

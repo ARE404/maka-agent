@@ -521,7 +521,6 @@ export class HostWorkHubCoordinationCoordinator {
         input.proposal.disposition === 'clarify'
           ? workHubCoordinationTurnId(input.actionId, 'clarify')
           : input.actionId;
-      let result: WorkHubCoordinationActResult | undefined;
       let failure: unknown;
       const outcome = await this.#executions.runWorkHubCoordinationOperation(
         {
@@ -539,7 +538,7 @@ export class HostWorkHubCoordinationCoordinator {
               : { kind: 'ready', content: normalizeMessageContent({ text: input.userText }) },
           operation: async (turnId) => {
             try {
-              result = await this.#actionGate.act(input, context, turnId);
+              const result = await this.#actionGate.act(input, context, turnId);
               return {
                 actionId: input.actionId,
                 userText: input.userText,

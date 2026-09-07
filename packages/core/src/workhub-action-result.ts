@@ -75,9 +75,13 @@ export function isWorkHubActionReceipt(value: unknown): value is WorkHubActionRe
     (value.clarification !== undefined && typeof value.clarification !== 'string')
   )
     return false;
-  const r = value.result;
+  return isWorkHubActionResult(value.result);
+}
+
+/** Shared closed result contract for Runtime receipts and Host protocol replies. */
+export function isWorkHubActionResult(r: unknown): r is WorkHubActionResult {
   if (!isRecord(r)) return false;
-  const text = (k: string) => typeof r[k] === 'string' && r[k] !== '';
+  const text = (k: string) => typeof r[k] === 'string' && /^[A-Za-z0-9_-]{1,128}$/u.test(r[k]);
   const keys = (allowed: string[]) => Object.keys(r).every((k) => allowed.includes(k));
   if (r.disposition === 'answer_here' || r.disposition === 'clarify')
     return keys(['disposition', 'coordinationTurnId']) && text('coordinationTurnId');
@@ -103,6 +107,11 @@ export function isWorkHubActionReceipt(value: unknown): value is WorkHubActionRe
     );
   if (r.disposition === 'stop_work' || r.disposition === 'resume_work')
     return (
+      (r.disposition === 'stop_work'
+        ? ((r.outcome !== 'stop_delivered' && r.outcome !== 'not_owned') ||
+            r.targetTurnId !== undefined) &&
+          (r.outcome !== 'cancelled_pending' || r.targetTurnId === undefined)
+        : (r.outcome === 'resume_started') === (r.targetTurnId !== undefined)) &&
       keys(['disposition', 'outcome', 'targetSessionId', 'targetTurnId']) &&
       text('targetSessionId') &&
       (r.targetTurnId === undefined || text('targetTurnId')) &&

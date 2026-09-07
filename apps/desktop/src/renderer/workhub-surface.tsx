@@ -188,7 +188,6 @@ export async function submitAndRecordWorkHubSurfaceInput(input: {
       turnId: input.request.requestId,
       userText: input.recordedUserText,
       assistantText: input.summary(result),
-      disposition: 'clarify',
     });
   } catch (error) {
     input.onSummaryError();
