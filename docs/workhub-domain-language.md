@@ -212,8 +212,9 @@ request. The fixed Policy combines these advisory results with trusted input,
 exact-name/related/focus rules, and action-specific constraints. Named stop/resume
 retain their deterministic reference requirements and Host admission. Component
 failures become uncertain evidence; no component can write or directly submit a
-proposal. Each arm receives the same bounded component input and the same trusted Policy
-snapshot. The model recall limit does not remove known Sessions from the fixed
+proposal. Each arm receives the same bounded candidate context and the same trusted Policy
+snapshot. Deterministic components read the full request; model adapters bound text
+only at the model call boundary. The model recall limit does not remove known Sessions from the fixed
 Policy's exact-name and correction rules. Production still uses R2.4.
 
 _Avoid_: copied execution transcripts, self-routing, a second Session/WorkHub

@@ -18,6 +18,7 @@
  */
 
 import { useState } from 'react';
+import type { WorkHubRailCopy } from '../../../locales/workhub-copy.js';
 import type { UiLocale } from '@maka/core/ui-locale';
 import { Button, dotForStatus, presentSessionStatus } from '@maka/ui';
 import { List, ListItem, StatusDot } from '@astryxdesign/core';
@@ -28,27 +29,12 @@ import {
   type WorkHubWorkFilter,
 } from '../model/anchor-rail.js';
 
-interface WorkHubNavigationRailCopy {
-  readonly work: string;
-  readonly workNavigation: string;
-  readonly filterWork: string;
-  readonly focused: string;
-  readonly archived: string;
-  readonly states: Readonly<Record<WorkHubAnchorSession['state'], string>>;
-  readonly anchorCount: (shown: number, matching: number, total: number) => string;
-  readonly noFilteredWork: string;
-  readonly filters: ReadonlyArray<{
-    readonly id: WorkHubWorkFilter;
-    readonly label: string;
-  }>;
-}
-
 export function WorkHubNavigationRail(props: {
   readonly locale: UiLocale;
   readonly sessions: readonly WorkHubAnchorSession[];
   readonly focusSessionId?: string;
   readonly delegatedSessionIds: readonly string[];
-  readonly copy: WorkHubNavigationRailCopy;
+  readonly copy: WorkHubRailCopy;
   readonly onOpenSession: (sessionId: string) => void;
 }) {
   const [filter, setFilter] = useState<WorkHubWorkFilter>('all');
@@ -84,21 +70,21 @@ export function WorkHubNavigationRail(props: {
         {anchors.length > 0 ? (
           <List className="workhub-anchors" density="compact" hasDividers>
             {anchors.map((anchor) => {
-              const state = anchor.session.archived
+              const state = anchor.archived
                 ? props.copy.archived
-                : props.copy.states[anchor.session.state];
-              const variant = anchor.session.archived
+                : props.copy.states[anchor.state];
+              const variant = anchor.archived
                 ? dotForStatus('neutral')
-                : presentSessionStatus(anchor.session.state, props.locale).variant;
+                : presentSessionStatus(anchor.state, props.locale).variant;
               return (
                 <ListItem
-                  key={anchor.session.target.sessionId}
-                  label={anchor.session.sessionName}
-                  description={`${anchor.reason === 'focus' ? props.copy.focused : anchor.session.projectName} · ${state}`}
+                  key={anchor.target.sessionId}
+                  label={anchor.sessionName}
+                  description={`${anchor.target.sessionId === props.focusSessionId ? props.copy.focused : anchor.projectName} · ${state}`}
                   startContent={variant ? <StatusDot variant={variant} label={state} /> : undefined}
-                  isSelected={anchor.reason === 'focus'}
-                  aria-current={anchor.reason === 'focus' ? 'page' : undefined}
-                  onClick={() => props.onOpenSession(anchor.session.target.sessionId)}
+                  isSelected={anchor.target.sessionId === props.focusSessionId}
+                  aria-current={anchor.target.sessionId === props.focusSessionId ? 'page' : undefined}
+                  onClick={() => props.onOpenSession(anchor.target.sessionId)}
                 />
               );
             })}

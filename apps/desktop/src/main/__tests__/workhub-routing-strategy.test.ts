@@ -19,12 +19,12 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createWorkHubController, port, session } from './workhub-controller-fixture.js';
 import {
   boundedRoutingInput,
   createWorkHubR24RoutingStrategy,
   createWorkHubR3ARoutingStrategy,
   createWorkHubR3BRoutingStrategy,
-  createWorkHubRoutePolicy,
   readWorkHubRoutingEvidence,
   type WorkHubRoutingInput,
   type WorkHubRoutingStrategy,
@@ -53,43 +53,24 @@ function fixture(text = '请实现账本边界检查器'): WorkHubRoutingInput {
     sessions,
     originPromptBySessionId: new Map(),
     candidateRefBySessionId: new Map([
-      ['login', 'ref-login'],
-      ['payment', 'ref-payment'],
+      ['login', 'candidate-login'],
+      ['payment', 'candidate-payment'],
     ]),
     coordinationTranscript: [],
   };
 }
-async function run(
-  strategy: WorkHubRoutingStrategy,
-  raw = fixture(),
-  policy = createWorkHubRoutePolicy(),
-) {
-  const input = boundedRoutingInput(raw);
-  const evidence = await readWorkHubRoutingEvidence(strategy, input);
-  return policy.resolve({
-    text: raw.text,
-    sessions: [...input.sessions],
-    originPromptBySessionId: input.originPromptBySessionId,
-    ...(raw.explicitTarget ? { explicitTarget: raw.explicitTarget } : {}),
-    interpretation: {
-      classification: evidence.classification,
-      resolution: evidence.resolution.kind,
-      recalledSessionIds:
-        evidence.resolution.kind === 'none'
-          ? []
-          : evidence.resolution.candidateRefs.flatMap((ref) =>
-              [...input.candidateRefBySessionId]
-                .filter(([, value]) => value === ref)
-                .map(([id]) => id),
-            ),
-    },
-  });
+async function run(strategy: WorkHubRoutingStrategy, raw = fixture()) {
+  const sessions = port(raw.sessions.map((value) => session(value.target.sessionId, value)));
+  sessions.routingEvidence = async () => [...raw.originPromptBySessionId].map(([sessionId, originPrompt]) => ({ target: { sessionId }, originPrompt }));
+  sessions.create = async ({ name }) => session('created', { sessionName: name });
+  const controller = createWorkHubController({ sessions, routingStrategy: strategy });
+  return controller.submit({ requestId: 'combination', text: raw.text });
 }
 const model = {
   async decide(input: WorkHubModelRoutingRequest) {
     return input.stage === 'intent'
       ? { intent: 'work' }
-      : { kind: 'ranked', candidateRefs: ['ref-payment'] };
+      : { kind: 'ranked', candidateRefs: ['candidate-payment'] };
   },
 };
 
@@ -99,12 +80,10 @@ test('a strategy combines two independent ports and has no decision or focus own
   assert.deepEqual(Object.keys(r3).sort(), ['intent', 'resolver', 'strategyId']);
   const intentOnly = { ...baseline, intent: r3.intent };
   const resolverOnly = { ...baseline, resolver: r3.resolver };
-  assert.equal((await run(intentOnly, fixture('支付回调幂等性：补充测试'))).kind, 'target');
-  assert.deepEqual(await run(resolverOnly), {
-    kind: 'target',
-    target: { sessionId: 'payment' },
-    evidence: 'model_candidate',
-  });
+  assert.equal((await run(intentOnly, fixture('支付回调幂等性：补充测试'))).kind, 'submitted');
+  const result = await run(resolverOnly);
+  assert.equal(result.kind, 'submitted');
+  if (result.kind === 'submitted') assert.equal(result.target.sessionId, 'payment');
 });
 
 test('R3-A calls separate intent and recall components; neither sees Session IDs', async () => {
@@ -137,7 +116,7 @@ test('R3-B replaces only Intent and reuses the deterministic Resolver', async ()
       },
     },
   });
-  assert.equal((await run(strategy, fixture('支付回调幂等性：补充测试'))).kind, 'target');
+  assert.equal((await run(strategy, fixture('支付回调幂等性：补充测试'))).kind, 'submitted');
   assert.deepEqual(stages, ['intent']);
 });
 
@@ -178,7 +157,7 @@ test('all combinations see the same bounded candidate snapshot, including determ
   }
 });
 
-test('model text, evidence and transcript are bounded before either component runs', async () => {
+test('model text is bounded at the adapter while deterministic components keep full text', async () => {
   const input = boundedRoutingInput({
     ...fixture('😀'.repeat(3000)),
     sessions: sessions.map((session) => ({
@@ -189,7 +168,11 @@ test('model text, evidence and transcript are bounded before either component ru
     originPromptBySessionId: new Map([['login', '源'.repeat(1000)]]),
     coordinationTranscript: Array.from({ length: 20 }, () => ({ userText: '文'.repeat(1000) })),
   });
-  assert.equal(Array.from(input.text).length, 2000);
+  assert.equal(Array.from(input.text).length, 3000);
+  const requests: WorkHubModelRoutingRequest[] = [];
+  await readWorkHubRoutingEvidence(createWorkHubR3ARoutingStrategy({ model: { async decide(value) { requests.push(value); return value.stage === "intent" ? { intent: "work" } : { kind: "none" }; } } }), input);
+  assert.equal(requests.length, 2);
+  assert.ok(requests.every((value) => Array.from(value.text).length === 2000));
   assert.equal(input.coordinationTranscript.length, 12);
   assert.ok(input.sessions.every((session) => session.sessionName.length <= 600));
   assert.equal(input.originPromptBySessionId.get('login')?.length, 600);
@@ -203,16 +186,19 @@ for (const response of [
 ]) {
   test(`malformed intent cannot issue a proposal: ${JSON.stringify(response)}`, async () => {
     const strategy = createWorkHubR3ARoutingStrategy({ model: { decide: async () => response } });
+    const evidence = await readWorkHubRoutingEvidence(strategy, boundedRoutingInput(fixture()));
+    assert.equal(evidence.classification, 'uncertain');
+    assert.equal(evidence.resolution.kind, 'ambiguous');
     assert.equal((await run(strategy)).kind, 'clarification');
   });
 }
 for (const response of [
   null,
   { kind: 'ranked', candidateRefs: ['invented'] },
-  { kind: 'ranked', candidateRefs: ['ref-payment', 'ref-payment'] },
+  { kind: 'ranked', candidateRefs: ['candidate-payment', 'candidate-payment'] },
   { kind: 'ranked', candidateRefs: [] },
   { kind: 'none', disposition: 'create_new' },
-  { kind: 'ranked', candidateRefs: ['ref-payment'], target: 'payment' },
+  { kind: 'ranked', candidateRefs: ['candidate-payment'], target: 'payment' },
 ]) {
   test(`malformed recall fails closed: ${JSON.stringify(response)}`, async () => {
     const strategy = createWorkHubR3ARoutingStrategy({
@@ -220,28 +206,23 @@ for (const response of [
         decide: async (input) => (input.stage === 'intent' ? { intent: 'work' } : response),
       },
     });
+    const evidence = await readWorkHubRoutingEvidence(strategy, boundedRoutingInput(fixture()));
+    assert.equal(evidence.classification, 'uncertain');
+    assert.equal(evidence.resolution.kind, 'ambiguous');
     assert.equal((await run(strategy)).kind, 'clarification');
   });
 }
 
-test('Policy retains ambiguity, linked correction, exact naming and focus rules with model recall', async () => {
+test('Policy retains ambiguity, exact naming and focus with model recall in the real controller', async () => {
   const strategy = createWorkHubR3ARoutingStrategy({ model });
-  assert.equal(
-    (await run(strategy, fixture('创建一个新任务，不过我还不确定是否要做'))).kind,
-    'clarification',
-  );
-  const policy = createWorkHubRoutePolicy();
-  policy.rememberTarget({ sessionId: 'login' });
-  const correction = await run(strategy, fixture('不是这个工作，改成支付回调幂等性'), policy);
-  assert.equal(correction.kind, 'target');
-  if (correction.kind === 'target')
-    assert.deepEqual(correction.correctedFrom, { sessionId: 'login' });
-  const exact = await run(strategy, fixture('登录刷新令牌：补充测试'), policy);
-  assert.equal(exact.kind, 'target');
-  if (exact.kind === 'target') assert.equal(exact.target.sessionId, 'login');
-  const focused = await run(strategy, fixture('继续它'), policy);
-  assert.equal(focused.kind, 'target');
-  if (focused.kind === 'target') assert.equal(focused.target.sessionId, 'login');
+  assert.equal((await run(strategy, fixture('创建一个新任务，不过我还不确定是否要做'))).kind, 'clarification');
+  const controller = createWorkHubController({ sessions: port(sessions.map((value) => session(value.target.sessionId, value))), routingStrategy: strategy });
+  const exact = await controller.submit({ requestId: 'exact', text: '登录刷新令牌：补充测试' });
+  assert.equal(exact.kind, 'submitted');
+  if (exact.kind === 'submitted') assert.equal(exact.target.sessionId, 'login');
+  const focused = await controller.submit({ requestId: 'focused', text: '继续它' });
+  assert.equal(focused.kind, 'submitted');
+  if (focused.kind === 'submitted') assert.equal(focused.target.sessionId, 'login');
 });
 
 test('a ranked list is not a selected target: Policy clarifies multiple recalled candidates', async () => {
@@ -250,7 +231,7 @@ test('a ranked list is not a selected target: Policy clarifies multiple recalled
       decide: async (input) =>
         input.stage === 'intent'
           ? { intent: 'work' }
-          : { kind: 'ranked', candidateRefs: ['ref-payment', 'ref-login'] },
+          : { kind: 'ranked', candidateRefs: ['candidate-payment', 'candidate-login'] },
     },
   });
   assert.equal((await run(strategy)).kind, 'clarification');
@@ -259,8 +240,7 @@ test('a ranked list is not a selected target: Policy clarifies multiple recalled
 test('model work intent cannot turn trusted discussion into creation or delegation', async () => {
   const strategy = createWorkHubR3ARoutingStrategy({ model });
   const result = await run(strategy, fixture('讨论一下量子纠缠的概念'));
-  assert.notEqual(result.kind, 'target');
-  assert.notEqual(result.kind, 'new_session');
+  assert.notEqual(result.kind, 'submitted');
 });
 
 test('trusted explicit creation is decided by Policy, never returned by a model', async () => {
@@ -268,7 +248,8 @@ test('trusted explicit creation is decided by Policy, never returned by a model'
     createWorkHubR3ARoutingStrategy({ model }),
     fixture('创建一个新工作，检查账本边界'),
   );
-  assert.equal(result.kind, 'new_session');
+  assert.equal(result.kind, 'submitted');
+  if (result.kind === 'submitted') assert.equal(result.target.sessionId, 'created');
 });
 
 test('model exceptions become uncertain evidence rather than creating work', async () => {

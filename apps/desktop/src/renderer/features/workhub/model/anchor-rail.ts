@@ -28,13 +28,6 @@ export interface WorkHubAnchorSession {
 }
 
 export type WorkHubWorkFilter = "all" | "active" | "attention" | "stopped";
-export type WorkHubAnchorReason = "focus" | "delegated" | "recent";
-
-export interface WorkHubAnchor {
-  readonly session: WorkHubAnchorSession;
-  readonly reason: WorkHubAnchorReason;
-}
-
 export const MAX_WORKHUB_ANCHORS = 8;
 
 /**
@@ -46,37 +39,31 @@ export function deriveWorkHubAnchors(input: {
   readonly focusSessionId?: string;
   readonly delegatedSessionIds: readonly string[];
   readonly filter: WorkHubWorkFilter;
-  readonly limit?: number;
-}): WorkHubAnchor[] {
-  const limit = Math.max(
-    0,
-    Math.min(input.limit ?? MAX_WORKHUB_ANCHORS, MAX_WORKHUB_ANCHORS),
-  );
+}): WorkHubAnchorSession[] {
   const sessionById = new Map(
     input.sessions.map((session) => [session.target.sessionId, session]),
   );
-  const ordered: WorkHubAnchor[] = [];
+  const ordered: WorkHubAnchorSession[] = [];
   const seen = new Set<string>();
   const append = (
     sessionId: string | undefined,
-    reason: WorkHubAnchorReason,
   ) => {
     if (!sessionId || seen.has(sessionId)) return;
     const session = sessionById.get(sessionId);
     if (!session || !matchesWorkHubFilter(session, input.filter)) return;
     seen.add(sessionId);
-    ordered.push({ session, reason });
+    ordered.push(session);
   };
 
-  append(input.focusSessionId, "focus");
+  append(input.focusSessionId);
   for (const sessionId of input.delegatedSessionIds)
-    append(sessionId, "delegated");
+    append(sessionId);
   for (const session of [...input.sessions].sort(
     (left, right) => right.updatedAt - left.updatedAt,
   )) {
-    append(session.target.sessionId, "recent");
+    append(session.target.sessionId);
   }
-  return ordered.slice(0, limit);
+  return ordered.slice(0, MAX_WORKHUB_ANCHORS);
 }
 
 export function matchesWorkHubFilter(

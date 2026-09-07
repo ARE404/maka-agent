@@ -19,7 +19,7 @@
 
 import type { UiCatalog, UiLocale } from '@maka/core/ui-locale';
 
-export type WorkHubRailFilterId = 'all' | 'active' | 'attention' | 'stopped';
+import type { WorkHubWorkFilter, WorkHubAnchorSession } from '../features/workhub/index.js';
 
 export interface WorkHubRailCopy {
   readonly work: string;
@@ -28,13 +28,13 @@ export interface WorkHubRailCopy {
   readonly focused: string;
   readonly archived: string;
   readonly states: Readonly<Record<
-    'active' | 'running' | 'waiting_for_user' | 'blocked' | 'aborted',
+    WorkHubAnchorSession['state'],
     string
   >>;
   readonly anchorCount: (shown: number, matching: number, total: number) => string;
   readonly noFilteredWork: string;
   readonly filters: ReadonlyArray<{
-    readonly id: WorkHubRailFilterId;
+    readonly id: WorkHubWorkFilter;
     readonly label: string;
   }>;
 }

@@ -56,38 +56,17 @@ const sessions = [
 ];
 
 test("anchors prioritize focus and delegation before recent Session facts", () => {
+  const before = structuredClone(sessions);
   const anchors = deriveWorkHubAnchors({
     sessions,
     focusSessionId: "focus",
     delegatedSessionIds: ["delegated", "focus", "missing"],
     filter: "all",
   });
-  assert.deepEqual(
-    anchors.map(({ session: value, reason }) => [
-      value.target.sessionId,
-      reason,
-    ]),
-    [
-      ["focus", "focus"],
-      ["delegated", "delegated"],
-      ["archived", "recent"],
-      ["recent", "recent"],
-      ["blocked", "recent"],
-      ["stopped", "recent"],
-    ],
-  );
-});
-
-test("a recent delegation is not relabeled as focus", () => {
-  const anchors = deriveWorkHubAnchors({
-    sessions,
-    delegatedSessionIds: ["delegated"],
-    filter: "all",
-  });
-  assert.deepEqual(anchors[0], {
-    session: sessions[2],
-    reason: "delegated",
-  });
+  assert.deepEqual(sessions, before);
+  assert.deepEqual(anchors.map((value) => value.target.sessionId),
+    ["focus", "delegated", "archived", "recent", "blocked", "stopped"]);
+  assert.deepEqual(deriveWorkHubAnchors({ sessions, delegatedSessionIds: ["delegated"], filter: "all" })[0], sessions[2]);
 });
 
 test("filters are derived from Session state and archive facts only", () => {
@@ -116,26 +95,15 @@ test("anchor projection is deduplicated and hard-bounded", () => {
     session(`session-${index}`, "active", index),
   );
   const anchors = deriveWorkHubAnchors({
-    sessions: many,
-    delegatedSessionIds: many.map((value) => value.target.sessionId),
+    sessions: [...many, many[0]!, many[4]!],
+    delegatedSessionIds: [...many, many[0]!].map((value) => value.target.sessionId),
     filter: "all",
-    limit: 99,
   });
   assert.equal(anchors.length, MAX_WORKHUB_ANCHORS);
   assert.equal(
-    new Set(anchors.map(({ session: value }) => value.target.sessionId)).size,
+    new Set(anchors.map((value) => value.target.sessionId)).size,
     anchors.length,
   );
-});
-
-test("filtering never mutates the authoritative projection", () => {
-  const before = structuredClone(sessions);
-  deriveWorkHubAnchors({
-    sessions,
-    delegatedSessionIds: [],
-    filter: "attention",
-  });
-  assert.deepEqual(sessions, before);
 });
 
 test("rail copy distinguishes bounded anchors from all matching work", () => {
@@ -152,4 +120,14 @@ test("rail copy distinguishes bounded anchors from all matching work", () => {
 
   assert.match(markup, /8\/20 anchors · 20 total/u);
   assert.equal(markup.match(/<li[ >]/gu)?.length, 8);
+});
+
+
+test("focus display is derived from the selected Session ID, not delegation priority", () => {
+  const markup = renderToStaticMarkup(createElement(WorkHubNavigationRail, {
+    locale: "en", sessions, focusSessionId: "focus", delegatedSessionIds: ["delegated"],
+    copy: getWorkHubRailCopy("en"), onOpenSession: () => undefined,
+  }));
+  assert.equal(markup.match(/aria-current="page"/gu)?.length, 1);
+  assert.equal(markup.match(/Focused · Running/gu)?.length, 1);
 });

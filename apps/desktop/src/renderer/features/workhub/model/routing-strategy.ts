@@ -130,7 +130,7 @@ export function createWorkHubDeterministicResolver(): WorkHubRoutingResolver {
 export function createWorkHubModelIntent(model: WorkHubRoutingModelPort): WorkHubIntentClassifier {
   return {
     async classify(input) {
-      const value = await model.decide({ stage: 'intent', ...input });
+      const value = await model.decide({ stage: 'intent', ...input, text: boundedWorkHubText(input.text, MAX_MODEL_INPUT_CHARS) });
       if (
         !isRecord(value) ||
         Object.keys(value).length !== 1 ||
@@ -145,7 +145,7 @@ export function createWorkHubModelIntent(model: WorkHubRoutingModelPort): WorkHu
 export function createWorkHubModelResolver(model: WorkHubRoutingModelPort): WorkHubRoutingResolver {
   return {
     async resolve(input) {
-      const value = await model.decide({ stage: 'resolver', ...input });
+      const value = await model.decide({ stage: 'resolver', ...input, text: boundedWorkHubText(input.text, MAX_MODEL_INPUT_CHARS) });
       if (!validResolution(value, input.candidates)) throw new Error('Invalid WorkHub recall');
       return value;
     },
@@ -267,7 +267,7 @@ export function boundedRoutingInput(input: WorkHubRoutingInput): WorkHubRoutingI
           }),
     }));
   return {
-    text: boundedWorkHubText(input.text, MAX_MODEL_INPUT_CHARS),
+    text: input.text,
     sessions,
     originPromptBySessionId: new Map(
       sessions.map((session) => {

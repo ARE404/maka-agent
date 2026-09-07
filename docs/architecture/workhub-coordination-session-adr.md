@@ -105,8 +105,9 @@ policy implementations or a production model rollout.
 
 Intent output contains no target. Resolver output contains only ranked or ambiguous
 opaque candidate references, or no match; it cannot return creation or a disposition.
-The controller bounds component inputs once for every arm and passes their
-validated evidence through the same Policy with the same trusted Session snapshot.
+The controller shares one bounded candidate context across arms; deterministic
+components retain full request text, while model adapters bound text at the model
+call boundary. The controller passes validated evidence through the same Policy with the same trusted Session snapshot.
 A model recall budget does not hide known Sessions from exact-name or correction
 rules in that fixed Policy. Policy retains trusted-text creation,
 ambiguity, correction and focus constraints. Model ranking alone cannot authorize

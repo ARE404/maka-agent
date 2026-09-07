@@ -103,12 +103,12 @@ function controller(turns: readonly WorkHubCoordinationTurn[]): WorkHubControlle
 
 const openRailSession = fn();
 
-function Surface(props: { turns: readonly WorkHubCoordinationTurn[]; onOpenSession?: (sessionId: string) => void }) {
+function Surface(props: { turns: readonly WorkHubCoordinationTurn[]; onOpenSession?: (sessionId: string) => void; fixture?: WorkHubController }) {
   return (
     <div className="maka-detail-with-artifacts" style={{ height: '100dvh' }}>
       <div className="mainColumn">
         <WorkHubSurface
-          controller={controller(props.turns)}
+          controller={props.fixture ?? controller(props.turns)}
           leaseScope="session-workhub-coordination"
           locale={LOCALE}
           onOpenSession={props.onOpenSession ?? (() => {})}
@@ -196,6 +196,16 @@ const promptRailTurns: WorkHubCoordinationTurn[] = Array.from({ length: 14 }, (_
   updatedAt: index,
 }));
 
+let publishPromptTurns: (turns: readonly WorkHubCoordinationTurn[]) => void = () => {};
+const promptController: WorkHubController = {
+  ...controller(promptRailTurns),
+  openConversation: async (handler) => {
+    publishPromptTurns = handler;
+    handler(promptRailTurns);
+    return { close: async () => { publishPromptTurns = () => {}; } };
+  },
+};
+
 const promptRailPlay: NonNullable<Story['play']> = async ({ canvasElement }) => {
   const root = canvasElement.querySelector<HTMLElement>('[data-chat-scroll-container]');
   if (!root) throw new Error('WorkHub scroll container missing');
@@ -227,10 +237,22 @@ const promptRailPlay: NonNullable<Story['play']> = async ({ canvasElement }) => 
   // Leave a middle prompt selected for visual evidence of the rail and target.
   await userEvent.click(ticks[6]!);
   await waitFor(() => expect(ticks[6]).toHaveAttribute('aria-current', 'true'));
+  // Simulate ordinary Coordination transcript updates while the reader is
+  // inspecting an earlier message: growth must not pull them back to the tail.
+  for (let chunk = 1; chunk <= 3; chunk += 1) {
+    publishPromptTurns(promptRailTurns.map((turn, index) => index === 13
+      ? { ...turn, state: 'running', result: `${turn.result}\n${'新增流式结果。'.repeat(chunk * 80)}` }
+      : turn));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    await waitFor(() => {
+      expect(ticks[6]).toHaveAttribute('aria-current', 'true');
+      expect(Math.abs(frames[6]!.getBoundingClientRect().top - root.getBoundingClientRect().top)).toBeLessThan(4);
+    });
+  }
 };
 
 export const ConversationPromptAnchors: Story = {
-  render: () => <Surface turns={promptRailTurns} />,
+  render: () => <Surface turns={promptRailTurns} fixture={promptController} />,
   play: promptRailPlay,
 };
 
