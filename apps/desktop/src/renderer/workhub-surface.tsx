@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { createContext, useContext, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useContext, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   ChatMessage,
   ChatMessageBubble,
@@ -41,13 +41,8 @@ import {
   WorkHubSendLease,
   type WorkHubSendAttempt,
 } from './workhub-send-lease.js';
-import { WorkHubNavigationRail, WorkHubPromptRail } from './features/workhub/index.js';
+import { WorkHubHighlightContext, WorkHubHighlightProvider, workHubIdentityHue, WorkHubNavigationRail, WorkHubPromptRail } from './features/workhub/index.js';
 import { getWorkHubRailCopy } from './locales/workhub-copy.js';
-
-const WorkHubHighlightContext = createContext<{
-  sessionId: string | undefined;
-  highlight(sessionId: string | undefined): void;
-}>({ sessionId: undefined, highlight: () => {} });
 
 export interface WorkHubConversationTurn {
   requestId: string;
@@ -381,7 +376,6 @@ export function WorkHubSurface(props: {
       },
     });
   }, [conversationReady, initialLoadSettled, route, routeGate, sendLease]);
-  const [highlightedWork, setHighlightedWork] = useState<string>();
   const visible = visibleWorkHubConversation(coordination.turns, turns);
   const visibleCoordinationTurns = visible.coordination;
   const visibleLocalTurns = visible.local;
@@ -389,7 +383,7 @@ export function WorkHubSurface(props: {
   const surfaceReady = initialLoadSettled && conversationReady;
 
   return (
-    <WorkHubHighlightContext.Provider value={{ sessionId: highlightedWork, highlight: setHighlightedWork }}>
+    <WorkHubHighlightProvider>
     <ChatSurfaceLayout
       className="workhub-surface"
       composer={(
@@ -431,10 +425,13 @@ export function WorkHubSurface(props: {
                 turnId: `workhub-message-${turn.messageId}`,
                 label: turn.text,
                 reply: turn.result,
+                sessionId: turn.assignment?.targetSessionId ?? turn.stop?.targetSessionId,
               })),
               ...visibleLocalTurns.map((turn) => ({
                 turnId: `workhub-request-${turn.requestId}`,
                 label: turn.text,
+                sessionId: turn.outcome?.kind === 'submitted' || turn.outcome?.kind === 'stop' || turn.outcome?.kind === 'resume'
+                  ? turn.outcome.target.sessionId : undefined,
               })),
             ]} />
             <ChatMessageList
@@ -501,7 +498,7 @@ export function WorkHubSurface(props: {
         </div>
       </section>
     </ChatSurfaceLayout>
-    </WorkHubHighlightContext.Provider>
+    </WorkHubHighlightProvider>
   );
 }
 
@@ -832,14 +829,6 @@ function WorkHubTurnView(props: {
           ) : null}
     </WorkHubMessageFrame>
   );
-}
-
-/** Stable across refreshes and reordering; color supplements the visible work name. */
-function workHubIdentityHue(sessionId: string): number {
-  let hash = 0;
-  for (const char of sessionId) hash = (Math.imul(hash, 31) + char.charCodeAt(0)) >>> 0;
-  const hues = [250, 165, 65, 315, 205, 25];
-  return hues[hash % hues.length]!;
 }
 
 function WorkHubMessageFrame(props: {

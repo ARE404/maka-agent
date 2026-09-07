@@ -297,5 +297,33 @@ export const WorkIdentityAcrossTurns: Story = {
     await waitFor(() => expect(turns.map(turn => turn.dataset.workHighlighted)).toEqual(['true', 'false', 'true']));
     await userEvent.unhover(rail);
     await waitFor(() => expect(turns.map(turn => turn.dataset.workHighlighted)).toEqual(['false', 'false', 'false']));
+    const ticks = Array.from(canvasElement.querySelectorAll<HTMLElement>('.maka-prompt-rail-tick'));
+    expect(ticks).toHaveLength(3);
+    const navigation = canvasElement.querySelector<HTMLElement>('.workhub-navigation-item')!;
+    await userEvent.hover(navigation);
+    await waitFor(() => {
+      expect(turns.map(turn => turn.dataset.workHighlighted)).toEqual(['true', 'false', 'true']);
+      expect(ticks.map(tick => tick.dataset.highlighted)).toEqual(['true', undefined, 'true']);
+      expect(getComputedStyle(ticks[0]!).color).toBe(getComputedStyle(ticks[2]!).color);
+      expect(getComputedStyle(navigation.querySelector('.workhub-navigation-label')!).color)
+        .toBe(getComputedStyle(ticks[0]!).color);
+      expect(getComputedStyle(ticks[0]!).color).not.toBe(getComputedStyle(ticks[1]!).color);
+    });
+    await userEvent.unhover(navigation);
+    await userEvent.hover(ticks[1]!);
+    await waitFor(() => {
+      expect(turns.map(turn => turn.dataset.workHighlighted)).toEqual(['false', 'true', 'false']);
+      expect(navigation.dataset.workHighlighted).toBe('false');
+    });
+    await userEvent.unhover(ticks[1]!);
+    ticks[0]!.focus();
+    await waitFor(() => expect(navigation.dataset.workHighlighted).toBe('true'));
+    ticks[0]!.blur();
+    await userEvent.hover(rail);
+    await waitFor(() => {
+      expect(navigation.dataset.workHighlighted).toBe('true');
+      expect(ticks.map(tick => tick.dataset.highlighted)).toEqual(['true', undefined, 'true']);
+    });
+    await userEvent.unhover(rail);
   },
 };
