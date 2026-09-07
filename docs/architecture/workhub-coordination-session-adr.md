@@ -48,7 +48,7 @@ durable conversation and execution substrate.
 The role is provisioned lazily when WorkHub first needs it and resolves to the same
 Session after Runtime Host or application restarts. The Session role representation,
 lookup, recovery, and per-Host UI resolution enforce this lifecycle contract. The
-coordination transcript and disposition semantics remain separate later work.
+coordination transcript and typed dispositions use that same Session substrate.
 
 The per-Host boundary is intentional. A Coordination Session coordinates only the
 ordinary Sessions belonging to the same Runtime Host. Switching Runtime Hosts
@@ -72,6 +72,29 @@ The Coordination Session is authoritative only for the coordination conversation
 It never acquires authority over an ordinary Session's execution or lifecycle.
 
 ## Dispositions and action admission
+
+An admitted Coordination request owns a real root Turn and Run in the reserved
+WorkHub Session. `answer_here` executes the existing model answer path. Action
+Turns execute the Host operation through the same Runtime admission, execution
+ownership, terminal commit, and recovery machinery; admission does not require an
+extra model call. Intent, Resolver, and clarification can later invoke models
+inside this coordination execution without changing target Session authority.
+
+A successful Action Run writes a host-authored, model-hidden
+`RuntimeEvent.actions.coordination` receipt. The transcript projects it as an
+`action_receipt`, not an invented assistant response. Clarification carries its
+prompt; resume carries the target reference and admission acknowledgement.
+The synthetic `workhub.coordination.record` operation is removed. Released history
+remains readable without inventing admissions for old summary rows.
+
+A receipt acknowledges what the operation accepted; it is not the target's current
+execution state. Re-delivery of a completed request returns that receipt, including
+after restart, without repeating the effect. Failed attempts remain terminal;
+a same-action retry gets a subsequent admitted Turn. An interrupted Host action is
+closed by Runtime recovery and never replayed as a model answer. Target-owned
+claims, assignment atomicity, and resume source-boundary checks still decide
+whether an unfinished effect can continue. Transactional delegation/Stop facts
+remain authoritative for their existing ownership and linkage projections.
 
 Every WorkHub input resolves to exactly one proposed **disposition**:
 
@@ -277,8 +300,8 @@ lets the stop reach a terminal resolution.
   replacement. Its target comes from the shared Session Resolver port, whose
   first implementation is a temporary exact-name baseline; replacing it changes
   recall only, because admission revalidates opaque identity and expected state
-  rather than any display name. Pause, resume, and pronoun-based stop controls
-  remain later work.
+  rather than any display name. Named resume uses ordinary Session continuation admission. Pause and
+  pronoun-based stop controls remain later work.
 
 Reevaluate the per-Host decision if supported workflows require one WorkHub
 conversation to coordinate ordinary Sessions on multiple Runtime Hosts, or if Host

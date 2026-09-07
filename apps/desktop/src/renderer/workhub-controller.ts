@@ -144,6 +144,7 @@ export interface WorkHubCoordinationTurn {
     readonly targetSessionName: string;
     readonly outcome?: Extract<WorkHubCoordinationActResult, { disposition: 'stop_work' }>['outcome'];
   };
+  resume?: Extract<WorkHubCoordinationActResult, { disposition: 'resume_work' }>;
   updatedAt: number;
 }
 
@@ -264,11 +265,6 @@ export interface WorkHubCoordinationPort {
     handler: (turns: readonly WorkHubCoordinationTurn[]) => void,
     onError: (error: unknown) => void,
   ): Promise<{ close(): Promise<void> }>;
-  record(input: {
-    turnId: string;
-    userText: string;
-    assistantText: string;
-  }): Promise<{ turnId: string }>;
   candidates(): Promise<WorkHubCoordinationCandidatesResult>;
   act(input: Omit<WorkHubCoordinationActInput, 'create'>): Promise<WorkHubCoordinationActResult>;
 }
@@ -282,11 +278,11 @@ export interface WorkHubController {
     ) => void,
     onError: (error: unknown) => void,
   ): Promise<{ close(): Promise<void> }>;
-  recordConversationTurn(input: {
+  requestClarification(input: {
     turnId: string;
     userText: string;
     assistantText: string;
-    disposition?: 'clarify' | 'summary';
+    disposition: 'clarify';
   }): Promise<{ turnId: string }>;
   subscribe(handler: () => void): () => void;
   resetVisitContext(): void;
@@ -527,26 +523,16 @@ export function createWorkHubController(deps: {
         },
       };
     },
-    async recordConversationTurn(input) {
-      if (input.disposition === 'clarify') {
-        const result = await coordination.act({
-          actionId: input.turnId,
-          userText: input.userText,
-          proposal: {
-            disposition: 'clarify',
-            assistantText: input.assistantText,
-          },
-        });
-        if (result.disposition !== 'clarify') {
-          throw new Error('WorkHub Action Gate returned an unexpected disposition');
-        }
-        return { turnId: result.coordinationTurnId };
-      }
-      return coordination.record({
-        turnId: input.turnId,
+    async requestClarification(input) {
+      const result = await coordination.act({
+        actionId: input.turnId,
         userText: input.userText,
-        assistantText: input.assistantText,
+        proposal: { disposition: 'clarify', assistantText: input.assistantText },
       });
+      if (result.disposition !== 'clarify') {
+        throw new Error('WorkHub Action Gate returned an unexpected disposition');
+      }
+      return { turnId: result.coordinationTurnId };
     },
     subscribe(handler) {
       return deps.sessions.subscribe(handler);

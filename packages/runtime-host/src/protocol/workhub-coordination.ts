@@ -86,12 +86,6 @@ export interface WorkHubCoordinationAnswerInput {
   readonly attachments?: AttachmentRef[];
 }
 
-export interface WorkHubCoordinationRecordInput {
-  readonly turnId: string;
-  readonly userText: string;
-  readonly assistantText: string;
-}
-
 export interface WorkHubCoordinationTurnResult {
   readonly turnId: string;
 }
@@ -189,40 +183,8 @@ export interface WorkHubCoordinationActInput {
   readonly confirmation?: WorkHubCoordinationDestructiveConfirmation;
 }
 
-export type WorkHubCoordinationActResult =
-  | { readonly disposition: 'answer_here'; readonly coordinationTurnId: string }
-  | { readonly disposition: 'clarify'; readonly coordinationTurnId: string }
-  | {
-      readonly disposition: 'delegate_existing';
-      readonly targetSessionId: string;
-      readonly targetTurnId: string;
-      readonly steered?: true;
-    }
-  | {
-      readonly disposition: 'create_new';
-      readonly targetSessionId: string;
-      readonly targetTurnId: string;
-      readonly steered?: true;
-    }
-  | {
-      readonly disposition: 'replace';
-      readonly replacementDisposition: 'delegate_existing' | 'create_new';
-      readonly targetSessionId: string;
-      readonly targetTurnId: string;
-      readonly steered?: true;
-    }
-  | {
-      readonly disposition: 'stop_work';
-      readonly outcome: 'cancelled_pending' | 'stop_delivered' | 'already_terminal' | 'not_owned';
-      readonly targetSessionId: string;
-      readonly targetTurnId?: string;
-    }
-  | {
-      readonly disposition: 'resume_work';
-      readonly outcome: 'resume_started' | 'already_running';
-      readonly targetSessionId: string;
-      readonly targetTurnId?: string;
-    };
+export type { WorkHubActionResult as WorkHubCoordinationActResult } from '@maka/core/workhub-action-result';
+import type { WorkHubActionResult as WorkHubCoordinationActResult } from '@maka/core/workhub-action-result';
 
 export const WORKHUB_COORDINATION_OPERATION_SPECS = {
   'workhub.coordination.resolve': defineOperation<
@@ -245,17 +207,6 @@ export const WORKHUB_COORDINATION_OPERATION_SPECS = {
     availability: 'ready',
     errors: TURN_ERRORS,
     decodeInput: decodeWorkHubCoordinationAnswerInput,
-    decodeOutput: decodeWorkHubCoordinationTurnResult,
-  }),
-  'workhub.coordination.record': defineOperation<
-    WorkHubCoordinationRecordInput,
-    WorkHubCoordinationTurnResult,
-    (typeof TURN_ERRORS)[number]
-  >({
-    mode: 'command',
-    availability: 'ready',
-    errors: TURN_ERRORS,
-    decodeInput: decodeWorkHubCoordinationRecordInput,
     decodeOutput: decodeWorkHubCoordinationTurnResult,
   }),
   'workhub.coordination.candidates': defineOperation<
@@ -319,29 +270,6 @@ export function decodeWorkHubCoordinationAnswerInput(
       input.text,
       'WorkHub Coordination answer text',
       WORKHUB_COORDINATION_TEXT_MAX_BYTES,
-    ),
-  };
-}
-
-export function decodeWorkHubCoordinationRecordInput(
-  value: unknown,
-): WorkHubCoordinationRecordInput {
-  const input = requireExactRecord(value, 'WorkHub Coordination record input', [
-    'turnId',
-    'userText',
-    'assistantText',
-  ]);
-  return {
-    turnId: requireEntityId(input.turnId, 'WorkHub Coordination Turn id'),
-    userText: requireUtf8String(
-      input.userText,
-      'WorkHub Coordination user text',
-      WORKHUB_COORDINATION_TEXT_MAX_BYTES,
-    ),
-    assistantText: requireUtf8String(
-      input.assistantText,
-      'WorkHub Coordination assistant text',
-      WORKHUB_COORDINATION_SUMMARY_MAX_BYTES,
     ),
   };
 }

@@ -50,18 +50,12 @@ const WORKHUB_COORDINATION_LATEST_RECORD_MAX_BYTES = 512 * 1024;
 export function createDesktopWorkHubCoordinationPort(deps: {
   sessionId: string;
   transcripts: WorkHubDesktopTranscriptBridge;
-  record(input: {
-    turnId: string;
-    userText: string;
-    assistantText: string;
-  }): Promise<{ turnId: string }>;
   candidates(): Promise<WorkHubCoordinationCandidatesResult>;
   act(
     input: Omit<WorkHubCoordinationActInput, 'create'>,
   ): Promise<OperationOutcome<'workhub.coordination.act'>>;
 }): WorkHubCoordinationPort {
   return {
-    record: deps.record,
     candidates: deps.candidates,
     async act(input) {
       const outcome = await deps.act(input);
@@ -164,6 +158,15 @@ export function projectWorkHubCoordinationTurns(
   const stateByTurnId = new Map(
     deriveTurnRecords(messages).map((turn) => [turn.turnId, projectState(turn.status)]),
   );
+  const factualTurnIds = new Set(messages.flatMap((message) => {
+    if (message.type !== 'workhub_coordination') return [];
+    if (message.kind === 'action_receipt' && message.receipt.result.disposition === 'clarify') {
+      return [message.receipt.actionId];
+    }
+    return message.kind === 'delegation_assigned' || message.kind === 'delegation_stop_requested'
+      ? [message.coordinationTurnId]
+      : [];
+  }));
   const turns: WorkHubCoordinationTurn[] = [];
   const latestUserIndexByTurnId = new Map<string, number>();
   const terminalLinkState = new Map<string, 'superseded' | 'aborted' | 'stopped'>();
@@ -180,6 +183,26 @@ export function projectWorkHubCoordinationTurns(
   }
 
   for (const message of messages) {
+    if (message.type === 'workhub_coordination' && message.kind === 'action_receipt') {
+      const { receipt } = message;
+      if (receipt.result.disposition === 'clarify' || receipt.result.disposition === 'resume_work') {
+        const earlier = latestUserIndexByTurnId.get(message.turnId);
+        const row = {
+          messageId: message.id,
+          turnId: receipt.actionId,
+          text: boundedWorkHubTimelineText(receipt.userText),
+          ...(receipt.result.disposition === 'resume_work' ? { resume: receipt.result } : {}),
+          ...(receipt.clarification
+            ? { result: boundedWorkHubTimelineText(receipt.clarification) }
+            : {}),
+          state: stateByTurnId.get(message.turnId) ?? 'running',
+          updatedAt: message.ts,
+        };
+        if (earlier !== undefined) turns[earlier] = row;
+        else turns.push(row);
+      }
+      continue;
+    }
     if (message.type === 'workhub_coordination' && message.kind === 'delegation_stop_requested') {
       const resolution = stopResolutionByDelegationId.get(message.stopsDelegationId);
       turns.push({
@@ -219,6 +242,7 @@ export function projectWorkHubCoordinationTurns(
       continue;
     }
     if (message.type === 'user') {
+      if (factualTurnIds.has(message.turnId)) continue;
       const text = boundedWorkHubTimelineText(userFacingText(message));
       if (!text) continue;
       turns.push({

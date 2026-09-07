@@ -17,6 +17,7 @@
  * under the License.
  */
 
+import type { WorkHubActionReceipt } from '@maka/core/workhub-action-result';
 import type { AgentRunStore } from '@maka/core/agent-run';
 import { agentRunCompositionFromEvents } from '@maka/core/agent-run';
 import type { RuntimeInvocationRecord } from '@maka/core/runtime-invocation';
@@ -170,6 +171,12 @@ export interface RuntimeKernelLike {
   resumeContinuation?(
     continuation: RuntimeContinuation,
     options?: ResumeContinuationOptions,
+  ): AsyncIterable<SessionEvent>;
+  runCoordinationOperation(
+    sessionId: string,
+    input: UserMessageInput,
+    options: TurnStartOptions,
+    execute: () => Promise<WorkHubActionReceipt>,
   ): AsyncIterable<SessionEvent>;
   compactSession(sessionId: string, input?: CompactSessionInput): AsyncIterable<SessionEvent>;
   preflightContextCompaction(sessionId: string): Promise<void>;
@@ -954,6 +961,116 @@ export class RuntimeKernel implements RuntimeKernelLike {
       () => this.revalidateContinuationSafety(continuation),
       inheritedSandboxBoundaryDenied,
     );
+  }
+
+  /** Host coordination uses the same Run owner and terminal authority without a provider send. */
+  async *runCoordinationOperation(
+    sessionId: string,
+    input: UserMessageInput,
+    options: TurnStartOptions,
+    execute: () => Promise<WorkHubActionReceipt>,
+  ): AsyncIterable<SessionEvent> {
+    const execution = this.takeExecutionClaim(sessionId);
+    try {
+      await this.enterExecutionClaim(execution);
+      const header = await this.deps.store.readHeader(sessionId);
+      const run = new AgentRun({
+        sessionId,
+        header,
+        userInput: input,
+        runId: options.runId,
+        userMessageId: options.userMessageId,
+        durability: 'required',
+        store: this.deps.store,
+        runStore: this.deps.runStore,
+        runtimeEventStore: this.deps.runtimeEventStore,
+        newId: this.deps.newId,
+        now: this.deps.now,
+        effectiveOrchestration: resolveEffectiveOrchestration('default', undefined),
+        hooks: {
+          reserveRun: async (id, nextHeader, activeRun) => {
+            const active = await this.reserveParentRun(id, nextHeader, activeRun, execution);
+            this.reserveExecutionClaim(execution, active, activeRun);
+            return active;
+          },
+          unregisterRun: (active, activeRun) => this.unregisterParentRun(active, activeRun),
+          updateHeader: (id, patch) => this.updateHeader(id, patch),
+          updateStatus: (id, status, reason, ts) => this.updateStatus(id, status, reason, ts),
+          appendTurnState: (id, turnId, status, lineage, stateOptions) =>
+            this.appendTurnState(id, turnId, status, lineage, stateOptions),
+        },
+      });
+      this.attachExecutionClaim(execution, run);
+      const owners = this.createRunOwnerScope(run, execution);
+      try {
+        owners.bindMessage(this.deps.messageAuthority, {
+          sessionId,
+          turnId: input.turnId,
+          runId: run.runId,
+        });
+        await this.runBackendActivation(async () => {
+          run.bindProviderStateIdentity(
+            await this.prepareBackendForExecution(sessionId, header, execution),
+          );
+          await run.begin();
+        });
+        await options.onRunStarted?.(run.runId, header);
+        this.settleReservedExecutionClaim(execution, run, { ok: true });
+      } catch (error) {
+        await this.finalizeFailedRunStart(owners, run, execution, error);
+        return;
+      }
+      try {
+        if (run.isStopped()) return;
+        const receipt = await execute();
+        const receiptEvent: RuntimeEvent = {
+          id: this.deps.newId(),
+          sessionId,
+          turnId: input.turnId,
+          runId: run.runId,
+          invocationId: run.runId,
+          ts: this.deps.now(),
+          partial: false,
+          role: 'system',
+          author: 'host',
+          modelVisibility: 'hidden',
+          actions: { coordination: receipt },
+        };
+        await run.recordRuntimeEvents([receiptEvent], { requireDurableWrite: true });
+        if (run.isStopped()) return;
+        const complete: CompleteEvent = {
+          type: 'complete',
+          id: this.deps.newId(),
+          turnId: input.turnId,
+          ts: this.deps.now(),
+          stopReason: 'end_turn',
+        };
+        await run.acceptMappedEvent(
+          complete,
+          mapSessionEventToRuntimeEvent(
+            complete,
+            this.runtimeEventMapContext({
+              sessionId,
+              invocationId: run.runId,
+              runId: run.runId,
+              turnId: input.turnId,
+            }),
+          ),
+          { requireTerminalWrite: true },
+        );
+        yield complete;
+      } catch (error) {
+        await run.recordFailure(error);
+        throw error;
+      } finally {
+        const failures = new FailureCollector();
+        await failures.capture(() => owners.finalize());
+        await failures.capture(() => owners.releaseMessage());
+        failures.throwIfAny(`Coordination cleanup failed for ${run.runId}`);
+      }
+    } finally {
+      this.releaseExecutionClaim(execution);
+    }
   }
 
   async *compactSession(

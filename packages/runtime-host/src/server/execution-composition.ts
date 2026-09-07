@@ -1619,13 +1619,13 @@ export async function createExecutionRuntimeHostComposition(
                           .update(input.replacesDelegationId, 'utf8')
                           .digest('hex')
                           .slice(0, 48)}`,
-                        turnId: input.actionId,
+                        turnId: input.coordinationTurnId ?? input.actionId,
                         ts: assignedAt,
                         schemaVersion: WORKHUB_COORDINATION_REPLACEMENT_SCHEMA_VERSION,
                         kind: 'delegation_superseded' as const,
                         actionId: input.actionId,
                         actionFingerprint: input.actionFingerprint,
-                        coordinationTurnId: input.actionId,
+                        coordinationTurnId: input.coordinationTurnId ?? input.actionId,
                         supersededActionId: input.replacesActionId,
                         supersededDelegationId: input.replacesDelegationId,
                         replacementDelegationId: delegationId,
@@ -1635,7 +1635,7 @@ export async function createExecutionRuntimeHostComposition(
                   assignment: {
                     type: 'workhub_coordination',
                     id: `wha_${suffix}`,
-                    turnId: input.actionId,
+                    turnId: input.coordinationTurnId ?? input.actionId,
                     ts: assignedAt,
                     schemaVersion: supersession
                       ? WORKHUB_COORDINATION_REPLACEMENT_SCHEMA_VERSION
@@ -1643,7 +1643,7 @@ export async function createExecutionRuntimeHostComposition(
                     kind: 'delegation_assigned',
                     actionId: input.actionId,
                     actionFingerprint: input.actionFingerprint,
-                    coordinationTurnId: input.actionId,
+                    coordinationTurnId: input.coordinationTurnId ?? input.actionId,
                     targetSessionId: input.targetSessionId,
                     targetSessionName: input.targetSessionName,
                     targetTurnId: turnId,

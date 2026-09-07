@@ -17,7 +17,9 @@
  * under the License.
  */
 
+import { workHubCoordinationTurnId } from '../server/workhub-coordination-action-gate.js';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { runtimeInvocationOutcome } from '@maka/core/runtime-invocation';
 import { createRunCompositionSnapshot } from '@maka/core/run-composition';
 import type { BackendSendInput } from '@maka/core/backend-types';
@@ -832,7 +834,17 @@ test('production composition commits automatic titles through Host-owned Session
 test('WorkHub creates new work through the production assignment composition', async () => {
   await withCompositionRoot(async ({ root, owner }) => {
     const connectionId = await configureFakeDefaultTarget(owner);
-    const { composition, manager } = await createCapturedExecutionComposition(owner);
+    let coordinationModelCalls = 0;
+    const { composition, manager } = await createCapturedExecutionComposition(owner, {
+      primaryBackendFactory: (backendContext) =>
+        new (class extends FakeBackend {
+          override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+            if (backendContext.header.id === 'maka_workhub_coordination')
+              coordinationModelCalls += 1;
+            yield* super.send(input);
+          }
+        })(backendContext),
+    });
     const context = {
       hostEpoch: 'execution-composition-test',
       connectionId: 'workhub-create-client',
@@ -854,6 +866,76 @@ test('WorkHub creates new work through the production assignment composition', a
 
       assert.equal(created.ok, true, JSON.stringify(created));
       if (!created.ok || created.result.disposition !== 'create_new') return;
+      const coordinationStores = await openInteractiveExecutionStoresForWrite(owner.lease);
+      const admission = await coordinationStores.agentRunStore.readRootTurnAdmission(
+        'maka_workhub_coordination',
+        'workhub-create-action',
+      );
+      assert.ok(admission, 'Delegation must belong to an admitted Coordination Turn');
+      assert.equal(admission.execution.kind, 'workhub_coordination');
+      const events = await coordinationStores.runtimeEventStore.readImmutableRuntimeEvents(
+        admission.sessionId,
+        admission.runId,
+      );
+      assert.equal(
+        events.find((event) => event.actions?.coordination)?.actions?.coordination?.result
+          .disposition,
+        'create_new',
+      );
+      assert.ok(events.some((event) => event.status === 'completed'));
+      assert.equal(
+        events.some((event) => event.role === 'model'),
+        false,
+      );
+      const transcript = await coordinationStores.sessionStore.readMessages(admission.sessionId);
+      assert.ok(
+        transcript.some(
+          (message) => message.type === 'workhub_coordination' && message.kind === 'action_receipt',
+        ),
+        'The shared transcript must expose the Runtime receipt to Desktop',
+      );
+      const replayed = await composition.handlers['workhub.coordination.act'](
+        {
+          actionId: 'workhub-create-action',
+          userText: 'Fix login stability',
+          proposal: { disposition: 'create_new', title: 'Login stability' },
+          create: { workspace: { kind: 'host_path', path: root } },
+        },
+        context,
+      );
+      assert.deepEqual(replayed, created);
+      const clarifyInput = {
+        actionId: 'workhub-clarify',
+        userText: 'Which task?',
+        proposal: { disposition: 'clarify' as const, assistantText: 'Please name the task.' },
+      };
+      const clarified = await composition.handlers['workhub.coordination.act'](
+        clarifyInput,
+        context,
+      );
+      assert.ok(clarified.ok, JSON.stringify(clarified));
+      assert.equal(clarified.result.disposition, 'clarify');
+      if (clarified.result.disposition === 'clarify') {
+        assert.ok(
+          await coordinationStores.agentRunStore.readRootTurnAdmission(
+            admission.sessionId,
+            clarified.result.coordinationTurnId,
+          ),
+        );
+      }
+      assert.deepEqual(
+        await composition.handlers['workhub.coordination.act'](clarifyInput, context),
+        clarified,
+      );
+      const changed = await composition.handlers['workhub.coordination.act'](
+        {
+          ...clarifyInput,
+          proposal: { disposition: 'clarify', assistantText: 'Different content' },
+        },
+        context,
+      );
+      assert.equal(changed.ok, false);
+      assert.equal(coordinationModelCalls, 0, 'Actions must not start a model answer in WorkHub');
       const targetSessionId = created.result.targetSessionId;
       const session = (await manager.listSessions()).find(({ id }) => id === targetSessionId);
       assert.equal(session?.name, 'Login stability');
@@ -883,6 +965,93 @@ test('WorkHub creates new work through the production assignment composition', a
       if (stopped.ok) assert.equal(stopped.result.disposition, 'stop_work');
     } finally {
       await composition.close();
+    }
+  });
+});
+
+test('interrupted Coordination admission recovers without a model and retries in a new Turn', async () => {
+  await withCompositionRoot(async ({ root, owner }) => {
+    await configureFakeDefaultTarget(owner);
+    const context = {
+      hostEpoch: 'coordination-recovery',
+      connectionId: 'client',
+      principal: 'local_os_user' as const,
+      acquireResidency: () => ({ release() {} }),
+    };
+    const first = await createCapturedExecutionComposition(owner);
+    await first.composition.handlers['workhub.coordination.resolve']({}, context);
+    await first.composition.close();
+    const request = {
+      actionId: 'orphaned-action',
+      userText: 'Which task?',
+      proposal: { disposition: 'clarify' as const, assistantText: 'Please name a task.' },
+    };
+    const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
+    await stores.agentRunStore.admitRootTurn({
+      sessionId: 'maka_workhub_coordination',
+      turnId: workHubCoordinationTurnId(request.actionId, 'clarify'),
+      proposedRunId: 'orphaned-run',
+      proposedUserMessageId: 'orphaned-user',
+      execution: {
+        kind: 'workhub_coordination',
+        operation: 'action',
+        inputDigest: `sha256:${createHash('sha256').update(JSON.stringify(request)).digest('hex')}`,
+      },
+      previousRootTurnId: null,
+      normalizedInput: { text: request.userText },
+      sourceMessages: [],
+      admittedAt: 1,
+    });
+    await owner.close();
+    const reopened = await tryAcquireInteractiveRootOwner(
+      await resolveStorageRoot({ path: root, kind: 'interactive' }),
+    );
+    assert.ok(reopened);
+    let modelCalls = 0;
+    try {
+      const recovered = await createCapturedExecutionComposition(reopened, {
+        primaryBackendFactory: (backendContext) =>
+          new (class extends FakeBackend {
+            override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+              modelCalls += 1;
+              yield* super.send(input);
+            }
+          })(backendContext),
+      });
+      try {
+        const reopenedStores = await openInteractiveExecutionStoresForWrite(reopened.lease);
+        const oldRun = (
+          await reopenedStores.runtimeEventStore.listSessionInvocations('maka_workhub_coordination')
+        ).find((run) => run.runId === 'orphaned-run');
+        assert.ok(oldRun);
+        assert.equal(runtimeInvocationOutcome(oldRun), 'failed');
+        const retried = await recovered.composition.handlers['workhub.coordination.act'](
+          request,
+          context,
+        );
+        assert.ok(retried.ok, JSON.stringify(retried));
+        assert.equal(retried.result.disposition, 'clarify');
+        if (retried.result.disposition !== 'clarify') return;
+        assert.notEqual(
+          retried.result.coordinationTurnId,
+          workHubCoordinationTurnId(request.actionId, 'clarify'),
+        );
+        const retryAdmission = await reopenedStores.agentRunStore.readRootTurnAdmission(
+          'maka_workhub_coordination',
+          retried.result.coordinationTurnId,
+        );
+        assert.ok(retryAdmission);
+        assert.notEqual(retryAdmission.runId, 'orphaned-run');
+        assert.deepEqual(
+          await recovered.composition.handlers['workhub.coordination.act'](request, context),
+          retried,
+        );
+        assert.equal(modelCalls, 0);
+      } finally {
+        await recovered.composition.close();
+      }
+    } finally {
+      await reopened.close();
     }
   });
 });
@@ -1059,8 +1228,15 @@ test('WorkHub Resume and Stop follow logical lineage across repeated physical ha
         },
       };
       const replayed = await composition.handlers['workhub.coordination.act'](retry, context);
-      assert.equal(replayed.ok, false, JSON.stringify(replayed));
-      if (!replayed.ok) assert.equal(replayed.error.code, 'operation_conflict');
+      // Re-delivery acknowledges the original Coordination Run; it must never
+      // resume a later interruption under the same action identity.
+      assert.equal(replayed.ok, true, JSON.stringify(replayed));
+      const stillInterrupted = await composition.handlers['turn.query'](
+        { sessionId: target.id, turnId: continuation.turnId },
+        context,
+      );
+      assert.ok(stillInterrupted.ok);
+      assert.notEqual(stillInterrupted.result.status, 'running');
       const fresh = await composition.handlers['workhub.coordination.act'](
         { ...retry, actionId: 'workhub-resume-again' },
         context,
@@ -1220,9 +1396,21 @@ test('WorkHub does not record resume while safe-boundary resume is disabled', as
           message: 'Safe-boundary resume is disabled for this Runtime Host',
         },
       });
-      await composition.close();
       const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
       assert.equal(await stores.sessionStore.readWorkHubActionClaim(actionId), undefined);
+      const clarified = await composition.handlers['workhub.coordination.act'](
+        {
+          actionId,
+          userText: 'Resume Payments',
+          proposal: {
+            disposition: 'clarify',
+            assistantText: 'Resume is unavailable on this Host.',
+          },
+        },
+        context,
+      );
+      assert.ok(clarified.ok, JSON.stringify(clarified));
+      assert.equal(clarified.result.disposition, 'clarify');
     } finally {
       await composition.close();
     }

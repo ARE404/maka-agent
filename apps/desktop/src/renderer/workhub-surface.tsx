@@ -173,21 +173,22 @@ export async function submitAndRecordWorkHubSurfaceInput(input: {
   // accepted and must not consume the immutable Coordination summary owned by
   // this action identity. A later same-identity retry may still be admitted.
   // Delegations project directly from the Host's atomic delegation_assigned
-  // record. Only local clarification still needs the generic summary path.
+  // record. Local clarification is submitted as its own admitted Host action.
   if (
     result.kind === 'discussion' ||
     result.kind === 'waiting' ||
     result.kind === 'submitted' ||
-    result.kind === 'stop'
+    result.kind === 'stop' ||
+    result.kind === 'resume'
   ) {
     return result;
   }
   try {
-    await input.controller.recordConversationTurn({
+    await input.controller.requestClarification({
       turnId: input.request.requestId,
       userText: input.recordedUserText,
       assistantText: input.summary(result),
-      disposition: result.kind === 'clarification' ? 'clarify' : 'summary',
+      disposition: 'clarify',
     });
   } catch (error) {
     input.onSummaryError();
@@ -658,6 +659,18 @@ export function WorkHubCoordinationTurnView(props: {
             : props.turn.stop.outcome
               ? copy.stopRecorded
               : copy.stopping}
+          result={undefined}
+          copy={copy}
+          onOpenSession={props.onOpenSession}
+        />
+      ) : props.turn.resume ? (
+        <SubmittedWorkView
+          session={props.projection.sessions.find(
+            (candidate) => candidate.target.sessionId === props.turn.resume!.targetSessionId,
+          )}
+          targetSessionId={props.turn.resume.targetSessionId}
+          heading={copy.resumeOutcomes[props.turn.resume.outcome]}
+          state={copy.resumeRequested}
           result={undefined}
           copy={copy}
           onOpenSession={props.onOpenSession}

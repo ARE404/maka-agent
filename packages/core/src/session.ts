@@ -17,6 +17,8 @@
  * under the License.
  */
 
+import { isWorkHubActionReceipt, type WorkHubActionReceipt } from './workhub-action-result.js';
+
 import {
   MODEL_FAILURE_MESSAGE_MAX_BYTES,
   isModelRetryDecision,
@@ -1118,7 +1120,18 @@ export interface WorkHubActionClaim {
 
 export type WorkHubActionClaimOutcome = 'claimed' | 'same_claim' | 'conflict';
 
+export interface WorkHubCoordinationActionMessage {
+  type: 'workhub_coordination';
+  kind: 'action_receipt';
+  schemaVersion: 1;
+  id: string;
+  turnId: string;
+  ts: number;
+  receipt: WorkHubActionReceipt;
+}
+
 export type WorkHubCoordinationMessage =
+  | WorkHubCoordinationActionMessage
   | WorkHubDelegationAssignedMessage
   | WorkHubDelegationReplacementRequestedMessage
   | WorkHubDelegationReplacementAbortedMessage
@@ -1608,6 +1621,16 @@ function decodeMessage(
 }
 
 function isWorkHubCoordinationMessage(message: Record<string, unknown>): boolean {
+  if (message.kind === 'action_receipt')
+    return (
+      hasMessageEnvelope(message, true) &&
+      message.schemaVersion === 1 &&
+      Object.keys(message).every((k) =>
+        ['type', 'kind', 'schemaVersion', 'id', 'turnId', 'ts', 'receipt'].includes(k),
+      ) &&
+      isWorkHubActionReceipt(message.receipt)
+    );
+
   if (message.kind === 'delegation_stop_requested') {
     return (
       hasMessageEnvelope(message, true) &&

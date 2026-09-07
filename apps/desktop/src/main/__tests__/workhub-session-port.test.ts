@@ -448,7 +448,7 @@ test('Coordination transcript adapter never replays history and completes only t
         };
       },
     },
-    record: async (input) => ({ turnId: input.turnId }),
+
     candidates: async () => assert.fail('conversation open must not read route candidates'),
     act: async () => ({
       ok: true,
@@ -532,7 +532,7 @@ test('Coordination transcript adapter retries latest-record completion in the sa
         };
       },
     },
-    record: async (input) => ({ turnId: input.turnId }),
+
     candidates: async () => assert.fail('conversation open must not read route candidates'),
     act: async () => ({
       ok: true,
@@ -630,7 +630,7 @@ test('Coordination transcript adapter ignores a stale latest-record failure afte
         };
       },
     },
-    record: async (input) => ({ turnId: input.turnId }),
+
     candidates: async () => assert.fail('conversation open must not read route candidates'),
     act: async () => ({
       ok: true,
@@ -1157,4 +1157,29 @@ test('desktop adapter derives stable origin evidence from the existing Session l
   }]);
   assert.deepEqual(second, first);
   assert.equal(reads, 1);
+});
+
+
+test('admitted clarification and resume project receipts without assistant messages', () => {
+  const turns = projectWorkHubCoordinationTurns([
+    { type: 'user', id: 'failed-user', turnId: 'request', ts: 0, text: 'Which task?' },
+    { type: 'turn_state', id: 'failed-state', turnId: 'request', ts: 1, status: 'failed' },
+    { type: 'user', id: 'u', turnId: 'retry-turn', ts: 1, text: 'Which task?' },
+    { type: 'workhub_coordination', kind: 'action_receipt', schemaVersion: 1,
+      id: 'receipt', turnId: 'retry-turn', ts: 2,
+      receipt: { actionId: 'request', userText: 'Which task?', clarification: 'Please name a task.',
+        result: { disposition: 'clarify', coordinationTurnId: 'retry-turn' } } },
+    { type: 'turn_state', id: 'done', turnId: 'retry-turn', ts: 3, status: 'completed' },
+    { type: 'workhub_coordination', kind: 'action_receipt', schemaVersion: 1,
+      id: 'resume-receipt', turnId: 'resume-turn', ts: 4,
+      receipt: { actionId: 'resume', userText: 'Resume Payments',
+        result: { disposition: 'resume_work', outcome: 'resume_started', targetSessionId: 'payments', targetTurnId: 'target-turn' } } },
+    { type: 'turn_state', id: 'resume-done', turnId: 'resume-turn', ts: 5, status: 'completed' },
+  ]);
+  assert.equal(turns.length, 2);
+  assert.equal(turns[0]?.turnId, 'request');
+  assert.equal(turns[0]?.result, 'Please name a task.');
+  assert.equal(turns[0]?.state, 'completed');
+  assert.equal(turns[1]?.result, undefined);
+  assert.deepEqual(turns[1]?.resume, { disposition: 'resume_work', outcome: 'resume_started', targetSessionId: 'payments', targetTurnId: 'target-turn' });
 });
