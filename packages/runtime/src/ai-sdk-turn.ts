@@ -166,6 +166,7 @@ import {
 import { isHistoryCompactContentEvent } from './history-compaction.js';
 import {
   canContinueHistoryCompactCheckpointForModel,
+  historyCompactSourceDigest,
   isProviderHistoryCompactCheckpoint,
   matchHistoryCompactCheckpointPrefix,
   projectHistoryCompactCheckpointReplay,
@@ -1357,6 +1358,7 @@ export class AiSdkTurn {
               ]
             : turnEvents;
           let replayEvents = rawProjectionEvents;
+          let effectiveProjectionCheckpoint = projectionCheckpoint;
           if (projectionCheckpoint) {
             const checkpointMatch = matchHistoryCompactCheckpointPrefix(
               projectionCheckpoint,
@@ -1365,11 +1367,27 @@ export class AiSdkTurn {
             if (checkpointMatch.reason) {
               throw new Error(`durable checkpoint projection mismatch: ${checkpointMatch.reason}`);
             }
-            replayEvents = projectHistoryCompactCheckpointReplay(
-              projectionCheckpoint,
+            // Content-currency guard: the raw identity still matches, but a
+            // transition committed after this fold (e.g. an active-turn prune
+            // in this very send) changed the effective view the block was
+            // built from. Replay without the stale block — the provider
+            // decides fit and overflow recovery re-folds (#4845 review).
+            const pinnedEffectiveDigest = projectionCheckpoint.coverage.effectiveSourceDigest;
+            const coveredEffective = await this.deps.compaction.foldEffectiveModelHistory(
               checkpointMatch.coveredRuntimeEvents,
-              checkpointMatch.successorRuntimeEvents,
             );
+            if (
+              pinnedEffectiveDigest === undefined ||
+              historyCompactSourceDigest(coveredEffective) !== pinnedEffectiveDigest
+            ) {
+              effectiveProjectionCheckpoint = undefined;
+            } else {
+              replayEvents = projectHistoryCompactCheckpointReplay(
+                projectionCheckpoint,
+                checkpointMatch.coveredRuntimeEvents,
+                checkpointMatch.successorRuntimeEvents,
+              );
+            }
             // The checkpoint was capacity-validated before it was persisted.
             // Do not re-run that gate against a later, larger successor tail:
             // the active-step shaper must see that growth so it can roll the
@@ -1398,7 +1416,7 @@ export class AiSdkTurn {
             await this.deps.messageProjection.materializeRuntimeReplayPlan(
               replayPlan,
               this.imageBudget,
-              projectionCheckpoint,
+              effectiveProjectionCheckpoint,
               compatibleProviderReasoningReplayEventIds(
                 replayEvents,
                 input.runtimeContextInvocations,
@@ -1407,7 +1425,7 @@ export class AiSdkTurn {
                 this.runId,
               ),
             );
-          return projectionCheckpoint
+          return effectiveProjectionCheckpoint
             ? currentTurnMessages
             : [...priorReplay.messages, ...currentTurnMessages];
         };
@@ -2866,8 +2884,18 @@ export class AiSdkTurn {
       this.deps.backend.modelId,
     );
     let contextBudget = preparedContextBudget.policy;
-    const budgeted = applyRuntimeEventContextBudget(priorRuntimeContext, contextBudget);
-    let runtimeContext = budgeted?.events ?? priorRuntimeContext;
+    // Match the durable checkpoint against the RAW ledger prefix: every
+    // creation path (standalone compactHistory and the mid-turn state) pins
+    // its coverage digest on raw events, so matching the folded view here
+    // lets any durable projection transition inside the covered prefix orphan
+    // the checkpoint and silently fail open into a full-history replay
+    // (#4842). The projected [block, tail] is then folded through the
+    // transition reducer before it becomes messages, so a committed
+    // transition still cannot resurrect content for the model (#4283).
+    const budgeted = applyRuntimeEventContextBudget(rawPriorRuntimeContext, contextBudget);
+    let runtimeContext = await this.deps.compaction.foldEffectiveModelHistory(
+      budgeted?.events ?? rawPriorRuntimeContext,
+    );
     let contextBudgetDiagnostic = budgeted?.diagnostic;
     let projectedHistoryCompactCheckpoint = budgeted?.historyCompactCheckpoint;
     if (preparedContextBudget.diagnosticPatch) {
