@@ -354,6 +354,7 @@ interface PendingExecutionClaim {
   rejectSettled(error: unknown): void;
   phase: 'pending' | 'attached' | 'reserved' | 'released' | 'failed';
   run?: AgentRun;
+  hostOperation?: true;
   backendPreparation?: PreparedBackendActivation;
   stopIntent?: SessionStopIntent;
   finalization?: ExecutionClaimOutcome;
@@ -971,6 +972,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     execute: () => Promise<WorkHubActionReceipt>,
   ): AsyncIterable<SessionEvent> {
     const execution = this.takeExecutionClaim(sessionId);
+    execution.hostOperation = true;
     try {
       await this.enterExecutionClaim(execution);
       const header = await this.deps.store.readHeader(sessionId);
@@ -1008,21 +1010,24 @@ export class RuntimeKernel implements RuntimeKernelLike {
           turnId: input.turnId,
           runId: run.runId,
         });
-        await this.runBackendActivation(async () => {
-          run.bindProviderStateIdentity(
-            await this.prepareBackendForExecution(sessionId, header, execution),
-          );
-          await run.begin();
-        });
+        // Keep the execution claim attached until finalization. Stop/drain can
+        // therefore cancel and await this Run without a provider generation.
+        await run.beginCoordination();
         await options.onRunStarted?.(run.runId, header);
-        this.settleReservedExecutionClaim(execution, run, { ok: true });
       } catch (error) {
         await this.finalizeFailedRunStart(owners, run, execution, error);
         return;
       }
       try {
         if (run.isStopped()) return;
-        const receipt = await execute();
+        const executed = await execute();
+        const receipt: WorkHubActionReceipt = {
+          ...executed,
+          result:
+            executed.result.disposition === 'clarify'
+              ? { ...executed.result, coordinationTurnId: input.turnId }
+              : executed.result,
+        };
         const receiptEvent: RuntimeEvent = {
           id: this.deps.newId(),
           sessionId,
@@ -1070,6 +1075,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       }
     } finally {
       this.releaseExecutionClaim(execution);
+      await this.flushBackendInvalidation(sessionId);
     }
   }
 
@@ -2183,25 +2189,29 @@ export class RuntimeKernel implements RuntimeKernelLike {
     );
   }
 
+  private activeRunsFor(sessionId: string): AgentRun[] {
+    const runs = new Set<AgentRun>();
+    for (const active of this.backendGenerationsFor(sessionId)) {
+      for (const run of active.activeRuns.values()) runs.add(run);
+    }
+    for (const claim of this.executionClaims.get(sessionId) ?? []) {
+      if (claim.hostOperation && claim.run) runs.add(claim.run);
+    }
+    return [...runs];
+  }
+
   hasActiveRuns(sessionId: string): boolean {
-    return this.backendGenerationsFor(sessionId).some((active) => active.activeRuns.size > 0);
+    return this.activeRunsFor(sessionId).length > 0;
   }
 
   runningTurnIds(sessionId: string): string[] {
-    const turnIds: string[] = [];
-    for (const active of this.backendGenerationsFor(sessionId)) {
-      for (const run of active.activeRuns.values()) {
-        if (!turnIds.includes(run.turnId)) turnIds.push(run.turnId);
-      }
-    }
-    return turnIds;
+    return [...new Set(this.activeRunsFor(sessionId).map((run) => run.turnId))];
   }
 
   hasActiveRun(sessionId: string, runId: string, turnId?: string): boolean {
-    return this.backendGenerationsFor(sessionId).some((active) => {
-      const run = active.activeRuns.get(runId);
-      return run !== undefined && (turnId === undefined || run.turnId === turnId);
-    });
+    return this.activeRunsFor(sessionId).some(
+      (run) => run.runId === runId && (turnId === undefined || run.turnId === turnId),
+    );
   }
 
   requestRunHandoff(

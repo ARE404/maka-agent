@@ -90,7 +90,11 @@ remains readable without inventing admissions for old summary rows.
 A receipt acknowledges what the operation accepted; it is not the target's current
 execution state. Re-delivery of a completed request returns that receipt, including
 after restart, without repeating the effect. Failed attempts remain terminal;
-a same-action retry gets a subsequent admitted Turn. An interrupted Host action is
+a same-action retry gets a subsequent admitted Turn. If the failed attempt already
+committed a receipt, the new Turn reuses that result without repeating the effect.
+Transcript projection failure is repaired separately and does not fail the operation.
+Host-only Turns retain execution ownership without activating a model provider.
+An interrupted Host action is
 closed by Runtime recovery and never replayed as a model answer. Target-owned
 claims, assignment atomicity, and resume source-boundary checks still decide
 whether an unfinished effect can continue. Transactional delegation/Stop facts

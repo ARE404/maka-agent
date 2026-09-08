@@ -1698,6 +1698,7 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
       return operationUnavailable('Coordination action requires a Host operation');
     }
     let turnId = request.turnId;
+    let recoveredReceipt: WorkHubActionReceipt | undefined;
     // A retry preserves the action identity, but never reopens a terminal Run.
     // The existing admission chain and terminal facts identify prior attempts.
     for (;;) {
@@ -1717,9 +1718,24 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
         run,
       );
       if (!isTerminalSnapshot(snapshot) || snapshot.status === 'completed') break;
+      // A crash after the receipt does not erase a completed Host effect.
+      const events = await this.stores.runtimeEventStore.readImmutableRuntimeEvents(
+        request.sessionId,
+        admission.runId,
+      );
+      recoveredReceipt ??= events.find((event) => event.actions?.coordination)?.actions
+        ?.coordination;
       turnId = `whretry_${createHash('sha256').update(admission.runId).digest('hex').slice(0, 48)}`;
     }
-    const started = await this.startWorkHubCoordinationMessage({ ...request, turnId }, context);
+    const receiptToReplay = recoveredReceipt;
+    const started = await this.startWorkHubCoordinationMessage(
+      {
+        ...request,
+        turnId,
+        ...(receiptToReplay ? { operation: async () => receiptToReplay } : {}),
+      },
+      context,
+    );
     if (!started.ok) return started;
     const active = this.#executions.get(request.sessionId);
     if (active?.turnId === turnId) await active.done;
