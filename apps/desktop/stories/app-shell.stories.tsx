@@ -2217,7 +2217,13 @@ const HISTORY_BATCH = 4;
 const HISTORY_BATCHES_AVAILABLE = 8;
 
 /** A settled transcript with a turn the play function can make arrive. */
-function SettledTranscriptHarness({ turns }: { turns: number }) {
+function SettledTranscriptHarness({
+  turns,
+  composer,
+}: {
+  turns: number;
+  composer?: Partial<ComposerProps>;
+}) {
   const [extra, setExtra] = useState(0);
   useEffect(() => {
     appendTurn = () => setExtra((count) => count + 1);
@@ -2225,7 +2231,7 @@ function SettledTranscriptHarness({ turns }: { turns: number }) {
       appendTurn = undefined;
     };
   }, []);
-  return <ComposedShell chat={{ messages: transcriptTurns(0, turns + extra) }} />;
+  return <ComposedShell chat={{ messages: transcriptTurns(0, turns + extra) }} composer={composer} />;
 }
 
 /** The history seam is two props: `hasOlderHistory`, and a loader that prepends. */
@@ -2281,9 +2287,31 @@ export const TailFollowsGrowthOutsideTurns: Story = {
 };
 
 export const ReaderScrolledUpIsNotPulledBack: Story = {
-  render: () => <SettledTranscriptHarness turns={12} />,
+  render: () => (
+    <SettledTranscriptHarness
+      turns={12}
+      composer={{
+        contextUsage: {
+          usageTokens: 37_000,
+          declaredContextWindow: 100_000,
+          onOpen: noop,
+        },
+      }}
+    />
+  ),
   play: async () => {
     const root = tailScroller();
+    const contextGauge = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="打开用量追踪"]',
+    );
+    const scrollButtonPaintBoundary = dockButton().parentElement;
+    if (!contextGauge?.querySelector('svg') || !scrollButtonPaintBoundary) {
+      throw new Error('the context gauge or scroll-button paint boundary is missing');
+    }
+    const boundaryStyle = getComputedStyle(scrollButtonPaintBoundary);
+    // Chromium canonicalizes `layout style paint` to the equivalent `content`.
+    expect(boundaryStyle.contain).toBe('content');
+    expect(boundaryStyle.willChange).toContain('opacity');
     await waitFor(() => expect(tailMetrics().distance).toBeLessThanOrEqual(4));
 
     root.scrollTop -= 500;
@@ -2315,6 +2343,20 @@ export const ReaderScrolledUpIsNotPulledBack: Story = {
         JSON.stringify({ anchorTurnId, anchorTop, afterTop, ...tailMetrics() }),
       ).toBeLessThanOrEqual(4);
     });
+
+    // Returning to the tail fades the dock button. That transition must not
+    // re-raster the context gauge on the same compositing surface (#4973).
+    // Geometry alone cannot see a device-pixel repaint, so the boundary above
+    // pins the causal contract; these samples separately ensure the fix never
+    // turns into a real footer movement.
+    const iconTops: number[] = [];
+    root.scrollTop = root.scrollHeight;
+    root.dispatchEvent(new Event('scroll'));
+    for (let frame = 0; frame < 16; frame += 1) {
+      await painted(1);
+      iconTops.push(contextGauge.querySelector('svg')!.getBoundingClientRect().top);
+    }
+    expect(Math.max(...iconTops) - Math.min(...iconTops)).toBeLessThanOrEqual(0.25);
   },
 };
 
