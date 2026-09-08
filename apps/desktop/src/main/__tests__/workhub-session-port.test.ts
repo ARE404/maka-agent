@@ -1175,6 +1175,12 @@ test('admitted clarification and resume project receipts without assistant messa
       receipt: { actionId: 'resume', userText: 'Resume Payments',
         result: { disposition: 'resume_work', outcome: 'resume_started', targetSessionId: 'payments', targetTurnId: 'target-turn' } } },
     { type: 'turn_state', id: 'resume-done', turnId: 'resume-turn', ts: 5, status: 'completed' },
+    { type: 'workhub_coordination', kind: 'action_receipt', schemaVersion: 1,
+      id: 'resume-retry-receipt', turnId: 'resume-retry-turn', ts: 6,
+      receipt: { actionId: 'resume', userText: 'Resume Payments',
+        result: { disposition: 'resume_work', outcome: 'resume_started', targetSessionId: 'payments', targetTurnId: 'target-turn' } } },
+    { type: 'turn_state', id: 'resume-retry-done', turnId: 'resume-retry-turn', ts: 7, status: 'completed' },
+
   ]);
   assert.equal(turns.length, 2);
   assert.equal(turns[0]?.turnId, 'request');

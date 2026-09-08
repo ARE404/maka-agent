@@ -169,6 +169,7 @@ export function projectWorkHubCoordinationTurns(
   }));
   const turns: WorkHubCoordinationTurn[] = [];
   const latestUserIndexByTurnId = new Map<string, number>();
+  const receiptIndexByActionId = new Map<string, number>();
   const terminalLinkState = new Map<string, 'superseded' | 'aborted' | 'stopped'>();
   const stopResolutionByDelegationId = new Map(
     messages.flatMap((message) =>
@@ -186,7 +187,7 @@ export function projectWorkHubCoordinationTurns(
     if (message.type === 'workhub_coordination' && message.kind === 'action_receipt') {
       const { receipt } = message;
       if (receipt.result.disposition === 'clarify' || receipt.result.disposition === 'resume_work') {
-        const earlier = latestUserIndexByTurnId.get(message.turnId);
+        const earlier = receiptIndexByActionId.get(receipt.actionId) ?? latestUserIndexByTurnId.get(message.turnId);
         const row = {
           messageId: message.id,
           turnId: receipt.actionId,
@@ -198,8 +199,9 @@ export function projectWorkHubCoordinationTurns(
           state: stateByTurnId.get(message.turnId) ?? 'running',
           updatedAt: message.ts,
         };
-        if (earlier !== undefined) turns[earlier] = row;
-        else turns.push(row);
+        const index = earlier ?? turns.length;
+        turns[index] = row;
+        receiptIndexByActionId.set(receipt.actionId, index);
       }
       continue;
     }

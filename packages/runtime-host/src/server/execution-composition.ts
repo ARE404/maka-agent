@@ -1431,6 +1431,20 @@ export async function createExecutionRuntimeHostComposition(
         // delegation. A Session-wide latest-failure query could otherwise
         // continue unrelated work started directly in the same Session.
         resumeDelegation: async (assignment, context, actionId) => {
+          const targetTurnId = workHubResumedTurnId(actionId);
+          const admitted = await stores.agentRunStore.readRootTurnAdmission(
+            assignment.targetSessionId,
+            targetTurnId,
+          );
+          if (admitted) {
+            if (admitted.execution.kind !== 'safe_boundary_continuation') {
+              throw new WorkHubActionEffectFailure(
+                'operation_conflict',
+                'WorkHub resume identity is not a continuation',
+              );
+            }
+            return { outcome: 'resume_started' as const, targetTurnId };
+          }
           const disposition = await messages.readMessageExecutionDisposition(
             assignment.targetSessionId,
             assignment.targetMessageId,
@@ -1491,7 +1505,6 @@ export async function createExecutionRuntimeHostComposition(
               'WorkHub resume source lineage changed during planning',
             );
           }
-          const targetTurnId = workHubResumedTurnId(actionId);
           const started = await coordinator.handlers['turn.resume.start'](
             {
               sessionId: assignment.targetSessionId,

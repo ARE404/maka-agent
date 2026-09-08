@@ -92,8 +92,19 @@ execution state. Re-delivery of a completed request returns that receipt, includ
 after restart, without repeating the effect. Failed attempts remain terminal;
 a same-action retry gets a subsequent admitted Turn. If the failed attempt already
 committed a receipt, the new Turn reuses that result without repeating the effect.
-The shared transcript reader derives receipts directly from RuntimeEvents; no
-receipt is written back into the legacy message store.
+When target resume admission committed before a missing receipt, retry first
+consults the deterministic target Turn admission and acknowledges that original
+Turn. It does not plan another continuation from the newer target lineage.
+
+The shared transcript reader derives receipts directly from RuntimeEvents and
+retains legacy atomic linkage facts and released history. A rebuildable SQLite
+index holds only `(source, sourceSequence)` references in stable page order; it
+contains no message bodies, action results, or execution authority. Initial
+backfill and incremental refresh consume bounded source batches; normal pages
+seek the index and project bounded source batches/Turns. Wall-clock regressions
+and later appends cannot renumber existing pages. No receipt is written back into
+the legacy message store. The WorkHub view groups receipt retries by action
+identity rather than exposing each physical attempt as a new conversation card.
 Host-only Turns retain execution ownership without activating a model provider.
 An interrupted Host action is
 closed by Runtime recovery and never replayed as a model answer. Target-owned
