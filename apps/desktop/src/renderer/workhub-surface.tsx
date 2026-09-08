@@ -876,6 +876,7 @@ function WorkHubMessageFrame(props: {
     <section
       className={`workhub-turn${props.projected ? ' workhub-projected-turn' : ''}${props.work ? ' workhub-bound-turn' : ''}`}
       style={props.work ? { '--workhub-work-hue': workHubIdentityHue(props.work.sessionId) } as CSSProperties : undefined}
+      aria-label={props.text}
       data-turn-id={props.anchorId}
       data-transcript-turn-id={props.anchorId}
       data-work-session-id={props.work?.sessionId}

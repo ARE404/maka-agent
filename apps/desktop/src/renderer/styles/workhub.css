@@ -82,10 +82,7 @@
   display: grid;
   width: 100%;
   min-width: 0;
-  grid-template-columns: minmax(180px, 220px) minmax(
-      0,
-      var(--maka-reading-measure)
-    ) minmax(180px, 220px);
+  grid-template-columns: minmax(0, 220px) var(--maka-reading-measure) minmax(0, 220px);
   gap: var(--space-6, 24px);
   justify-content: center;
 }
