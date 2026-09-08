@@ -106,68 +106,71 @@ function transcriptsWith(messages: readonly StoredMessage[]) {
   };
 }
 
-test('projects the durable Coordination transcript into the WorkHub conversation', () => {
-  const messages: StoredMessage[] = [
-    { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 10, text: 'What is next?' },
-    {
-      type: 'assistant',
-      id: 'assistant-1',
+for (const physicalTurnId of ['action-1', 'action-1-retry']) {
+  test(`projects the durable Coordination transcript into the WorkHub conversation (${physicalTurnId})`, () => {
+    const messages: StoredMessage[] = [
+      { type: 'user', id: 'action-user', turnId: physicalTurnId, ts: 19, text: 'Continue payments' },
+      { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 10, text: 'What is next?' },
+      {
+        type: 'assistant',
+        id: 'assistant-1',
+        turnId: 'turn-1',
+        ts: 11,
+        text: 'Slice 3 is next.',
+        modelId: 'test-model',
+      },
+      {
+        type: 'turn_state',
+        id: 'state-1',
+        turnId: 'turn-1',
+        ts: 12,
+        status: 'completed',
+      },
+      {
+        type: 'workhub_coordination',
+        id: 'assignment-1',
+        turnId: physicalTurnId,
+        ts: 20,
+        schemaVersion: 1,
+        kind: 'delegation_assigned',
+        actionId: 'action-1',
+        actionFingerprint: `sha256:${'a'.repeat(64)}`,
+        coordinationTurnId: physicalTurnId,
+        targetSessionId: 'payments',
+        targetSessionName: 'Payments',
+        targetTurnId: 'payments-turn',
+        targetMessageId: 'payments-message',
+        delegationId: 'payments-delegation',
+        disposition: 'delegate_existing',
+        userText: 'Continue payments',
+      },
+    ];
+    assert.deepEqual(projectWorkHubCoordinationTurns(messages), [{
+      messageId: 'user-1',
       turnId: 'turn-1',
-      ts: 11,
-      text: 'Slice 3 is next.',
-      modelId: 'test-model',
-    },
-    {
-      type: 'turn_state',
-      id: 'state-1',
-      turnId: 'turn-1',
-      ts: 12,
-      status: 'completed',
-    },
-    {
-      type: 'workhub_coordination',
-      id: 'assignment-1',
+      text: 'What is next?',
+      result: 'Slice 3 is next.',
+      state: 'completed',
+      updatedAt: 11,
+    }, {
+      messageId: 'assignment-1',
       turnId: 'action-1',
-      ts: 20,
-      schemaVersion: 1,
-      kind: 'delegation_assigned',
-      actionId: 'action-1',
-      actionFingerprint: `sha256:${'a'.repeat(64)}`,
-      coordinationTurnId: 'action-1',
-      targetSessionId: 'payments',
-      targetSessionName: 'Payments',
-      targetTurnId: 'payments-turn',
-      targetMessageId: 'payments-message',
-      delegationId: 'payments-delegation',
-      disposition: 'delegate_existing',
-      userText: 'Continue payments',
-    },
-  ];
-  assert.deepEqual(projectWorkHubCoordinationTurns(messages), [{
-    messageId: 'user-1',
-    turnId: 'turn-1',
-    text: 'What is next?',
-    result: 'Slice 3 is next.',
-    state: 'completed',
-    updatedAt: 11,
-  }, {
-    messageId: 'assignment-1',
-    turnId: 'action-1',
-    text: 'Continue payments',
-    state: 'completed',
-    assignment: {
-      actionId: 'action-1',
-      delegationId: 'payments-delegation',
-      targetSessionId: 'payments',
-      targetSessionName: 'Payments',
-      targetMessageId: 'payments-message',
-      targetTurnId: 'payments-turn',
-      feedbackState: 'accepted',
-      linkState: 'active',
-    },
-    updatedAt: 20,
-  }]);
-});
+      text: 'Continue payments',
+      state: 'completed',
+      assignment: {
+        actionId: 'action-1',
+        delegationId: 'payments-delegation',
+        targetSessionId: 'payments',
+        targetSessionName: 'Payments',
+        targetMessageId: 'payments-message',
+        targetTurnId: 'payments-turn',
+        feedbackState: 'accepted',
+        linkState: 'active',
+      },
+      updatedAt: 20,
+    }]);
+  });
+}
 
 test('bounds the visible timeline independently of old delegation linkage', () => {
   const assignment: StoredMessage = {
@@ -309,6 +312,11 @@ test('direct-stop projection is retryable until resolved and preserves not_owned
     outcome: 'not_owned',
   });
   assert.equal(projected[0]?.assignment?.linkState, 'active');
+  const retriedStop = { ...requested, turnId: 'stop-retry', coordinationTurnId: 'stop-retry' };
+  assert.equal(
+    projectWorkHubCoordinationTurns([assignment, retriedStop])[1]?.turnId,
+    'stop-action',
+  );
 
   const stopped = { ...notOwned, outcome: 'stop_delivered' as const };
   assert.equal(

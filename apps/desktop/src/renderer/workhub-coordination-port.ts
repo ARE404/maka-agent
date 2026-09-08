@@ -209,7 +209,7 @@ export function projectWorkHubCoordinationTurns(
       const resolution = stopResolutionByDelegationId.get(message.stopsDelegationId);
       turns.push({
         messageId: message.id,
-        turnId: message.coordinationTurnId,
+        turnId: message.actionId,
         text: boundedWorkHubTimelineText(message.userText),
         state: resolution ? 'completed' : 'running',
         stop: {
@@ -224,7 +224,7 @@ export function projectWorkHubCoordinationTurns(
     if (message.type === 'workhub_coordination' && message.kind === 'delegation_assigned') {
       turns.push({
         messageId: message.id,
-        turnId: message.coordinationTurnId,
+        turnId: message.actionId,
         text: boundedWorkHubTimelineText(message.userText),
         ...(message.attachments ? { attachments: message.attachments } : {}),
         state: 'completed',
