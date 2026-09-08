@@ -95,7 +95,10 @@ Routing is not rerun; a missing or renamed target, another refusal, or continued
 snapshot churn stops the attempt. The Host still validates every refreshed proposal.
 
 Re-delivery of a completed request returns that receipt, including
-after restart, without repeating the effect. Failed attempts remain terminal;
+after restart, without repeating the effect. Incoming execution content is validated
+against the admitted descriptor even when another request wins admission concurrently;
+legacy compatibility ignores only an absent action identity field, never the input digest.
+Failed attempts remain terminal;
 a same-action retry gets a subsequent admitted Turn. If the failed attempt already
 committed a receipt, the new Turn reuses that result without repeating the effect.
 When target resume admission committed before a missing receipt, retry first
@@ -110,7 +113,9 @@ backfill and incremental refresh commit at most 64 references per foreground
 request. An unfinished catch-up returns `transcript_preparing`, including the
 committed index position; it publishes no incomplete snapshot or empty-history
 claim. Subscription clients yield between resumable requests and retain their
-loading state within the open deadline. Reader recreation resumes the committed
+loading state within the open deadline. Later page and overlay-release requests
+retain their independent per-request timeout, not the remaining preparation time.
+Reader recreation resumes the committed
 source positions. There is no detached maintenance worker or second task lifecycle.
 Once caught up, normal pages
 seek the index and project bounded source batches/Turns. Wall-clock regressions

@@ -597,7 +597,11 @@ class RuntimeHostConnectionImpl implements RuntimeHostConnection {
       Date.now() + (timeoutMs === undefined ? 30_000 : requireTimeout(timeoutMs, 'timeoutMs'));
     for (;;) {
       try {
-        return await this.#openSessionSubscription(input, Math.max(1, deadline - Date.now()));
+        return await this.#openSessionSubscription(
+          input,
+          Math.max(1, deadline - Date.now()),
+          timeoutMs,
+        );
       } catch (error) {
         if (
           !(error instanceof RuntimeHostOperationError) ||
@@ -616,13 +620,14 @@ class RuntimeHostConnectionImpl implements RuntimeHostConnection {
 
   #openSessionSubscription(
     input: SubscriptionOpenInput,
-    timeoutMs?: number,
+    openTimeoutMs: number,
+    requestTimeoutMs?: number,
   ): Promise<RuntimeHostSessionSubscription> {
     const expectedSessionId = input.sessionId;
     return this.#requestOperation(
       'subscription.open',
       input,
-      timeoutMs,
+      openTimeoutMs,
       (result) => {
         if (result.hostEpoch !== this.hostEpoch) {
           throw new RuntimeHostSubscriptionError(
@@ -645,13 +650,13 @@ class RuntimeHostConnectionImpl implements RuntimeHostConnection {
         const subscription = new ClientSessionSubscription(
           result,
           () => this.#closeSessionSubscription(result.subscriptionId),
-          (query) => this.request('session.transcript.page', query, timeoutMs),
+          (query) => this.request('session.transcript.page', query, requestTimeoutMs),
           async () => {
             try {
               await this.request(
                 'session.transcript.overlay.release',
                 { subscriptionId: result.subscriptionId },
-                timeoutMs,
+                requestTimeoutMs,
               );
             } catch (error) {
               this.#fail(asError(error));

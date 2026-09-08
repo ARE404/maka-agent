@@ -545,6 +545,101 @@ test('reassembles a large message from bounded backward pages', async () => {
   );
 });
 
+test('keeps page timeout independent of index preparation time', async () => {
+  const message = {
+    type: 'user' as const,
+    id: 'user-1',
+    turnId: 'turn-1',
+    ts: 1,
+    text: 'hello',
+  };
+  const encoded = Buffer.from(JSON.stringify(message), 'utf8');
+  const splitAt = Math.floor(encoded.byteLength / 2);
+  await withProtocolPeer(
+    async (transport, hostEpoch, rootId) => {
+      let openRequest = await acceptConnectionAndReadOpen(transport, hostEpoch, rootId);
+      await new Promise<void>((resolve) => setTimeout(resolve, 700));
+      await writeProtocolFrame(transport, {
+        requestId: openRequest.requestId,
+        operation: 'subscription.open',
+        ok: false,
+        error: { code: 'transcript_preparing', message: 'Preparing history' },
+      });
+      const next = decodeClientFrame(await transport.read(1_000));
+      assert.ok(!('kind' in next) && next.operation === 'subscription.open');
+      openRequest = next;
+      const opened = openResult(hostEpoch, 'subscription-fragmented', {
+        throughSequence: 0,
+        overlayMessageCount: 0,
+        durable: transcriptPage({
+          rawBytes: encoded.byteLength - splitAt,
+          fragments: [
+            {
+              kind: 'durable',
+              sequence: 0,
+              byteOffset: splitAt,
+              totalBytes: encoded.byteLength,
+              payloadDigest: null,
+              data: encoded.subarray(splitAt).toString('base64'),
+            },
+          ],
+          nextCursor: 'cursor-1',
+        }),
+        overlay: transcriptPage({ source: 'overlay' }),
+      });
+      await writeProtocolFrame(transport, {
+        requestId: openRequest.requestId,
+        operation: 'subscription.open',
+        ok: true,
+        result: opened,
+      });
+      const continuationRequest = decodeClientFrame(await transport.read(1_000));
+      assert.ok(!('kind' in continuationRequest));
+      assert.equal(continuationRequest.operation, 'session.transcript.page');
+      assert.deepEqual(continuationRequest.input, {
+        subscriptionId: opened.subscriptionId,
+        source: 'durable',
+        direction: 'older',
+        throughSequence: 0,
+        cursor: 'cursor-1',
+        anchorSequence: null,
+        maxBytes: SESSION_TRANSCRIPT_PAGE_MAX_BYTES,
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, 500));
+      await writeProtocolFrame(transport, {
+        requestId: continuationRequest.requestId,
+        operation: 'session.transcript.page',
+        ok: true,
+        result: transcriptPage({
+          rawBytes: splitAt,
+          fragments: [
+            {
+              kind: 'durable',
+              sequence: 0,
+              byteOffset: 0,
+              totalBytes: encoded.byteLength,
+              payloadDigest: null,
+              data: encoded.subarray(0, splitAt).toString('base64'),
+            },
+          ],
+        }),
+      });
+      await answerClose(transport, opened.subscriptionId);
+    },
+    async (connection) => {
+      const subscription = await connection.openSessionSubscription(
+        {
+          sessionId: 'session-1',
+          transcript: { kind: 'tail', maxBytes: 16 * 1024 },
+        },
+        1_000,
+      );
+      assert.deepEqual(await subscription.loadTranscript(decodeStoredMessage), [message]);
+      await subscription.close();
+    },
+  );
+});
+
 test('decodes one bounded page without walking the remaining transcript', async () => {
   const message = {
     type: 'user' as const,

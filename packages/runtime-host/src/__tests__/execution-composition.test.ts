@@ -17,6 +17,7 @@
  * under the License.
  */
 
+import { RootTurnCoordinator } from '../server/root-turn-coordinator.js';
 import {
   WorkHubCoordinationActionGate,
   workHubCoordinationTurnId,
@@ -997,6 +998,88 @@ test('WorkHub creates new work through the production assignment composition', a
         context,
       );
       assert.equal(changed.ok, false);
+      for (const legacy of [false, true])
+        for (const changePayload of [false, true]) {
+          const missingRead = deferred<void>();
+          const releaseRead = deferred<void>();
+          const originalOperation = RootTurnCoordinator.prototype.runWorkHubCoordinationOperation;
+          let restoreRead: (() => void) | undefined;
+          let intercept = true;
+          RootTurnCoordinator.prototype.runWorkHubCoordinationOperation = function (request, ctx) {
+            const isRacingRequest = intercept;
+            if (intercept) {
+              intercept = false;
+              const coordinator = this as unknown as { stores: typeof coordinationStores };
+              const originalStores = coordinator.stores;
+              let paused = false;
+              coordinator.stores = {
+                ...originalStores,
+                agentRunStore: {
+                  ...originalStores.agentRunStore,
+                  readRootTurnAdmission: async (...args) => {
+                    const admission = await originalStores.agentRunStore.readRootTurnAdmission(
+                      ...args,
+                    );
+                    if (!paused && args[1] === request.turnId && !admission) {
+                      paused = true;
+                      missingRead.resolve();
+                      await releaseRead.promise;
+                    }
+                    return admission;
+                  },
+                },
+              };
+              restoreRead = () => {
+                coordinator.stores = originalStores;
+              };
+            }
+            if (legacy && !isRacingRequest) {
+              const { actionId: _actionId, ...execution } = request.execution;
+              return originalOperation.call(this, { ...request, execution }, ctx);
+            }
+            return originalOperation.call(this, request, ctx);
+          };
+          const concurrentInput = {
+            ...clarifyInput,
+            actionId: `concurrent-clarification-${legacy}-${changePayload}`,
+          };
+          const pendingChanged = composition.handlers['workhub.coordination.act'](
+            {
+              ...concurrentInput,
+              proposal: changePayload
+                ? { disposition: 'clarify', assistantText: 'Changed concurrent content' }
+                : concurrentInput.proposal,
+            },
+            context,
+          );
+          try {
+            await Promise.race([
+              missingRead.promise,
+              pendingChanged.then((value) => {
+                throw new Error(`Concurrent probe did not pause: ${JSON.stringify(value)}`);
+              }),
+            ]);
+            const accepted = await composition.handlers['workhub.coordination.act'](
+              concurrentInput,
+              context,
+            );
+            assert.ok(accepted.ok, JSON.stringify(accepted));
+            releaseRead.resolve();
+            const rejected = await pendingChanged;
+            assert.equal(
+              rejected.ok,
+              !changePayload,
+              'concurrent replay must validate incoming content',
+            );
+            if (!changePayload) assert.deepEqual(rejected, accepted);
+            if (!rejected.ok) assert.equal(rejected.error.code, 'operation_conflict');
+          } finally {
+            releaseRead.resolve();
+            await pendingChanged;
+            restoreRead?.();
+            RootTurnCoordinator.prototype.runWorkHubCoordinationOperation = originalOperation;
+          }
+        }
       assert.equal(coordinationModelCalls, 0, 'Actions must not start a model answer in WorkHub');
       const targetSessionId = created.result.targetSessionId;
       const session = (await manager.listSessions()).find(({ id }) => id === targetSessionId);
