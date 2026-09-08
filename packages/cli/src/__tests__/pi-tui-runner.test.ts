@@ -26,7 +26,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
-import { visibleWidth } from '@earendil-works/pi-tui';
+import { TuiMainScreen, visibleWidth } from '@earendil-works/pi-tui';
 import { SHELL_RUN_UPDATE_BUFFER_MAX_ENTRIES } from '@maka/core/shell-run-result';
 import { resolveConnectionModelCatalog } from '@maka/core/model-catalog';
 import { deriveConnectionSlug } from '@maka/core/llm-connections';
@@ -66,7 +66,11 @@ import { skillInvocationBlockedMessage } from '../session-driver.js';
 import { SafeBoundaryResumeParkedError } from '../runtime-host-session-driver.js';
 import { listApiKeyOnboardableProviders } from '../onboarding-catalog.js';
 import { projectRuntimeHostModelChoices } from '../runtime-host-onboarding.js';
-import { modelChoiceConnectionLabels } from '../pi-tui-pickers.js';
+import {
+  getTuiPickerCopy,
+  modelChoiceConnectionLabels,
+  SessionSearchOverlay,
+} from '../pi-tui-pickers.js';
 import type {
   MakaOnboardingSurface,
   MakaPiTuiTurnActivitySurface,
@@ -241,6 +245,54 @@ function savedOnboardingRefreshFailed(connectionId = 'saved-connection-id'): Onb
 }
 
 describe('Maka Pi TUI runner', () => {
+  test('localizes the session search title and scope in every supported locale', () => {
+    for (const [locale, title, current, all] of [
+      ['en', 'Resume Session', 'Current', 'All'],
+      ['zh-CN', '恢复会话', '当前目录', '全部'],
+      ['zh-TW', '恢復會話', '目前目錄', '全部'],
+    ] as const) {
+      const copy = getTuiPickerCopy(locale);
+      const picker = new SessionSearchOverlay(new TuiMainScreen(new FakeTerminal()), {
+        locale,
+        choices: [],
+        scopeLabel: copy.sessionScopeCurrent,
+        onSelect() {},
+        onCancel() {},
+        onToggleScope() {},
+      });
+      assert.equal(plainTerminalOutput(picker.render(100)[0]!).trim(), `${title} ${current}`);
+      picker.updateChoices([], copy.sessionScopeAll);
+      assert.equal(plainTerminalOutput(picker.render(100)[0]!).trim(), `${title} ${all}`);
+    }
+  });
+
+  test('session names use wide viewports and keep selection across resizing', () => {
+    const name = 'Investigate runtime-host multi-account session isolation and lifecycle';
+    let selected: string | undefined;
+    const picker = new SessionSearchOverlay(new TuiMainScreen(new FakeTerminal()), {
+      locale: 'en',
+      choices: ['first', 'second'].map((value) => ({
+        item: { value, label: `${name} ${value}`, description: '/repo · model' },
+        searchText: name.toLowerCase(),
+      })),
+      scopeLabel: 'Current',
+      onSelect(item) {
+        selected = item.value;
+      },
+      onCancel() {},
+      onToggleScope() {},
+    });
+    assert.ok(plainTerminalOutput(picker.render(160).join('\n')).includes(`${name} second`));
+    picker.handleInput('\x1b[B');
+    for (const width of [40, 80, 160]) {
+      const lines = picker.render(width);
+      assert.ok(lines.every((line) => visibleWidth(line) <= width));
+    }
+    assert.ok(plainTerminalOutput(picker.render(160).join('\n')).includes(`${name} second`));
+    picker.handleInput('\r');
+    assert.equal(selected, 'second');
+  });
+
   test('/help uses the resolved locale for headings and command descriptions', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -4996,6 +5048,57 @@ describe('Maka Pi TUI runner', () => {
     await run;
   });
 
+  test('searches sessions and preserves the query across Current/All scope', async () => {
+    const terminal = new FakeTerminal(160, 30);
+    const driver = new SlashCommandDriver([
+      {
+        ...fakeSessionSummary('current-session', '/repo', 'Current chat'),
+        model: 'model-a',
+        llmConnectionSlug: 'conn-a',
+      },
+      {
+        ...fakeSessionSummary('current-second', '/repo', 'Current second'),
+        model: 'model-a',
+        llmConnectionSlug: 'conn-a',
+      },
+      {
+        ...fakeSessionSummary('other-session', '/other/repo', 'Other chat'),
+        model: 'model-b',
+        llmConnectionSlug: 'conn-b',
+      },
+    ]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'model-a',
+      connectionSlug: 'conn-a',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Current chat'));
+    terminal.input('\x1b[B');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('→ Current second'));
+    terminal.input('\t');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('→ Current second'));
+    terminal.input('Other');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Other chat'));
+    terminal.input('\t');
+    await waitFor(() =>
+      plainTerminalOutput(terminal.screenOutput()).includes('No matching sessions'),
+    );
+    terminal.input('\t');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Other chat'));
+    assert.match(plainTerminalOutput(terminal.screenOutput()), /\/other\/repo/);
+    terminal.input('\x1b');
+
+    exitMaka(terminal);
+    await run;
+  });
+
   test('shows localized live status badges in the Session picker', async () => {
     const terminal = new FakeTerminal(160, 30);
     const driver = new SlashCommandDriver([
@@ -5105,6 +5208,10 @@ describe('Maka Pi TUI runner', () => {
     // The foreign row is labeled by its title and marked as a resume-from row.
     await waitFor(() => plainTerminalOutput(terminal.output()).includes('Prior parser work'));
     await waitFor(() => plainTerminalOutput(terminal.output()).includes('resume from Claude Code'));
+
+    // Foreign cwd participates in the advertised path search.
+    terminal.input('repo');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Prior parser work'));
 
     terminal.input('\r');
     await waitFor(() => readDigestCalls === 1);
