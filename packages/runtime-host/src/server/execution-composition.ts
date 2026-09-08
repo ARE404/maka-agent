@@ -1561,13 +1561,17 @@ export async function createExecutionRuntimeHostComposition(
                   sessionId: input.targetSessionId,
                   workspace: input.create.workspace,
                   name: input.create.title,
-                  modelTarget: input.create.defaults?.model ? {
-                    kind: 'explicit',
-                    connectionId: input.create.defaults.model.llmConnectionId,
-                    connectionSlug: input.create.defaults.model.llmConnectionSlug,
-                    model: input.create.defaults.model.model,
-                  } : { kind: 'default' },
-                  ...(input.create.defaults?.permissionMode ? { permissionMode: input.create.defaults.permissionMode } : {}),
+                  modelTarget: input.create.defaults?.model
+                    ? {
+                        kind: 'explicit',
+                        connectionId: input.create.defaults.model.llmConnectionId,
+                        connectionSlug: input.create.defaults.model.llmConnectionSlug,
+                        model: input.create.defaults.model.model,
+                      }
+                    : { kind: 'default' },
+                  ...(input.create.defaults?.permissionMode
+                    ? { permissionMode: input.create.defaults.permissionMode }
+                    : {}),
                   collaborationMode: 'agent',
                   orchestrationMode: 'default',
                 })
@@ -1577,10 +1581,19 @@ export async function createExecutionRuntimeHostComposition(
             .digest('hex')
             .slice(0, 48);
           const messageId = `whm_${suffix}`;
-          const targetAttachments = !durable && input.attachments?.length
-            ? await copyWorkHubAttachmentsToTarget(openedArtifactStore, artifacts, input.targetSessionId, input.attachments)
-            : input.attachments;
-          const content = normalizeMessageContent({ text: input.userText, ...(targetAttachments ? { attachments: targetAttachments } : {}) });
+          const targetAttachments =
+            !durable && input.attachments?.length
+              ? await copyWorkHubAttachmentsToTarget(
+                  openedArtifactStore,
+                  artifacts,
+                  input.targetSessionId,
+                  input.attachments,
+                )
+              : input.attachments;
+          const content = normalizeMessageContent({
+            text: input.userText,
+            ...(targetAttachments ? { attachments: targetAttachments } : {}),
+          });
           const persisted =
             durable ??
             (await sessionAdmission.runMany(

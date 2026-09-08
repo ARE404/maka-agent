@@ -18,13 +18,14 @@
  */
 
 import { useRef, useState } from 'react';
-import { Composer, useToast, type ComposerProps, type ChatModelChoice } from '@maka/ui';
+import { Composer, Selector, useToast, type ComposerProps, type ChatModelChoice } from '@maka/ui';
 import type { SessionSummary, WorkHubCreateDefaults } from '@maka/core/session';
 import { isChatDefaultPermissionMode } from '@maka/core/settings';
 import { useComposerAttachments } from '@maka/ui/use-composer-attachments';
 import { toComposerIngestItems } from '@maka/ui/composer-attachments';
 import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from '@maka/core/attachments';
 import type { AttachmentRef } from '@maka/core/events';
+import { getWorkHubComposerCopy } from '../../../locales/workhub-copy.js';
 import { getDesktopConversationCopy } from '../../../locales/conversation-copy.js';
 import { localizedShellErrorMessage } from '../../../locales/shell-copy.js';
 import type { UiLocale } from '@maka/core/ui-locale';
@@ -73,7 +74,7 @@ function ConfiguredWorkHubComposer({ services, locale, attachmentScope, onSend, 
     formatError: (error, fallback) => localizedShellErrorMessage(error, fallback, locale),
   });
   const uploaded = useRef(new Map<string, AttachmentRef>());
-  const chinese = locale === 'zh-CN';
+  const copy = getWorkHubComposerCopy(locale);
   const selected = services?.sessions.find((session) => session.id === selectedId);
   const unavailable = Boolean(selectedId && !selected);
   const defaultChoice = services?.modelChoices.find((choice) => defaults.model &&
@@ -85,20 +86,28 @@ function ConfiguredWorkHubComposer({ services, locale, attachmentScope, onSend, 
   const change = async (operation: () => Promise<unknown>) => {
     setChanging(true);
     try { await operation(); }
-    catch { toast.error(chinese ? '配置更新失败，请重试' : 'Could not update settings. Try again.'); }
+    catch { toast.error(copy.settingsUpdateFailed); }
     finally { setChanging(false); }
   };
   return <>
     <div className="workhub-composer-scope workhub-work-identity" style={selected ? { color: `oklch(var(--workhub-tone) ${workHubIdentityHue(selected.id)})` } : undefined}>
-      <label>
-        <span>{chinese ? '发送到' : 'Send to'}</span>
-        <select aria-label={chinese ? '当前 Work' : 'Current Work'} value={selectedId} disabled={busy} onChange={(event) => setSelectedId(event.target.value)}>
-          <option value="">{chinese ? '自动识别工作' : 'Route automatically'}</option>
-          {unavailable ? <option value={selectedId}>{chinese ? '工作不可用' : 'Work unavailable'}</option> : null}
-          {services?.sessions.filter((session) => !session.isArchived).map((session) => <option key={session.id} value={session.id}>{session.name || session.id}</option>)}
-        </select>
-      </label>
-      <span>{selected ? (chinese ? '模型与权限用于此 Work' : 'Settings apply to this Work') : (chinese ? '模型与权限用于新 Work' : 'Settings apply to new Work')}</span>
+      <div className="workhub-composer-target">
+        <span>{copy.sendTo}</span>
+        <Selector
+          size="sm"
+          label={copy.currentWork}
+          isLabelHidden
+          value={selectedId}
+          isDisabled={busy}
+          options={[
+            { value: '', label: copy.routeAutomatically },
+            ...(unavailable ? [{ value: selectedId, label: copy.workUnavailable }] : []),
+            ...(services?.sessions.filter((session) => !session.isArchived).map((session) => ({ value: session.id, label: session.name || session.id })) ?? []),
+          ]}
+          onChange={(option) => setSelectedId(option)}
+        />
+      </div>
+      <span>{selected ? (copy.selectedWorkSettings) : (copy.newWorkSettings)}</span>
     </div>
     <Composer {...composer}
       sendBlocked={busy || unavailable}
@@ -112,7 +121,7 @@ function ConfiguredWorkHubComposer({ services, locale, attachmentScope, onSend, 
         setSubmitting(true);
         try {
           if (snapshot.length > MAX_ATTACHMENT_COUNT || snapshot.some((item) => item.size > MAX_ATTACHMENT_BYTES)) {
-            throw new Error(chinese ? '附件数量或大小超过限制' : 'Attachment count or size exceeds the limit');
+            throw new Error(copy.attachmentLimitExceeded);
           }
           const attachments: AttachmentRef[] = [];
           for (const item of snapshot) {
@@ -124,7 +133,7 @@ function ConfiguredWorkHubComposer({ services, locale, attachmentScope, onSend, 
             }
             attachments.push(ref);
           }
-          const accepted = await onSend(text.trim() || (chinese ? '请查看附件。' : 'Please review the attachments.'), {
+          const accepted = await onSend(text.trim() || (copy.attachmentPrompt), {
             ...(selectedId ? { explicitTarget: { sessionId: selectedId } } : { newWorkDefaults: { ...defaults, model: defaultModel } }),
             ...(attachments.length ? { attachments } : {}),
           }, () => {
@@ -133,7 +142,7 @@ function ConfiguredWorkHubComposer({ services, locale, attachmentScope, onSend, 
           });
           return accepted;
         } catch (error) {
-          toast.error(chinese ? '发送失败' : 'Could not send', localizedShellErrorMessage(error, chinese ? '请重试' : 'Try again', locale));
+          toast.error(copy.sendFailed, localizedShellErrorMessage(error, copy.tryAgain, locale));
           return false;
         } finally { setSubmitting(false); }
       }}
@@ -150,7 +159,7 @@ function ConfiguredWorkHubComposer({ services, locale, attachmentScope, onSend, 
       onPickNewChatModel={services ? (model) => { setDefaults((current) => ({ ...current, model })); } : undefined}
       onOpenModelSettings={services?.onOpenModelSettings}
       permissionMode={selected?.permissionMode ?? defaults.permissionMode ?? 'ask'}
-      permissionModeDisabledReason={settingsLocked ? (chinese ? '当前无法修改配置' : 'Settings are currently locked') : undefined}
+      permissionModeDisabledReason={settingsLocked ? (copy.settingsLocked) : undefined}
       onPermissionModeChange={services ? (mode) => change(async () => {
         if (!isChatDefaultPermissionMode(mode)) return;
         if (mode === 'bypass' && !await services.confirmBypass()) return;

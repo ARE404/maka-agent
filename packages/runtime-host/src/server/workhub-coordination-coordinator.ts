@@ -643,7 +643,10 @@ export class HostWorkHubCoordinationCoordinator {
         turnId: input.turnId,
         execution: {
           kind: 'workhub_coordination',
-          inputDigest: digest({ text: input.text, ...(input.attachments ? { attachments: input.attachments } : {}) }),
+          inputDigest: digest({
+            text: input.text,
+            ...(input.attachments ? { attachments: input.attachments } : {}),
+          }),
         },
         archivedMessage: 'WorkHub Coordination Session is unavailable',
         // A recorded summary owns its Turn identity durably but is admitted
@@ -663,7 +666,13 @@ export class HostWorkHubCoordinationCoordinator {
           }
           return recorded.length > 0
             ? { kind: 'rejected', outcome: turnIdentityConflict() }
-            : { kind: 'ready', content: normalizeMessageContent({ text: input.text, ...(input.attachments ? { attachments: input.attachments } : {}) }) };
+            : {
+                kind: 'ready',
+                content: normalizeMessageContent({
+                  text: input.text,
+                  ...(input.attachments ? { attachments: input.attachments } : {}),
+                }),
+              };
         },
       },
       context,

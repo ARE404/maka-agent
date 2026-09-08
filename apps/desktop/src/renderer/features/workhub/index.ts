@@ -28,4 +28,4 @@ export { WorkHubHighlightContext, WorkHubHighlightProvider, workHubIdentityHue }
 
 export { WorkHubComposer, type WorkHubComposerServices, type WorkHubComposerSelection } from './ui/workhub-composer.js';
 
-export { WorkHubComposerServicesProvider, useWorkHubComposerServices } from './services-context.js';
+export { WorkHubComposerServicesProvider } from './services-context.js';

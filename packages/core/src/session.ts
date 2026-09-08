@@ -942,14 +942,22 @@ export interface WorkHubCreateDefaults {
 }
 
 export function isWorkHubCreateDefaults(value: unknown): value is WorkHubCreateDefaults {
-  if (!isRecord(value) || Object.keys(value).some((key) => key !== 'model' && key !== 'permissionMode')) return false;
+  if (
+    !isRecord(value) ||
+    Object.keys(value).some((key) => key !== 'model' && key !== 'permissionMode')
+  )
+    return false;
   if (value.permissionMode !== undefined && !isPermissionMode(value.permissionMode)) return false;
   if (value.model === undefined) return true;
   const model = value.model;
-  return isRecord(model) &&
+  return (
+    isRecord(model) &&
     Object.keys(model).length === 3 &&
-    ['llmConnectionId', 'llmConnectionSlug', 'model'].every((key) =>
-      typeof model[key] === 'string' && model[key].trim().length > 0 && model[key].length <= 512);
+    ['llmConnectionId', 'llmConnectionSlug', 'model'].every(
+      (key) =>
+        typeof model[key] === 'string' && model[key].trim().length > 0 && model[key].length <= 512,
+    )
+  );
 }
 
 export interface WorkHubDelegationCreateSpec {
@@ -1739,8 +1747,12 @@ function isWorkHubActionIdentity(message: Record<string, unknown>): boolean {
 
 function isWorkHubMessageAttachments(value: unknown): boolean {
   if (value === undefined) return true;
-  try { decodeMessageContent({ text: '', attachments: value }); return true; }
-  catch { return false; }
+  try {
+    decodeMessageContent({ text: '', attachments: value });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isWorkHubDelegationCreateSpec(value: unknown): value is WorkHubDelegationCreateSpec {

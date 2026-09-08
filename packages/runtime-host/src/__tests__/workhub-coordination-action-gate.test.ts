@@ -1279,8 +1279,23 @@ describe('WorkHub Coordination Action Gate', () => {
     );
     const input = {
       actionId: 'create',
-      attachments: [{ name: 'requirements.txt', kind: 'other' as const, mimeType: 'text/plain', bytes: 12, ref: { kind: 'session_file' as const, sessionId: 'maka_workhub_coordination', relativePath: 'artifact-1' } }],
-      newWorkDefaults: { model: { llmConnectionId: 'conn', llmConnectionSlug: 'test', model: 'chosen-model' }, permissionMode: 'ask' as const },
+      attachments: [
+        {
+          name: 'requirements.txt',
+          kind: 'other' as const,
+          mimeType: 'text/plain',
+          bytes: 12,
+          ref: {
+            kind: 'session_file' as const,
+            sessionId: 'maka_workhub_coordination',
+            relativePath: 'artifact-1',
+          },
+        },
+      ],
+      newWorkDefaults: {
+        model: { llmConnectionId: 'conn', llmConnectionSlug: 'test', model: 'chosen-model' },
+        permissionMode: 'ask' as const,
+      },
       userText: 'Create an accessibility audit',
       proposal: { disposition: 'create_new' as const, title: 'Accessibility audit' },
       create: { workspace: { kind: 'host_path' as const, path: '/workspace' } },
@@ -1305,7 +1320,10 @@ describe('WorkHub Coordination Action Gate', () => {
       (error) => error instanceof WorkHubActionGateFailure && error.code === 'action_conflict',
     );
     await assert.rejects(
-      new WorkHubCoordinationActionGate(effects).act({ ...input, newWorkDefaults: { ...input.newWorkDefaults, permissionMode: 'bypass' } }, CONTEXT),
+      new WorkHubCoordinationActionGate(effects).act(
+        { ...input, newWorkDefaults: { ...input.newWorkDefaults, permissionMode: 'bypass' } },
+        CONTEXT,
+      ),
       (error) => error instanceof WorkHubActionGateFailure && error.code === 'action_conflict',
     );
     assert.equal(effects.assignments.length, 2);

@@ -117,7 +117,11 @@ export interface WorkHubActionGateEffects {
     delegationId: string,
   ): Promise<WorkHubDelegationStopResolvedMessage | undefined>;
   answer(
-    input: { readonly turnId: string; readonly text: string; readonly attachments?: AttachmentRef[] },
+    input: {
+      readonly turnId: string;
+      readonly text: string;
+      readonly attachments?: AttachmentRef[];
+    },
     context: ConnectionContext,
   ): Promise<void>;
   clarify(input: {
@@ -362,7 +366,14 @@ export class WorkHubCoordinationActionGate {
     if (proposal.disposition === 'answer_here') {
       const turnId = coordinationTurnId(input.actionId, 'answer');
       await this.#claimAction(input.actionId, 'answer_here', fingerprint, turnId);
-      await this.#effects.answer({ turnId, text: input.userText, ...(input.attachments ? { attachments: input.attachments } : {}) }, context);
+      await this.#effects.answer(
+        {
+          turnId,
+          text: input.userText,
+          ...(input.attachments ? { attachments: input.attachments } : {}),
+        },
+        context,
+      );
       return { disposition: 'answer_here', coordinationTurnId: turnId };
     }
     if (proposal.disposition === 'clarify') {
@@ -764,8 +775,12 @@ export class WorkHubCoordinationActionGate {
         targetSessionName: target.title,
         disposition: 'create_new',
         userText: input.userText,
-    ...(input.attachments ? { attachments: input.attachments } : {}),
-        create: { title: target.title, workspace: input.create.workspace, ...(input.newWorkDefaults ? { defaults: input.newWorkDefaults } : {}) },
+        ...(input.attachments ? { attachments: input.attachments } : {}),
+        create: {
+          title: target.title,
+          workspace: input.create.workspace,
+          ...(input.newWorkDefaults ? { defaults: input.newWorkDefaults } : {}),
+        },
         replacesActionId: replaced.actionId,
         replacesDelegationId: replaced.delegationId,
         replacedTargetSessionId: replaced.targetSessionId,
@@ -810,7 +825,7 @@ export class WorkHubCoordinationActionGate {
       targetSessionName: destination.sessionName,
       disposition: 'delegate_existing',
       userText: input.userText,
-    ...(input.attachments ? { attachments: input.attachments } : {}),
+      ...(input.attachments ? { attachments: input.attachments } : {}),
       replacesActionId: replaced.actionId,
       replacesDelegationId: replaced.delegationId,
       replacedTargetSessionId: replaced.targetSessionId,

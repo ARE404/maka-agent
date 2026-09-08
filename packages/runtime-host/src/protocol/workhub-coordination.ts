@@ -301,9 +301,19 @@ export function decodeWorkHubCoordinationResolveResult(
 export function decodeWorkHubCoordinationAnswerInput(
   value: unknown,
 ): WorkHubCoordinationAnswerInput {
-  const input = requireShapedRecord(value, 'WorkHub Coordination answer input', ['turnId', 'text'], ['attachments']);
+  const input = requireShapedRecord(
+    value,
+    'WorkHub Coordination answer input',
+    ['turnId', 'text'],
+    ['attachments'],
+  );
   return {
-    ...(input.attachments !== undefined ? { attachments: decodeMessageContent({ text: input.text, attachments: input.attachments }).attachments! } : {}),
+    ...(input.attachments !== undefined
+      ? {
+          attachments: decodeMessageContent({ text: input.text, attachments: input.attachments })
+            .attachments!,
+        }
+      : {}),
     turnId: requireEntityId(input.turnId, 'WorkHub Coordination Turn id'),
     text: requireUtf8String(
       input.text,
@@ -377,11 +387,20 @@ export function decodeWorkHubCoordinationActInput(value: unknown): WorkHubCoordi
     ['candidateSetId', 'create', 'confirmation', 'newWorkDefaults', 'attachments'],
   );
   const proposal = decodeWorkHubCoordinationProposal(input.proposal);
-  if (input.newWorkDefaults !== undefined && (!isWorkHubCreateDefaults(input.newWorkDefaults) ||
-      !(proposal.disposition === 'create_new' || (proposal.disposition === 'replace' && proposal.target.disposition === 'create_new')))) {
+  if (
+    input.newWorkDefaults !== undefined &&
+    (!isWorkHubCreateDefaults(input.newWorkDefaults) ||
+      !(
+        proposal.disposition === 'create_new' ||
+        (proposal.disposition === 'replace' && proposal.target.disposition === 'create_new')
+      ))
+  ) {
     throw invalidProtocolFrame('Invalid WorkHub creation defaults');
   }
-  if (input.attachments !== undefined && !['answer_here', 'delegate_existing', 'create_new', 'replace'].includes(proposal.disposition)) {
+  if (
+    input.attachments !== undefined &&
+    !['answer_here', 'delegate_existing', 'create_new', 'replace'].includes(proposal.disposition)
+  ) {
     throw invalidProtocolFrame('This WorkHub action does not accept attachments');
   }
   const base = {
@@ -392,8 +411,17 @@ export function decodeWorkHubCoordinationActInput(value: unknown): WorkHubCoordi
       WORKHUB_COORDINATION_TEXT_MAX_BYTES,
     ),
     proposal,
-    ...(input.attachments !== undefined ? { attachments: decodeMessageContent({ text: input.userText, attachments: input.attachments }).attachments! } : {}),
-    ...(input.newWorkDefaults !== undefined ? { newWorkDefaults: input.newWorkDefaults as WorkHubCreateDefaults } : {}),
+    ...(input.attachments !== undefined
+      ? {
+          attachments: decodeMessageContent({
+            text: input.userText,
+            attachments: input.attachments,
+          }).attachments!,
+        }
+      : {}),
+    ...(input.newWorkDefaults !== undefined
+      ? { newWorkDefaults: input.newWorkDefaults as WorkHubCreateDefaults }
+      : {}),
   };
   if (proposal.disposition === 'delegate_existing') {
     if (

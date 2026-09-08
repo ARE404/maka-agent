@@ -389,7 +389,8 @@ export const StandardComposer: Story = {
     await waitFor(() => expect(canvas.getByRole('combobox', { name: '当前 Work' })).toBeEnabled());
     await expect(canvas.getByText('模型与权限用于新 Work')).toBeVisible();
     await expect(canvas.getByRole('button', { name: '添加上下文' })).toBeEnabled();
-    await userEvent.selectOptions(canvas.getByRole('combobox', { name: '当前 Work' }), TARGET_SESSION_ID);
+    await userEvent.click(canvas.getByRole('combobox', { name: '当前 Work' }));
+    await userEvent.click(within(canvasElement.ownerDocument.body).getByRole('option', { name: SESSION_NAME }));
     await expect(canvas.getByText('模型与权限用于此 Work')).toBeVisible();
     const page = within(canvasElement.ownerDocument.body);
     await userEvent.click(canvas.getByRole('button', { name: /切换当前任务模型/ }));
@@ -398,7 +399,8 @@ export const StandardComposer: Story = {
     await userEvent.click(canvas.getByRole('button', { name: /权限模式/ }));
     await userEvent.click(page.getByRole('menuitemradio', { name: '完全权限' }));
     await waitFor(() => expect(composerWrites.permission).toHaveBeenCalledWith(TARGET_SESSION_ID, 'bypass'));
-    await userEvent.selectOptions(canvas.getByRole('combobox', { name: '当前 Work' }), '');
+    await userEvent.click(canvas.getByRole('combobox', { name: '当前 Work' }));
+    await userEvent.click(page.getByRole('option', { name: '自动识别工作' }));
     await userEvent.click(canvas.getByRole('button', { name: /选择新任务模型/ }));
     await userEvent.click(page.getByRole('menuitemradio', { name: 'model-b' }));
     await userEvent.click(canvas.getByRole('button', { name: '添加上下文' }));
