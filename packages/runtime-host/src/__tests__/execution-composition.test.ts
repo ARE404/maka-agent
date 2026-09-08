@@ -27,7 +27,7 @@ import { runtimeInvocationOutcome } from '@maka/core/runtime-invocation';
 import { createRunCompositionSnapshot } from '@maka/core/run-composition';
 import type { BackendSendInput } from '@maka/core/backend-types';
 import type { SessionEvent } from '@maka/core/events';
-import type { SessionStore } from '@maka/runtime/session-manager';
+import type { RuntimeEventStore } from '@maka/core/runtime-event-store';
 import type { RuntimeKernelLike } from '@maka/runtime/runtime-kernel';
 import { runtimeHandoffPause } from '@maka/core/runtime-handoff';
 import { deferred } from '@maka/core/test-only/async-primitives';
@@ -891,7 +891,10 @@ test('WorkHub creates new work through the production assignment composition', a
         events.some((event) => event.role === 'model'),
         false,
       );
-      const transcript = await coordinationStores.sessionStore.readMessages(admission.sessionId);
+      const transcript = await readLedgerMessages(
+        coordinationStores.runtimeEventStore,
+        admission.sessionId,
+      );
       assert.ok(
         transcript.some(
           (message) => message.type === 'workhub_coordination' && message.kind === 'action_receipt',
@@ -1070,68 +1073,6 @@ test('Coordination Host ownership survives Stop and deferred backend invalidatio
   });
 });
 
-test('Coordination receipt projection failure preserves successful action and replay', async () => {
-  await withCompositionRoot(async ({ owner }) => {
-    await configureFakeDefaultTarget(owner);
-    const { composition, manager } = await createCapturedExecutionComposition(owner);
-    const context = {
-      hostEpoch: 'coordination-projection-cut',
-      connectionId: 'client',
-      principal: 'local_os_user' as const,
-      acquireResidency: () => ({ release() {} }),
-    };
-    const kernel = (
-      manager as unknown as {
-        runtimeKernel: { deps: { store: SessionStore; newId: () => string } };
-      }
-    ).runtimeKernel;
-    const originalStore = kernel.deps.store;
-    let cuts = 0;
-    kernel.deps.store = {
-      ...originalStore,
-      async appendMessage(sessionId, message) {
-        if (
-          message.type === 'workhub_coordination' &&
-          message.kind === 'action_receipt' &&
-          cuts === 0
-        ) {
-          cuts += 1;
-          throw new Error('Injected receipt projection failure');
-        }
-        return originalStore.appendMessage(sessionId, message);
-      },
-    };
-    try {
-      assert.ok((await composition.handlers['workhub.coordination.resolve']({}, context)).ok);
-      const request = {
-        actionId: 'projection-cut-action',
-        userText: 'Which task?',
-        proposal: { disposition: 'clarify' as const, assistantText: 'Please name a task.' },
-      };
-      const first = await composition.handlers['workhub.coordination.act'](request, context);
-      assert.ok(first.ok, JSON.stringify(first));
-      assert.equal(cuts, 1, 'The test must cut the receipt projection write');
-      assert.deepEqual(
-        await composition.handlers['workhub.coordination.act'](request, context),
-        first,
-      );
-      const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
-      const invocations = await stores.runtimeEventStore.listSessionInvocations(
-        'maka_workhub_coordination',
-      );
-      assert.equal(invocations.length, 1, 'Projection failure must not create a retry Run');
-      assert.equal(runtimeInvocationOutcome(invocations[0]!), 'completed');
-      const events = await stores.runtimeEventStore.readSessionRuntimeEvents(
-        'maka_workhub_coordination',
-      );
-      assert.equal(events.filter((event) => event.actions?.coordination).length, 1);
-    } finally {
-      kernel.deps.store = originalStore;
-      await composition.close();
-    }
-  });
-});
-
 test('Coordination retries a durable receipt without repeating its Host action', async () => {
   await withCompositionRoot(async ({ owner }) => {
     await configureFakeDefaultTarget(owner);
@@ -1144,10 +1085,11 @@ test('Coordination retries a durable receipt without repeating its Host action',
     };
     const kernel = (
       manager as unknown as {
-        runtimeKernel: { deps: { store: SessionStore; newId: () => string } };
+        runtimeKernel: { deps: { runtimeEventStore: RuntimeEventStore; newId: () => string } };
       }
     ).runtimeKernel;
-    const originalStore = kernel.deps.store;
+    const eventStore = kernel.deps.runtimeEventStore;
+    const originalAppend = eventStore.appendRuntimeEvent;
     const originalNewId = kernel.deps.newId;
     const originalAct = WorkHubCoordinationActionGate.prototype.act;
     let actions = 0;
@@ -1157,17 +1099,11 @@ test('Coordination retries a durable receipt without repeating its Host action',
       actions += 1;
       return originalAct.apply(this, args);
     };
-    kernel.deps.store = {
-      ...originalStore,
-      async appendMessage(sessionId, message) {
-        await originalStore.appendMessage(sessionId, message);
-        if (
-          message.type === 'workhub_coordination' &&
-          message.kind === 'action_receipt' &&
-          cuts === 0
-        ) {
-          cutNextId = true;
-        }
+    kernel.deps.runtimeEventStore = {
+      ...eventStore,
+      async appendRuntimeEvent(sessionId, runId, event, options) {
+        await originalAppend.call(eventStore, sessionId, runId, event, options);
+        if (event.actions?.coordination && cuts === 0) cutNextId = true;
       },
     };
     kernel.deps.newId = () => {
@@ -1235,7 +1171,7 @@ test('Coordination retries a durable receipt without repeating its Host action',
       );
       assert.equal(actions, 1);
     } finally {
-      kernel.deps.store = originalStore;
+      kernel.deps.runtimeEventStore = eventStore;
       kernel.deps.newId = originalNewId;
       WorkHubCoordinationActionGate.prototype.act = originalAct;
       await composition.close();

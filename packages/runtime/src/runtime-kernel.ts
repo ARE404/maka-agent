@@ -983,7 +983,6 @@ export class RuntimeKernel implements RuntimeKernelLike {
         runId: options.runId,
         userMessageId: options.userMessageId,
         durability: 'required',
-        store: this.deps.store,
         runStore: this.deps.runStore,
         runtimeEventStore: this.deps.runtimeEventStore,
         newId: this.deps.newId,
@@ -998,8 +997,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
           unregisterRun: (active, activeRun) => this.unregisterParentRun(active, activeRun),
           updateHeader: (id, patch) => this.updateHeader(id, patch),
           updateStatus: (id, status, reason, ts) => this.updateStatus(id, status, reason, ts),
-          appendTurnState: (id, turnId, status, lineage, stateOptions) =>
-            this.appendTurnState(id, turnId, status, lineage, stateOptions),
+          ...this.messageProjectionHook(),
         },
       });
       this.attachExecutionClaim(execution, run);

@@ -92,7 +92,8 @@ execution state. Re-delivery of a completed request returns that receipt, includ
 after restart, without repeating the effect. Failed attempts remain terminal;
 a same-action retry gets a subsequent admitted Turn. If the failed attempt already
 committed a receipt, the new Turn reuses that result without repeating the effect.
-Transcript projection failure is repaired separately and does not fail the operation.
+The shared transcript reader derives receipts directly from RuntimeEvents; no
+receipt is written back into the legacy message store.
 Host-only Turns retain execution ownership without activating a model provider.
 An interrupted Host action is
 closed by Runtime recovery and never replayed as a model answer. Target-owned
