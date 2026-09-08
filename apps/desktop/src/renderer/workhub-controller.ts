@@ -730,7 +730,7 @@ export function createWorkHubController(deps: {
       if (!candidate) {
         throw new ExpectedOperationError<WorkHubExpectedFailureCode>('candidates_changed');
       }
-      const action: WorkHubCoordinationActInput = correction
+      let action: WorkHubCoordinationActInput = correction
         ? {
             actionId: input.requestId,
             userText: input.text,
@@ -756,7 +756,32 @@ export function createWorkHubController(deps: {
               candidateRef: candidate.candidateRef,
             },
           };
-      const admitted = await coordination.act(action);
+      let admitted: WorkHubCoordinationActResult;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          admitted = await coordination.act(action);
+          break;
+        } catch (error) {
+          if (
+            !(error instanceof WorkHubCoordinationFailure) || error.code !== 'candidate_set_stale' ||
+            attempt >= 2 || action.proposal.disposition !== 'replace' ||
+            action.proposal.target.disposition !== 'delegate_existing'
+          ) throw error;
+          // Refresh only the opaque reference for the already chosen Session.
+          // Do not rerun routing or change action/source identity on this retry.
+          const refreshed = await coordination.candidates();
+          const sameTarget = refreshed.candidates.find((item) => item.sessionId === target.sessionId);
+          if (!sameTarget || sameTarget.sessionName !== candidate.sessionName) throw error;
+          action = {
+            ...action,
+            candidateSetId: refreshed.candidateSetId,
+            proposal: {
+              ...action.proposal,
+              target: { disposition: 'delegate_existing', candidateRef: sameTarget.candidateRef },
+            },
+          };
+        }
+      }
       if (
         (!correction && admitted.disposition !== 'delegate_existing') ||
         (correction &&

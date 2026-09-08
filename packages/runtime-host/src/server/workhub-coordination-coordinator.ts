@@ -572,7 +572,12 @@ export class HostWorkHubCoordinationCoordinator {
         return {
           ok: false,
           error: {
-            code: error.code === 'target_waiting_for_user' ? 'session_busy' : 'operation_conflict',
+            code:
+              error.code === 'target_waiting_for_user'
+                ? 'session_busy'
+                : error.code === 'candidate_set_stale'
+                  ? 'candidate_set_stale'
+                  : 'operation_conflict',
             message: error.message,
           },
         };

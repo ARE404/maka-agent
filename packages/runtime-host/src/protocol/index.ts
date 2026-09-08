@@ -103,7 +103,7 @@ export const RUNTIME_HOST_PROTOCOL_VERSION = 0 as const;
 // interoperability. Mismatches are rejected before domain commands are admitted.
 export const RUNTIME_HOST_COMPATIBILITY_EPOCH = 134 as const;
 // 134: Coordination actions own real Runtime Turns. Removes the synthetic record
-// operation and projects typed action receipts; older peers cannot decode them.
+// operation, projects typed action receipts, and distinguishes stale candidate refusals.
 // 133: WorkHub actions carry attachments and new-Work model/permission defaults.
 // Epoch-132 peers reject these additional fields on strict action shapes.
 // 132: new Tool Result archives use versioned ledger references, not Artifact payloads.

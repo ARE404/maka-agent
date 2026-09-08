@@ -113,7 +113,7 @@ export function workHubSurfaceFailure(error: unknown): WorkHubSurfaceFailure {
   }
   if (error instanceof WorkHubCoordinationFailure) {
     if (error.code === 'operation_conflict') return 'action_changed';
-    if (error.code === 'not_found' || error.code === 'session_archived') {
+    if (error.code === 'candidate_set_stale' || error.code === 'not_found' || error.code === 'session_archived') {
       return 'candidates_changed';
     }
     if (error.code === 'session_busy') return 'target_waiting';

@@ -135,6 +135,7 @@ function workHubActError(
     case 'not_found':
     case 'session_archived':
     case 'session_busy':
+    case 'candidate_set_stale':
     case 'operation_conflict':
     case 'persistence_failed':
     case 'commit_outcome_unknown':

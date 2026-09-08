@@ -1921,21 +1921,28 @@ test('WorkHub correction replaces its link without stopping a shared manual Turn
       assert.ok(correctionDestination);
       if (!correctionDestination) return;
 
-      const correction = await composition.handlers['workhub.coordination.act'](
-        {
-          actionId: 'workhub-correction-action',
-          userText: `No, move this to ${correctionDestination.sessionName} instead`,
-          candidateSetId: correctionCandidates.result.candidateSetId,
-          confirmation: { kind: 'user_correction' },
-          proposal: {
-            disposition: 'replace',
-            replacesActionId: assignment.actionId,
-            target: {
-              disposition: 'delegate_existing',
-              candidateRef: correctionDestination.candidateRef,
-            },
+      const correctionInput = {
+        actionId: 'workhub-correction-action',
+        userText: `No, move this to ${correctionDestination.sessionName} instead`,
+        candidateSetId: correctionCandidates.result.candidateSetId,
+        confirmation: { kind: 'user_correction' },
+        proposal: {
+          disposition: 'replace',
+          replacesActionId: assignment.actionId,
+          target: {
+            disposition: 'delegate_existing',
+            candidateRef: correctionDestination.candidateRef,
           },
         },
+      } as const;
+      const stale = await composition.handlers['workhub.coordination.act'](
+        { ...correctionInput, candidateSetId: `sha256:${'0'.repeat(64)}` },
+        context,
+      );
+      assert.equal(stale.ok, false);
+      if (!stale.ok) assert.equal(stale.error.code, 'candidate_set_stale');
+      const correction = await composition.handlers['workhub.coordination.act'](
+        correctionInput,
         context,
       );
       assert.equal(correction.ok, true, JSON.stringify(correction));

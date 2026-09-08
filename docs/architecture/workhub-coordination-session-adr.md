@@ -88,7 +88,13 @@ The synthetic `workhub.coordination.record` operation is removed. Released histo
 remains readable without inventing admissions for old summary rows.
 
 A receipt acknowledges what the operation accepted; it is not the target's current
-execution state. Re-delivery of a completed request returns that receipt, including
+execution state. Candidate-snapshot expiry is a distinct refusal. For a replacement
+of an existing Session, the client may refresh its opaque candidate reference at
+most twice while preserving the action, source delegation, and chosen target.
+Routing is not rerun; a missing or renamed target, another refusal, or continued
+snapshot churn stops the attempt. The Host still validates every refreshed proposal.
+
+Re-delivery of a completed request returns that receipt, including
 after restart, without repeating the effect. Failed attempts remain terminal;
 a same-action retry gets a subsequent admitted Turn. If the failed attempt already
 committed a receipt, the new Turn reuses that result without repeating the effect.

@@ -102,14 +102,15 @@ test('projects WorkHub coordination resolution through its dedicated IPC domain'
   assert.deepEqual(changes, [{ reason: 'created', sessionId: createdSessionId }]);
 });
 
-test('serializes typed WorkHub action failures across Electron IPC', async () => {
+for (const code of ['operation_conflict', 'candidate_set_stale'] as const) {
+test(`serializes typed WorkHub action failures across Electron IPC (${code})`, async () => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   registerRuntimeHostWorkHubIpc(
     {
       actWorkHubCoordination: async () => {
         throw new RuntimeHostOperationError(
           'workhub.coordination.act',
-          'operation_conflict',
+          code,
           'WorkHub action is permanently abandoned',
         );
       },
@@ -135,9 +136,10 @@ test('serializes typed WorkHub action failures across Electron IPC', async () =>
     {
       ok: false,
       error: {
-        code: 'operation_conflict',
+        code,
         message: 'WorkHub action is permanently abandoned',
       },
     },
   );
 });
+}

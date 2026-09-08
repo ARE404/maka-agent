@@ -3358,3 +3358,45 @@ test('composer defaults apply only to creation while attachments follow explicit
   assert.deepEqual(actions[1]?.newWorkDefaults, newWorkDefaults);
   assert.deepEqual(actions[1]?.attachments, attachments);
 });
+
+for (const mode of ['refresh', 'missing', 'renamed', 'churn', 'conflict'] as const) {
+  test(`replacement candidate refresh preserves the chosen Session (${mode})`, async () => {
+    const actions: WorkHubCoordinationActInput[] = [];
+    let reads = 0;
+    const controller = createGatedWorkHubController({
+      sessions: port([session('source'), session('target')]),
+      coordination: {
+        open: async () => ({ close: async () => undefined }),
+        candidates: async () => {
+          const version = reads++;
+          return {
+            candidateSetId: `sha256:${String(version).repeat(64)}`,
+            candidates: ['other', 'target', 'source'].filter((id) => !(mode === 'missing' && version > 0 && id === 'target')).map((id) => ({
+              candidateRef: `${id}-${version}`, sessionId: id,
+              sessionName: mode === 'renamed' && version > 0 && id === 'target' ? 'different work' : id,
+              workspace: { target: { kind: 'host_path' as const, path: `/workspace/${id}` }, hostCwd: `/workspace/${id}` },
+              state: 'active' as const, updatedAt: version,
+            })),
+          };
+        },
+        act: async (input) => {
+          actions.push(input);
+          if (actions.length === 1 || mode === 'churn') throw new WorkHubCoordinationFailure(
+            mode === 'conflict' ? 'operation_conflict' : 'candidate_set_stale', 'Snapshot changed');
+          return { disposition: 'replace', replacementDisposition: 'delegate_existing', targetSessionId: 'target', targetTurnId: 'replacement-turn' };
+        },
+      },
+    });
+    const submit = () => controller.submit({ requestId: 'same-action', text: 'No, use target instead', explicitTarget: { sessionId: 'target' }, correction: { from: { sessionId: 'source' }, sourceActionId: 'source-action' } });
+    if (mode === 'refresh') {
+      assert.equal((await submit()).kind, 'submitted');
+      assert.equal(actions.length, 2);
+      assert.deepEqual(actions.map((action) => action.actionId), ['same-action', 'same-action']);
+      assert.deepEqual(actions.map((action) => action.proposal), [0, 1].map((version) => ({ disposition: 'replace', replacesActionId: 'source-action', target: { disposition: 'delegate_existing', candidateRef: `target-${version}` } })));
+      assert.notEqual(actions[0]!.candidateSetId, actions[1]!.candidateSetId);
+    } else {
+      await assert.rejects(submit, WorkHubCoordinationFailure);
+      assert.equal(actions.length, mode === 'churn' ? 3 : 1);
+    }
+  });
+}

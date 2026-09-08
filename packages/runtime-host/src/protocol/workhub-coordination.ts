@@ -225,11 +225,11 @@ export const WORKHUB_COORDINATION_OPERATION_SPECS = {
   'workhub.coordination.act': defineOperation<
     WorkHubCoordinationActInput,
     WorkHubCoordinationActResult,
-    (typeof TURN_ERRORS)[number]
+    (typeof TURN_ERRORS)[number] | 'candidate_set_stale'
   >({
     mode: 'command',
     availability: 'ready',
-    errors: TURN_ERRORS,
+    errors: [...TURN_ERRORS, 'candidate_set_stale'],
     decodeInput: decodeWorkHubCoordinationActInput,
     decodeOutput: decodeWorkHubCoordinationActResult,
   }),
