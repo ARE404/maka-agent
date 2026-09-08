@@ -529,6 +529,7 @@ export class HostWorkHubCoordinationCoordinator {
           execution: {
             kind: 'workhub_coordination',
             operation: 'action',
+            actionId: input.actionId,
             inputDigest: await this.#actionGate.coordinationInputDigest(input),
           },
           archivedMessage: 'WorkHub Coordination Session is unavailable',

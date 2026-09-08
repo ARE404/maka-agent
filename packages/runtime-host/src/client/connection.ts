@@ -589,7 +589,32 @@ class RuntimeHostConnectionImpl implements RuntimeHostConnection {
     return status;
   }
 
-  openSessionSubscription(
+  async openSessionSubscription(
+    input: SubscriptionOpenInput,
+    timeoutMs?: number,
+  ): Promise<RuntimeHostSessionSubscription> {
+    const deadline =
+      Date.now() + (timeoutMs === undefined ? 30_000 : requireTimeout(timeoutMs, 'timeoutMs'));
+    for (;;) {
+      try {
+        return await this.#openSessionSubscription(input, Math.max(1, deadline - Date.now()));
+      } catch (error) {
+        if (
+          !(error instanceof RuntimeHostOperationError) ||
+          error.code !== 'transcript_preparing' ||
+          input.transcript.kind !== 'tail' ||
+          this.#terminalError ||
+          Date.now() >= deadline
+        )
+          throw error;
+        // Each refusal committed a bounded, resumable index batch. Keep the
+        // caller in its loading state and yield before requesting more work.
+        await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      }
+    }
+  }
+
+  #openSessionSubscription(
     input: SubscriptionOpenInput,
     timeoutMs?: number,
   ): Promise<RuntimeHostSessionSubscription> {

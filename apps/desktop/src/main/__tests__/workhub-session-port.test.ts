@@ -1197,3 +1197,24 @@ test('admitted clarification and resume project receipts without assistant messa
   assert.equal(turns[1]?.result, undefined);
   assert.deepEqual(turns[1]?.resume, { disposition: 'resume_work', outcome: 'resume_started', targetSessionId: 'payments', targetTurnId: 'target-turn' });
 });
+
+
+test('failed action inputs remain visible until a visible receipt replaces every physical retry', () => {
+  const failed: StoredMessage[] = ['resume', 'retry-one', 'retry-two'].flatMap((turnId, index) => [
+    { type: 'user' as const, id: `u-${turnId}`, turnId, ts: index * 2,
+      text: 'Resume Payments', coordinationActionId: 'resume' },
+    { type: 'turn_state' as const, id: `s-${turnId}`, turnId, ts: index * 2 + 1, status: 'failed' as const },
+  ]);
+  const receipt: StoredMessage = { type: 'workhub_coordination', kind: 'action_receipt', schemaVersion: 1,
+    id: 'resumed', turnId: 'retry-three', ts: 10,
+    receipt: { actionId: 'resume', userText: 'Resume Payments', result: {
+      disposition: 'resume_work', outcome: 'resume_started', targetSessionId: 'payments', targetTurnId: 'original-target',
+    } } };
+  assert.deepEqual(projectWorkHubCoordinationTurns(failed).map((row) => [row.text, row.state, row.coordinationActionId]),
+    Array.from({ length: 3 }, () => ['Resume Payments', 'failed', 'resume']));
+  const visible = projectWorkHubCoordinationTurns([...failed, receipt]);
+  assert.equal(visible.length, 1);
+  assert.equal(visible[0]?.resume?.targetTurnId, 'original-target');
+  // A bounded older page with no visible receipt must still reconstruct its inputs.
+  assert.equal(projectWorkHubCoordinationTurns(failed).length, 3);
+});

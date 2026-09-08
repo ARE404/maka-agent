@@ -79,6 +79,16 @@ const TRANSCRIPT_LOOKUP_MAX_TURNS = 2;
 const COORDINATION_TRANSCRIPT_SCAN_LIMIT = 64;
 const COORDINATION_TRANSCRIPT_SCAN_MAX_BYTES = DURABLE_TRANSCRIPT_TURN_MAX_BYTES;
 
+/** A bounded index batch committed; no complete snapshot is available yet. */
+export class CoordinationTranscriptIndexPending extends Error {
+  readonly name = 'CoordinationTranscriptIndexPending';
+  constructor(readonly indexedThrough: number | null) {
+    super(
+      `Coordination history is preparing (indexed through ${indexedThrough ?? 'none'}); retry to continue`,
+    );
+  }
+}
+
 export function createSessionTranscriptReader(input: {
   stores: ExecutionStoresWriter<'interactive'>;
   canonicalPermissionOutcomes: CanonicalPermissionOutcomeReader;
@@ -246,31 +256,37 @@ function createDurableLedgerTranscriptReader(input: {
     if (projected.diagnostics.some(isHardRuntimeEventReadModelDiagnostic)) {
       throw new Error('Durable RuntimeEvent transcript projection is incomplete');
     }
-    const action =
+    const admission =
       turn.invocation.sessionId === WORKHUB_COORDINATION_SESSION_ID
         ? await input.stores.agentRunStore.readRootTurnAdmission(
             turn.invocation.sessionId,
             turn.invocation.turnId,
           )
         : undefined;
-    const hostAction =
-      action?.execution.kind === 'workhub_coordination' && action.execution.operation === 'action';
+    const actionId =
+      admission?.execution.kind === 'workhub_coordination'
+        ? admission.execution.actionId
+        : undefined;
     const ordinals = new Map(turn.events.map((entry) => [entry.event.id, entry.ordinal]));
     const emitted = new Map<number, number>();
-    return projected.messages
-      .map((message, index) => {
-        const ordinal = ordinals.get(projected.sourceEventIds[index]!);
-        if (ordinal === undefined) {
-          throw new Error('Durable transcript message has no source RuntimeEvent');
-        }
-        const offset = emitted.get(ordinal) ?? 0;
-        if (offset >= EVENT_SEQUENCE_STRIDE) {
-          throw new Error('RuntimeEvent exceeds its transcript sequence stride');
-        }
-        emitted.set(ordinal, offset + 1);
-        return { sequence: ordinal * EVENT_SEQUENCE_STRIDE + offset, message };
-      })
-      .filter(({ message }) => !hostAction || message.type !== 'user');
+    return projected.messages.map((message, index) => {
+      const ordinal = ordinals.get(projected.sourceEventIds[index]!);
+      if (ordinal === undefined) {
+        throw new Error('Durable transcript message has no source RuntimeEvent');
+      }
+      const offset = emitted.get(ordinal) ?? 0;
+      if (offset >= EVENT_SEQUENCE_STRIDE) {
+        throw new Error('RuntimeEvent exceeds its transcript sequence stride');
+      }
+      emitted.set(ordinal, offset + 1);
+      return {
+        sequence: ordinal * EVENT_SEQUENCE_STRIDE + offset,
+        message:
+          message.type === 'user' && actionId
+            ? { ...message, coordinationActionId: actionId }
+            : message,
+      };
+    });
   };
 
   const readTurns = async (
@@ -709,7 +725,10 @@ function mergeTranscriptSources(
     try {
       const heads = await Promise.all(walks.map((walk) => walk.next()));
       let batch: CoordinationTranscriptReference[] = [];
-      while (heads.some((head) => !head.done)) {
+      while (
+        heads.some((head) => !head.done) &&
+        batch.length < COORDINATION_TRANSCRIPT_SCAN_LIMIT
+      ) {
         // Time is only a presentation hint for newly observed facts, never a
         // cursor or a reason to move an already indexed record.
         const lane = heads[0]!.done
@@ -720,14 +739,12 @@ function mergeTranscriptSources(
               ? 0
               : 1;
         batch.push({ source: lanes[lane]!, sourceSequence: heads[lane]!.value!.sequence });
-        if (batch.length === COORDINATION_TRANSCRIPT_SCAN_LIMIT) {
-          await store.appendCoordinationTranscriptIndex(batch);
-          batch = [];
-        }
         heads[lane] = await walks[lane]!.next();
       }
       if (batch.length) await store.appendCoordinationTranscriptIndex(batch);
-      return (await store.readCoordinationTranscriptIndexState()).highWater;
+      const highWater = (await store.readCoordinationTranscriptIndexState()).highWater;
+      if (heads.some((head) => !head.done)) throw new CoordinationTranscriptIndexPending(highWater);
+      return highWater;
     } finally {
       await Promise.all(walks.map((walk) => walk.return(undefined)));
     }

@@ -765,6 +765,8 @@ export type StoredMessage =
   | SystemNoteMessage;
 
 export interface UserMessage extends MessageContent {
+  /** Derived from the admitted WorkHub action; does not change physical Turn identity. */
+  coordinationActionId?: string;
   type: 'user';
   id: string;
   turnId: string;
@@ -1237,6 +1239,7 @@ const USER_MESSAGE_SHAPE = defineObjectShape<UserMessage>()(
     'quotes',
     'inlineReferences',
     'steeringEventId',
+    'coordinationActionId',
     'origin',
   ],
 );
@@ -1487,7 +1490,10 @@ function decodeMessage(
       if (
         hasExactShape(message, USER_MESSAGE_SHAPE) &&
         hasMessageEnvelope(message, true) &&
-        (message.origin === undefined || decodeTurnOrigin(message.origin) !== undefined)
+        (message.origin === undefined || decodeTurnOrigin(message.origin) !== undefined) &&
+        (message.coordinationActionId === undefined ||
+          (typeof message.coordinationActionId === 'string' &&
+            message.coordinationActionId.length > 0))
       ) {
         const {
           displayText,

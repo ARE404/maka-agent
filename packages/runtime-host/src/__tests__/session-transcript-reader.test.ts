@@ -775,6 +775,97 @@ test('reads the WorkHub Coordination transcript from its own rows', async () => 
   );
 });
 
+for (const historySize of [257, 10000]) {
+  test(`Coordination small-page foreground work is bounded (${historySize} rows)`, async () => {
+    const base = await mkdtemp(join(tmpdir(), 'maka-coordination-growth-'));
+    const root = await resolveStorageRoot({ path: join(base, 'root'), kind: 'interactive' });
+    const owner = await tryAcquireInteractiveRootOwner(root);
+    assert.ok(owner);
+    try {
+      const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
+      const sessionId = WORKHUB_COORDINATION_SESSION_ID;
+      await stores.sessionStore.createStableSession({
+        sessionId,
+        requestFingerprint: `sha256:${'0'.repeat(64)}`,
+        input: {
+          role: 'workhub_coordination',
+          cwd: root.canonicalPath,
+          llmConnectionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+          llmConnectionSlug: 'fake',
+          model: 'fake-model',
+          permissionMode: 'ask',
+        },
+      });
+      for (let i = 0; i < historySize; i++)
+        await stores.sessionStore.appendMessage(sessionId, {
+          type: 'user',
+          id: `u-${i}`,
+          turnId: `t-${i}`,
+          ts: i,
+          text: `message ${i}`,
+        });
+      let reads = 0,
+        decoded = 0,
+        writes = 0;
+      const makeReader = () =>
+        createSessionTranscriptReader({
+          stores: {
+            ...stores,
+            sessionStore: {
+              ...stores.sessionStore,
+              async readMessagesAfter(...args) {
+                reads++;
+                const page = await stores.sessionStore.readMessagesAfter(...args);
+                decoded += page.records.length;
+                return page;
+              },
+              async appendCoordinationTranscriptIndex(...args) {
+                writes++;
+                return stores.sessionStore.appendCoordinationTranscriptIndex(...args);
+              },
+            },
+          },
+          canonicalPermissionOutcomes: { readPermissionOutcome: async () => undefined },
+        });
+      let batches = 0;
+      let previousThrough = -1;
+      for (;;) {
+        reads = decoded = writes = 0;
+        let complete = false;
+        try {
+          const page = await makeReader().readDurablePage(sessionId, {
+            direction: 'older',
+            maxBytes: 128,
+            maxMessages: 1,
+          });
+          assert.ok(
+            page.fragments.length > 0,
+            'catch-up must not report an empty complete history',
+          );
+          assert.equal(
+            JSON.parse(Buffer.concat(page.fragments.map((f) => f.data)).toString()).id,
+            `u-${historySize - 1}`,
+          );
+          complete = true;
+        } catch (error) {
+          assert.equal((error as Error).name, 'CoordinationTranscriptIndexPending');
+          const through = (error as { indexedThrough: number }).indexedThrough;
+          assert.ok(through > previousThrough, 'recreated reader resumes committed progress');
+          previousThrough = through;
+        }
+        assert.ok(reads <= 3, `foreground source reads: ${reads}`);
+        assert.ok(decoded <= 192, `foreground decoded rows: ${decoded}`);
+        assert.ok(writes <= 1, `foreground index writes: ${writes}`);
+        assert.ok(++batches <= Math.ceil(historySize / 64));
+        if (complete) break;
+      }
+    } finally {
+      await owner.close();
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+}
+
 test('Coordination page positions survive regressing clocks, late appends and reader recreation', async () => {
   const base = await mkdtemp(join(tmpdir(), 'maka-coordination-index-'));
   const root = await resolveStorageRoot({ path: join(base, 'root'), kind: 'interactive' });

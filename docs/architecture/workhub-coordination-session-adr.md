@@ -106,11 +106,23 @@ The shared transcript reader derives receipts directly from RuntimeEvents and
 retains legacy atomic linkage facts and released history. A rebuildable SQLite
 index holds only `(source, sourceSequence)` references in stable page order; it
 contains no message bodies, action results, or execution authority. Initial
-backfill and incremental refresh consume bounded source batches; normal pages
+backfill and incremental refresh commit at most 64 references per foreground
+request. An unfinished catch-up returns `transcript_preparing`, including the
+committed index position; it publishes no incomplete snapshot or empty-history
+claim. Subscription clients yield between resumable requests and retain their
+loading state within the open deadline. Reader recreation resumes the committed
+source positions. There is no detached maintenance worker or second task lifecycle.
+Once caught up, normal pages
 seek the index and project bounded source batches/Turns. Wall-clock regressions
 and later appends cannot renumber existing pages. No receipt is written back into
 the legacy message store. The WorkHub view groups receipt retries by action
 identity rather than exposing each physical attempt as a new conversation card.
+Persisted user inputs and Run terminal states always remain readable, including
+a failed attempt whose receipt was never committed. The projection carries the
+admitted action identity alongside the physical Turn identity. Only a visible
+receipt or atomic link suppresses its input rows; a bounded page without that
+replacement still shows the failed inputs. Missing acknowledgement is presented
+as incomplete confirmation, without claiming the target effect failed.
 Host-only Turns retain execution ownership without activating a model provider.
 An interrupted Host action is
 closed by Runtime recovery and never replayed as a model answer. Target-owned

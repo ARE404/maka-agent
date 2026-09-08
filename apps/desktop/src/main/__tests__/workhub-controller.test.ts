@@ -3387,7 +3387,7 @@ for (const mode of ['refresh', 'missing', 'renamed', 'churn', 'conflict'] as con
         },
       },
     });
-    const submit = () => controller.submit({ requestId: 'same-action', text: 'No, use target instead', explicitTarget: { sessionId: 'target' }, correction: { from: { sessionId: 'source' }, sourceActionId: 'source-action' } });
+    const submit = () => controller.submit({ newSessionFallbackTitle: 'New task', requestId: 'same-action', text: 'No, use target instead', explicitTarget: { sessionId: 'target' }, correction: { from: { sessionId: 'source' }, sourceActionId: 'source-action' } });
     if (mode === 'refresh') {
       assert.equal((await submit()).kind, 'submitted');
       assert.equal(actions.length, 2);

@@ -160,11 +160,12 @@ export function projectWorkHubCoordinationTurns(
   );
   const factualTurnIds = new Set(messages.flatMap((message) => {
     if (message.type !== 'workhub_coordination') return [];
-    if (message.kind === 'action_receipt' && message.receipt.result.disposition === 'clarify') {
-      return [message.receipt.actionId];
+    if (message.kind === 'action_receipt' &&
+      (message.receipt.result.disposition === 'clarify' || message.receipt.result.disposition === 'resume_work')) {
+      return [message.receipt.actionId, message.turnId];
     }
     return message.kind === 'delegation_assigned' || message.kind === 'delegation_stop_requested'
-      ? [message.coordinationTurnId]
+      ? [message.coordinationTurnId, message.actionId]
       : [];
   }));
   const turns: WorkHubCoordinationTurn[] = [];
@@ -244,7 +245,7 @@ export function projectWorkHubCoordinationTurns(
       continue;
     }
     if (message.type === 'user') {
-      if (factualTurnIds.has(message.turnId)) continue;
+      if (factualTurnIds.has(message.coordinationActionId ?? message.turnId)) continue;
       const text = boundedWorkHubTimelineText(userFacingText(message));
       if (!text) continue;
       turns.push({
@@ -252,6 +253,7 @@ export function projectWorkHubCoordinationTurns(
         turnId: message.turnId,
         text,
         ...(message.attachments ? { attachments: message.attachments } : {}),
+        ...(message.coordinationActionId ? { coordinationActionId: message.coordinationActionId } : {}),
         state: stateByTurnId.get(message.turnId) ?? 'running',
         updatedAt: message.ts,
       });

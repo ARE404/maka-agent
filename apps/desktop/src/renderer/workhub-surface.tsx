@@ -693,7 +693,8 @@ export function WorkHubCoordinationTurnView(props: {
         <p className="workhub-status" role="status">{copy.answering}</p>
       ) : (
         <p className="workhub-error" role="alert">
-          {copy.turnStates[props.turn.state]}
+          {props.turn.coordinationActionId
+            ? copy.actionConfirmationIncomplete : copy.turnStates[props.turn.state]}
         </p>
       )}
     </WorkHubMessageFrame>

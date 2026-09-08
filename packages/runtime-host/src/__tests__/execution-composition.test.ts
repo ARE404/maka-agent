@@ -1567,6 +1567,27 @@ for (const missingReceipt of [false, true])
             expects: { targetSessionId: target.id },
           },
         };
+        if (missingReceipt) {
+          const failed = await readProductionTranscript(composition, context);
+          assert.ok(
+            failed.some(
+              (message) =>
+                message.type === 'user' &&
+                message.turnId === retry.actionId &&
+                message.coordinationActionId === retry.actionId &&
+                message.text === retry.userText,
+            ),
+            'failed admitted input must remain visible after reopen, before retry',
+          );
+          assert.ok(
+            failed.some(
+              (message) =>
+                message.type === 'turn_state' &&
+                message.turnId === retry.actionId &&
+                message.status === 'failed',
+            ),
+          );
+        }
         const replayed = await composition.handlers['workhub.coordination.act'](retry, context);
         // Re-delivery acknowledges the original Coordination Run; it must never
         // resume a later interruption under the same action identity.

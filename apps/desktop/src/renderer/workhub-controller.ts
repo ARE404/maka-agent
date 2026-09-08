@@ -122,6 +122,7 @@ export interface WorkHubProjectedTurn {
 }
 
 export interface WorkHubCoordinationTurn {
+  coordinationActionId?: string;
   attachments?: WorkHubCoordinationActInput['attachments'];
   messageId: string;
   turnId: string;

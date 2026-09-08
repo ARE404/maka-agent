@@ -406,6 +406,64 @@ test('loads a canonical transcript while live frames continue on the same connec
   );
 });
 
+test('resumes bounded index preparation before publishing the canonical transcript', async () => {
+  const message = {
+    type: 'assistant' as const,
+    id: 'message-1',
+    turnId: 'turn-1',
+    ts: 1,
+    text: 'snapshot text',
+    modelId: 'test-model',
+  };
+  await withProtocolPeer(
+    async (transport, hostEpoch, rootId) => {
+      let openRequest = await acceptConnectionAndReadOpen(transport, hostEpoch, rootId);
+      for (let batch = 0; batch < 3; batch++) {
+        await writeProtocolFrame(transport, {
+          requestId: openRequest.requestId,
+          operation: 'subscription.open',
+          ok: false,
+          error: { code: 'transcript_preparing', message: `indexed through ${batch * 64}` },
+        });
+        const next = decodeClientFrame(await transport.read(1_000));
+        assert.ok(!('kind' in next) && next.operation === 'subscription.open');
+        assert.deepEqual(next.input, openRequest.input);
+        openRequest = next;
+      }
+      const opened = openResult(
+        hostEpoch,
+        'subscription-transcript',
+        transcriptBootstrap(Buffer.from(JSON.stringify(message), 'utf8')),
+      );
+      await writeRawLocalIpc(
+        transport,
+        Buffer.concat([
+          encodeLocalIpcTestFrame({
+            requestId: openRequest.requestId,
+            operation: 'subscription.open',
+            ok: true,
+            result: opened,
+          }),
+          encodeLocalIpcTestFrame(deltaFrame(hostEpoch, opened.subscriptionId, 1)),
+        ]),
+      );
+      await answerClose(transport, opened.subscriptionId);
+    },
+    async (connection) => {
+      const subscription = await connection.openSessionSubscription({
+        sessionId: 'session-1',
+        transcript: { kind: 'tail', maxBytes: 16 * 1024 },
+      });
+      assert.deepEqual(await subscription.loadTranscript(decodeStoredMessage), [message]);
+      assert.deepEqual(await subscription[Symbol.asyncIterator]().next(), {
+        done: false,
+        value: deltaFrame(connection.hostEpoch, subscription.subscriptionId, 1),
+      });
+      await subscription.close();
+    },
+  );
+});
+
 test('reassembles a large message from bounded backward pages', async () => {
   const message = {
     type: 'user' as const,
