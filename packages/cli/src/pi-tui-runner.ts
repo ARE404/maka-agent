@@ -563,6 +563,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // True while the /session picker is open mid-turn: Escape must close the
   // overlay, not arm the double-Escape interrupt for the running Turn (#3380).
   let sessionPickerOverlayOpen = false;
+  let transcriptOverlay: OverlayHandle | undefined;
+  let transcriptViewer: TranscriptViewerOverlay | undefined;
+  let transcriptViewerSessionId: string | undefined;
+  const resetTranscriptViewer = (): void => {
+    transcriptOverlay?.hide();
+    transcriptOverlay = undefined;
+    transcriptViewer = undefined;
+    transcriptViewerSessionId = undefined;
+  };
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
   let lastIdleCtrlCAt = 0;
@@ -1739,6 +1748,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     messages,
     activeTurn,
   }: MakaSessionSwitchResult): Promise<void> => {
+    resetTranscriptViewer();
     adoptSessionMetadata(summary, false);
     replaceTranscript(messages);
     syncInteractionOverlays();
@@ -2319,6 +2329,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const syncInteractionOverlays = (): void => {
+    if (state.pendingInteraction) {
+      transcriptOverlay?.hide();
+      transcriptOverlay = undefined;
+    }
     syncUserQuestionOverlay();
     syncFormOverlay();
   };
@@ -2930,6 +2944,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       requestRender();
       return false;
     }
+    resetTranscriptViewer();
     // A fresh session is not bound by the previous one's boundary. Falling back
     // to the *current* label would keep the previous Session's mode, including
     // Auto while a changed Host default creates with full access; the launch
@@ -3009,15 +3024,22 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const showTranscriptViewer = (): void => {
-    let overlay: OverlayHandle | undefined;
-    const renderTranscript = transcript.createDocumentRenderer();
-    const viewer = new TranscriptViewerOverlay({
-      renderTranscript,
-      viewportRows: () => terminal.rows,
-      onClose: () => overlay?.hide(),
-      onChange: () => tui.requestRender(),
-    });
-    overlay = tui.showOverlay(viewer, {
+    if (state.pendingInteraction) return;
+    const sessionId = input.driver.getSessionId() ?? undefined;
+    if (!transcriptViewer || transcriptViewerSessionId !== sessionId) {
+      transcriptViewerSessionId = sessionId;
+      transcriptViewer = new TranscriptViewerOverlay({
+        renderTranscript: transcript.createDocumentRenderer(),
+        locale,
+        viewportRows: () => terminal.rows,
+        onClose: () => {
+          transcriptOverlay?.hide();
+          transcriptOverlay = undefined;
+        },
+        onChange: () => tui.requestRender(),
+      });
+    }
+    transcriptOverlay = tui.showOverlay(transcriptViewer, {
       anchor: 'top-left',
       width: '100%',
       maxHeight: '100%',
@@ -4189,9 +4211,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // one (e.g. `Esc`, type, `Esc`).
     if (!matchesKey(data, Key.escape)) lastIdleEscapeAt = 0;
     if (matchesKey(data, Key.ctrl('o')) && !isKeyRepeat(data)) {
-      if (handleExpansionToggleKey('tool')) {
-        return { consume: true };
-      }
+      showTranscriptViewer();
+      return { consume: true };
     }
     if (matchesKey(data, Key.ctrl('t')) && !isKeyRepeat(data)) {
       if (handleExpansionToggleKey('thinking')) {
@@ -4297,11 +4318,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // re-wrapping) a full clear would wipe the scrollback the user scrolls through.
   // Differential rendering clears the vacated rows without the wipe.
   //
-  // The Ctrl+O / Ctrl+T toggles are viewport-anchored for the same reason: an
+  // The live Ctrl+T thinking toggle is viewport-anchored for the same reason: an
   // entry above the live viewport lives in terminal scrollback, which cannot
   // be rewritten, so resizing it would push pi-tui's differential renderer
   // into a scrollback-clearing full redraw (its `firstChanged < viewportTop`
-  // path). The toggles therefore retarget only entries inside the viewport;
+  // path). It therefore retargets only entries inside the viewport;
   // see entryInLiveViewport in pi-transcript.ts (#1097). A block whose own
   // expansion pushed its head above the viewport can consequently not be
   // collapsed by the next press (#1134): the toggle still flips the default
@@ -4310,6 +4331,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // again within EXPANSION_COLLAPSE_CONFIRM_WINDOW_MS applies the collapsed
   // default to those blocks too and pays one scrollback-clearing full redraw
   // (requestRender(true)), re-anchoring the viewport at the tail.
+  // Ctrl+O instead opens a detached reader whose details never resize live rows.
   tui.setClearOnShrink(false);
   tui.addChild(layout);
   tui.setFocus(editorSurface);
