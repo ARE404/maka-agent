@@ -1080,7 +1080,8 @@ describe('Host WorkHub Coordination coordinator', () => {
       let resumeCalls = 0;
       const workhub = coordinator(root, store, () => undefined, undefined, undefined, undefined, {
         assign: persistTestAssignmentAction(store, 'payments-turn'),
-        resumeDelegation: async () => {
+        resumeDelegation: async (_assignment, _context, _actionId, validateFreshTarget) => {
+          await validateFreshTarget();
           resumeCalls += 1;
           return {
             outcome: 'resume_started',
@@ -1147,7 +1148,8 @@ describe('Host WorkHub Coordination coordinator', () => {
       let recovering = true;
       const workhub = coordinator(root, store, () => undefined, undefined, undefined, undefined, {
         assign: persistTestAssignmentAction(store, 'payments-turn'),
-        resumeDelegation: async () => {
+        resumeDelegation: async (_assignment, _context, _actionId, validateFreshTarget) => {
+          await validateFreshTarget();
           if (recovering) {
             throw new WorkHubActionEffectFailure(
               'host_not_ready',
@@ -1928,10 +1930,10 @@ function coordinator(
     executions,
     sessionActions: {
       readDelegationRetirement: async () => 'not_retired',
-      resumeDelegation: async () => ({
-        outcome: 'resume_started' as const,
-        targetTurnId: 'resumed-turn',
-      }),
+      resumeDelegation: async (_assignment, _context, _actionId, validateFreshTarget) => {
+        await validateFreshTarget();
+        return { outcome: 'resume_started' as const, targetTurnId: 'resumed-turn' };
+      },
       retireDelegation: async () => ({ outcome: 'cancelled_pending' }),
       ...sessionActions,
       assign,

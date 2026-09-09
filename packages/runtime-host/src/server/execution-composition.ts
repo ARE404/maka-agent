@@ -1430,7 +1430,7 @@ export async function createExecutionRuntimeHostComposition(
         // Resolve and resume only the execution lineage owned by this
         // delegation. A Session-wide latest-failure query could otherwise
         // continue unrelated work started directly in the same Session.
-        resumeDelegation: async (assignment, context, actionId) => {
+        resumeDelegation: async (assignment, context, actionId, validateFreshTarget) => {
           const targetTurnId = workHubResumedTurnId(actionId);
           const admitted = await stores.agentRunStore.readRootTurnAdmission(
             assignment.targetSessionId,
@@ -1445,6 +1445,7 @@ export async function createExecutionRuntimeHostComposition(
             }
             return { outcome: 'resume_started' as const, targetTurnId };
           }
+          await validateFreshTarget();
           const disposition = await messages.readMessageExecutionDisposition(
             assignment.targetSessionId,
             assignment.targetMessageId,

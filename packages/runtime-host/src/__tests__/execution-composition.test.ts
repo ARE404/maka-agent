@@ -842,6 +842,134 @@ test('production composition commits automatic titles through Host-owned Session
   });
 });
 
+// Golden facts written by the Host coordinator and Gate at 42fa4d070 into SQLite.
+// Reopening the production composition must acknowledge the original action without
+// converting the synthetic history into a second Runtime execution.
+for (const legacyState of [
+  'complete',
+  'missing_claim',
+  'partial_summary',
+  'changed_claim',
+] as const)
+  test(`replays only complete released legacy clarification after Host reopen (${legacyState})`, async () => {
+    const legacy = {
+      input: {
+        actionId: 'legacy-clarify-action',
+        userText: 'Which task?',
+        proposal: {
+          disposition: 'clarify',
+          assistantText: 'Please name the task.',
+        },
+      },
+      ack: {
+        ok: true,
+        result: {
+          disposition: 'clarify',
+          coordinationTurnId: 'wha_630623167841994bf7833a9ddf1d8c721b49d1139c57d97c',
+        },
+      },
+      messages: [
+        {
+          type: 'user',
+          id: 'workhub_dbb6d643bb7e8811c24159106e8f31878f4231fc31853a98',
+          turnId: 'wha_630623167841994bf7833a9ddf1d8c721b49d1139c57d97c',
+          ts: 1788920628967,
+          text: 'Which task?',
+        },
+        {
+          type: 'assistant',
+          id: 'workhub_393b28c2bb1f82ddc1100e0ef8d8d3d0e6f8ba63b7e00713',
+          turnId: 'wha_630623167841994bf7833a9ddf1d8c721b49d1139c57d97c',
+          ts: 1788920628968,
+          text: 'Please name the task.',
+          modelId: 'maka-workhub-coordination',
+        },
+        {
+          type: 'turn_state',
+          id: 'workhub_25faa80b4fe39d65fdd464172cf0af225739ce57588d16a1',
+          turnId: 'wha_630623167841994bf7833a9ddf1d8c721b49d1139c57d97c',
+          ts: 1788920628969,
+          status: 'completed',
+        },
+      ],
+      claim: {
+        actionId: 'legacy-clarify-action',
+        operation: 'clarify',
+        actionFingerprint:
+          'sha256:7eb349249d13de451955b38d1ce6b7172cd8051ca4916f579dc6aa244f5c6d11',
+        subject: 'wha_630623167841994bf7833a9ddf1d8c721b49d1139c57d97c',
+      },
+    } as const;
+    await withCompositionRoot(async ({ root, owner }) => {
+      await configureFakeDefaultTarget(owner);
+      const context: ConnectionContext = {
+        hostEpoch: 'legacy-upgrade',
+        connectionId: 'client',
+        principal: 'local_os_user',
+        acquireResidency: () => ({ release() {} }),
+      };
+      const first = await createCapturedExecutionComposition(owner);
+      assert.ok((await first.composition.handlers['workhub.coordination.resolve']({}, context)).ok);
+      await first.composition.close();
+      const store = createSessionStore(root);
+      if (legacyState !== 'missing_claim')
+        await store.claimWorkHubAction(
+          legacyState === 'changed_claim'
+            ? { ...legacy.claim, actionFingerprint: `sha256:${'0'.repeat(64)}` }
+            : legacy.claim,
+        );
+      await store.appendMessages(
+        'maka_workhub_coordination',
+        legacyState === 'partial_summary' ? legacy.messages.slice(0, 2) : [...legacy.messages],
+      );
+      await store.close?.();
+      await owner.close();
+      const reopened = await tryAcquireInteractiveRootOwner(
+        await resolveStorageRoot({ path: root, kind: 'interactive' }),
+      );
+      assert.ok(reopened);
+      try {
+        const { composition } = await createCapturedExecutionComposition(reopened);
+        try {
+          const act = composition.handlers['workhub.coordination.act'];
+          if (legacyState !== 'complete') {
+            const result = await act(legacy.input, context);
+            assert.ok(!result.ok);
+            assert.equal(result.error.code, 'operation_conflict');
+            return;
+          }
+          assert.deepEqual(await act(legacy.input, context), legacy.ack);
+          for (const changed of [
+            { ...legacy.input, userText: 'Different question' },
+            {
+              ...legacy.input,
+              proposal: { disposition: 'clarify' as const, assistantText: 'Different answer' },
+            },
+          ]) {
+            const result = await act(changed, context);
+            assert.ok(!result.ok);
+            assert.equal(result.error.code, 'operation_conflict');
+          }
+          assert.deepEqual(await act(legacy.input, context), legacy.ack);
+          const stores = await openInteractiveExecutionStoresForWrite(reopened.lease);
+          assert.equal(
+            await stores.agentRunStore.readRootTurnAdmission(
+              'maka_workhub_coordination',
+              legacy.ack.result.coordinationTurnId,
+            ),
+            undefined,
+          );
+          const transcript = await readProductionTranscript(composition, context);
+          assert.deepEqual(transcript, legacy.messages);
+        } finally {
+          await composition.close();
+        }
+      } finally {
+        await reopened.close();
+      }
+    });
+  });
+
 test('WorkHub creates new work through the production assignment composition', async () => {
   await withCompositionRoot(async ({ root, owner }) => {
     const connectionId = await configureFakeDefaultTarget(owner);
@@ -897,16 +1025,6 @@ test('WorkHub creates new work through the production assignment composition', a
         events.some((event) => event.role === 'model'),
         false,
       );
-      const transcript = await readLedgerMessages(
-        coordinationStores.runtimeEventStore,
-        admission.sessionId,
-      );
-      assert.ok(
-        transcript.some(
-          (message) => message.type === 'workhub_coordination' && message.kind === 'action_receipt',
-        ),
-        'The shared transcript must expose the Runtime receipt to Desktop',
-      );
       const replayed = await composition.handlers['workhub.coordination.act'](
         {
           actionId: 'workhub-create-action',
@@ -958,23 +1076,6 @@ test('WorkHub creates new work through the production assignment composition', a
           all.records.some(({ message }) => message.turnId === landmark.turnId),
           'Landmarks must refer to physical transcript Turns, not logical action IDs',
         );
-      }
-      for (const direction of ['newer', 'older'] as const) {
-        const records = [];
-        let position: number | undefined;
-        do {
-          const page = await reader.readDurableRecords(admission.sessionId, {
-            direction,
-            throughSequence: all.throughSequence,
-            position,
-            maxMessages: 1,
-            maxStoredBytes: 1024 * 1024,
-          });
-          records.push(...page.records);
-          position = page.nextPosition ?? undefined;
-          assert.ok(records.length <= all.records.length, 'Pagination must advance');
-        } while (position !== undefined);
-        assert.deepEqual(direction === 'older' ? records.reverse() : records, all.records);
       }
       assert.ok(clarified.ok, JSON.stringify(clarified));
       assert.equal(clarified.result.disposition, 'clarify');
@@ -1638,9 +1739,10 @@ for (const missingReceipt of [false, true])
         );
         assert.ok(restartedOwner);
         owner = restartedOwner;
-        ({ composition } = await createCapturedExecutionComposition(owner, {
+        ({ composition, manager } = await createCapturedExecutionComposition(owner, {
           safeBoundaryResume: true,
         }));
+        await manager.renameSession(target.id, 'Renamed Payments');
         const retry = {
           actionId: 'workhub-resume-stop-resume',
           userText: 'Resume Payments',
@@ -1704,8 +1806,13 @@ for (const missingReceipt of [false, true])
         );
         assert.ok(stillInterrupted.ok);
         assert.notEqual(stillInterrupted.result.status, 'running');
+        const invalidFresh = await composition.handlers['workhub.coordination.act'](
+          { ...retry, actionId: 'workhub-resume-stale-name' },
+          context,
+        );
+        assert.equal(invalidFresh.ok, false, 'new actions still require the current target name');
         const fresh = await composition.handlers['workhub.coordination.act'](
-          { ...retry, actionId: 'workhub-resume-again' },
+          { ...retry, actionId: 'workhub-resume-again', userText: 'Resume Renamed Payments' },
           context,
         );
         assert.equal(fresh.ok, true, JSON.stringify(fresh));

@@ -131,10 +131,14 @@ export function visibleWorkHubConversation(
   local: readonly WorkHubConversationTurn[];
 } {
   const localByRequestId = new Map(local.map((turn) => [turn.requestId, turn]));
+  const committedTurnIds = new Set(coordination.filter((turn) =>
+    turn.result !== undefined || turn.assignment || turn.resume || turn.stop,
+  ).map((turn) => turn.turnId));
   const visibleCoordination = coordination.filter(
     (turn) => {
       const localTurn = localByRequestId.get(turn.turnId);
       return !localTurn ||
+        (committedTurnIds.has(turn.turnId) && (localTurn.state === 'failed' || localTurn.state === 'routing')) ||
         localTurn.outcome?.kind === 'discussion' ||
         localTurn.outcome?.kind === 'submitted' ||
         localTurn.outcome?.kind === 'stop' || localTurn.outcome?.kind === 'resume';
@@ -144,7 +148,8 @@ export function visibleWorkHubConversation(
   const visibleLocal = local.filter(
     (turn) =>
       !coordinationTurnIds.has(turn.requestId) ||
-      (turn.outcome?.kind !== 'discussion' &&
+      ((!committedTurnIds.has(turn.requestId) || (turn.state !== 'failed' && turn.state !== 'routing')) &&
+        turn.outcome?.kind !== 'discussion' &&
         turn.outcome?.kind !== 'submitted' &&
         turn.outcome?.kind !== 'stop' && turn.outcome?.kind !== 'resume'),
   );

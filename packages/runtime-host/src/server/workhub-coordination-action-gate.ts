@@ -124,11 +124,6 @@ export interface WorkHubActionGateEffects {
     },
     context: ConnectionContext,
   ): Promise<void>;
-  clarify(input: {
-    readonly turnId: string;
-    readonly userText: string;
-    readonly assistantText: string;
-  }): Promise<void>;
   assign(
     input: WorkHubDelegationAssignmentInput,
     context: ConnectionContext,
@@ -170,6 +165,8 @@ export interface WorkHubDelegationRetirementClaim {
 }
 
 export interface WorkHubDelegationResumeInput {
+  /** Required before new admission; an existing target Turn only needs acknowledgement. */
+  readonly validateFreshTarget: () => Promise<void>;
   readonly actionId: string;
   readonly source: WorkHubDelegationAssignedMessage;
 }
@@ -416,11 +413,6 @@ export class WorkHubCoordinationActionGate {
         fingerprint,
         workHubCoordinationTurnId(input.actionId, 'clarify'),
       );
-      await this.#effects.clarify({
-        turnId,
-        userText: input.userText,
-        assistantText: proposal.assistantText,
-      });
       return { disposition: 'clarify', coordinationTurnId: turnId };
     }
     if (proposal.disposition === 'stop_work') {
@@ -494,34 +486,46 @@ export class WorkHubCoordinationActionGate {
           'WorkHub resume requires an explicit named command in trusted user text',
         );
       }
-      const candidates = await this.candidates();
-      const target = candidates.candidates.find(
-        (candidate) => candidate.sessionId === proposal.expects.targetSessionId,
-      );
-      if (!target)
-        throw new WorkHubActionGateFailure(
-          'candidate_unavailable',
-          'WorkHub resume target is unavailable',
-        );
-      this.#assertTarget(target);
-      const source = await this.#soleWorkingDelegation(target.sessionId, 'resume');
-      if (source.actionId !== proposal.resumesActionId) {
+      const source = await this.#effects.readAssignment(proposal.resumesActionId);
+      if (!source || source.targetSessionId !== proposal.expects.targetSessionId) {
         throw new WorkHubActionGateFailure(
           'action_conflict',
           'WorkHub resume target delegation changed',
         );
       }
-      const currentTargetName = target.sessionName;
-      if (
-        !currentTargetName ||
-        !workHubNamedDelegationActionTargetsSession(requestIntent.resume, currentTargetName)
-      ) {
-        throw new WorkHubActionGateFailure(
-          'action_conflict',
-          'WorkHub resume target is not affirmed in trusted user text',
+      const validateFreshTarget = async () => {
+        const candidates = await this.candidates();
+        const target = candidates.candidates.find(
+          (candidate) => candidate.sessionId === proposal.expects.targetSessionId,
         );
-      }
-      return this.#effects.resume({ actionId: input.actionId, source }, context);
+        if (!target)
+          throw new WorkHubActionGateFailure(
+            'candidate_unavailable',
+            'WorkHub resume target is unavailable',
+          );
+        this.#assertTarget(target);
+        const current = await this.#soleWorkingDelegation(target.sessionId, 'resume');
+        if (current.actionId !== source.actionId) {
+          throw new WorkHubActionGateFailure(
+            'action_conflict',
+            'WorkHub resume target delegation changed',
+          );
+        }
+        const currentTargetName = target.sessionName;
+        if (
+          !currentTargetName ||
+          !workHubNamedDelegationActionTargetsSession(requestIntent.resume, currentTargetName)
+        ) {
+          throw new WorkHubActionGateFailure(
+            'action_conflict',
+            'WorkHub resume target is not affirmed in trusted user text',
+          );
+        }
+      };
+      return this.#effects.resume(
+        { actionId: input.actionId, source, validateFreshTarget },
+        context,
+      );
     }
 
     if (proposal.disposition === 'create_new') {

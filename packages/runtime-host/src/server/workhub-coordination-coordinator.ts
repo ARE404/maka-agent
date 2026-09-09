@@ -125,6 +125,7 @@ type CoordinationSessionActions = Pick<
     assignment: WorkHubDelegationAssignedMessage,
     context: ConnectionContext,
     actionId: string,
+    validateFreshTarget: () => Promise<void>,
   ): Promise<WorkHubResumeResult>;
 };
 
@@ -200,8 +201,6 @@ export class HostWorkHubCoordinationCoordinator {
           throw new WorkHubActionEffectFailure(outcome.error.code, outcome.error.message);
         }
       },
-      // Clarification is recorded by the admitted Run as a host receipt.
-      clarify: async () => undefined,
       assign: options.sessionActions.assign,
       prepareReplacement: (input) => this.#prepareReplacement(input),
       abortReplacement: (input) => this.#abortReplacement(input),
@@ -212,7 +211,12 @@ export class HostWorkHubCoordinationCoordinator {
       resume: async (input, context) => ({
         disposition: 'resume_work',
         targetSessionId: input.source.targetSessionId,
-        ...(await options.sessionActions.resumeDelegation(input.source, context, input.actionId)),
+        ...(await options.sessionActions.resumeDelegation(
+          input.source,
+          context,
+          input.actionId,
+          input.validateFreshTarget,
+        )),
       }),
     });
   }
@@ -521,6 +525,33 @@ export class HostWorkHubCoordinationCoordinator {
         input.proposal.disposition === 'clarify'
           ? workHubCoordinationTurnId(input.actionId, 'clarify')
           : input.actionId;
+      if (input.proposal.disposition === 'clarify') {
+        const recorded = await this.#readSummaryMessages(coordinationTurnId);
+        if (recorded.length > 0) {
+          const user = recorded.find((message) => message.type === 'user');
+          const assistant = recorded.find((message) => message.type === 'assistant');
+          const state = recorded.find((message) => message.type === 'turn_state');
+          const claim = await this.#stores.readWorkHubActionClaim(input.actionId);
+          // Released versions committed a claim and synthetic summary, without a
+          // Runtime admission. Replay only that complete original acknowledgement;
+          // the Gate still validates its fingerprint and operation identity.
+          if (
+            recorded.length !== 3 ||
+            !recorded.every((message) => message.turnId === coordinationTurnId) ||
+            user?.text !== input.userText ||
+            assistant?.text !== input.proposal.assistantText ||
+            assistant?.modelId !== 'maka-workhub-coordination' ||
+            state?.status !== 'completed' ||
+            claim?.operation !== 'clarify' ||
+            claim.subject !== coordinationTurnId ||
+            !validCoordinationHeader(
+              await this.#stores.readHeaderSnapshot(WORKHUB_COORDINATION_SESSION_ID),
+            )
+          )
+            return turnIdentityConflict();
+          return { ok: true, result: await this.#actionGate.act(input, context) };
+        }
+      }
       let failure: unknown;
       const outcome = await this.#executions.runWorkHubCoordinationOperation(
         {
@@ -720,7 +751,7 @@ export class HostWorkHubCoordinationCoordinator {
     return outcome.ok ? { ok: true, result: { turnId: input.turnId } } : outcome;
   }
 
-  /** Reads released synthetic summaries solely to reject identity collisions. */
+  /** Reads released summaries for exact clarification replay and identity collision checks. */
   async #readSummaryMessages(turnId: string): Promise<readonly StoredMessage[]> {
     const throughSequence = await this.#stores.readTranscriptHighWaterSnapshot(
       WORKHUB_COORDINATION_SESSION_ID,
