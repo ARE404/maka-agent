@@ -106,7 +106,7 @@ Wiki bar: Design Conventions · API Use-the-System · Theming · Container Paddi
 | `apps/desktop/src/renderer/features/workhub/ui/workhub-conversation.tsx` | other | Button | aligned — uses Astryx (Button) | aligned |
 | `apps/desktop/src/renderer/features/workhub/ui/workhub-dock.tsx` | other | Button | aligned — uses Astryx (Button) | aligned |
 | `apps/desktop/src/renderer/features/workhub/ui/workhub-navigation-rail.tsx` | other | Button, List, ListItem, StatusDot | aligned — uses Astryx (Button, List, ListItem, StatusDot) | aligned |
-| `apps/desktop/src/renderer/features/workhub/ui/workhub-progress-card.tsx` | other | Button, IconButton | aligned — uses Astryx (Button, IconButton) | aligned |
+| `apps/desktop/src/renderer/features/workhub/ui/workhub-progress-card.tsx` | other | IconButton | aligned — uses Astryx (IconButton) | aligned |
 | `apps/desktop/src/renderer/features/workhub/ui/workhub-root.tsx` | other | Button, IconButton | aligned — uses Astryx (Button, IconButton) | aligned |
 | `apps/desktop/src/renderer/features/workhub/ui/workhub-surface-switch.tsx` | other | none | aligned — no raw controls; no Astryx JSX usage | aligned |
 | `apps/desktop/src/renderer/features/workhub/ui/workhub-work-identity.tsx` | other | none | aligned — no raw controls; no Astryx JSX usage | aligned |
@@ -245,7 +245,7 @@ Wiki bar: Design Conventions · API Use-the-System · Theming · Container Paddi
 | `packages/ui/src/chat-view.tsx` | shell-chrome-or-panel | Button, ButtonGroup, ChatMessageList, EmptyState, HStack, Spinner, Text | aligned — uses Astryx (Button, ButtonGroup, ChatMessageList, EmptyState, HStack, Spinner, Text) | aligned |
 | `packages/ui/src/client-capability-prompt.tsx` | ui-composition | Button | aligned — uses Astryx (Button) | aligned |
 | `packages/ui/src/components.tsx` | ui-composition | none | aligned — no raw controls; no Astryx JSX usage | aligned |
-| `packages/ui/src/composer-message-queue.tsx` | shell-chrome-or-panel | Button, IconButton, List, ListItem | raw `<textarea` (API Use-the-System) | polish |
+| `packages/ui/src/composer-message-queue.tsx` | shell-chrome-or-panel | Button, IconButton, List, ListItem, Tooltip | raw `<textarea` (API Use-the-System) | polish |
 | `packages/ui/src/composer.tsx` | shell-chrome-or-panel | Button, ChatComposer, ChatComposerDrawer, ChatComposerInput, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuDivider, DropdownMenuItem, DropdownMenuRadioGroup, DropdownMenuRadioItem, IconButton, Lightbox, Token, Tooltip | aligned — uses Astryx (Button, ChatComposer, ChatComposerDrawer, ChatComposerInput, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuDivider, DropdownMenuItem) | aligned |
 | `packages/ui/src/daily-review-panel.tsx` | module-hub | Banner, Button, Divider, EmptyState, HStack, Heading, List, ListItem, SegmentedControl, SegmentedControlItem, Skeleton, StackItem, Text, Toolbar, VStack | aligned — uses Astryx (Banner, Button, Divider, EmptyState, HStack, Heading, List, ListItem) | aligned |
 | `packages/ui/src/directory-reference-chip.tsx` | ui-composition | Token, Tooltip | aligned — uses Astryx (Token, Tooltip) | aligned |
