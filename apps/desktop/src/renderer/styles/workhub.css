@@ -300,8 +300,13 @@ body:has(.workHubLive[data-placement='floating'][data-progress='true'])::after {
   .workHubLive[data-placement='floating'], .workHubLive[data-placement='floating']::before, body:has(.workHubLive[data-placement='floating'])::after, .workHubLive[data-conversation-expanded] .workHubHistory { transition: none; }
 }
 
-/* The stripe identifies the linked Work, not execution status. */
-.workhub-surface .maka-transcript-turn[data-turn-accent='true'] {
+/* Each message carries Work identity on its sender's edge. */
+.workhub-surface .maka-transcript-turn[data-turn-accent='true'] > .maka-turn > .maka-user-message {
+  border-inline-end: 3px solid var(--maka-turn-accent);
+  padding-inline-end: 12px;
+}
+
+.workhub-surface .maka-transcript-turn[data-turn-accent='true'] > .maka-turn > .maka-assistant-answer {
   border-inline-start: 3px solid var(--maka-turn-accent);
   padding-inline-start: 12px;
 }

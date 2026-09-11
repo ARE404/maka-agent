@@ -171,6 +171,15 @@ export const ColoredWorkHistory: Story = {
     expect(turns[0]!.querySelector('.workhub-turn-label')).toHaveTextContent('maka / 支付回调幂等性');
     expect(turns[1]!.querySelector('.workhub-turn-label')).toHaveTextContent('desktop / 发布检查清单');
     expect(canvasElement.querySelector('[data-transcript-turn-id="unlinked-turn"]')).not.toHaveAttribute('data-turn-accent');
+    for (const turn of turns) {
+      const prompt = getComputedStyle(turn.querySelector('.maka-user-message')!);
+      const answer = getComputedStyle(turn.querySelector('.maka-assistant-answer')!);
+      expect(prompt.borderRightWidth).toBe('3px');
+      expect(prompt.borderLeftWidth).toBe('0px');
+      expect(answer.borderLeftWidth).toBe('3px');
+      expect(answer.borderRightWidth).toBe('0px');
+      expect(getComputedStyle(turn).borderLeftWidth).toBe('0px');
+    }
     const label = turns[0]!.querySelector<HTMLElement>('.workhub-turn-label')!;
     await userEvent.hover(label);
     await waitFor(() => expect(turns[2]!.querySelector('.workhub-turn-label')).toHaveAttribute('data-work-highlighted', 'true'));
