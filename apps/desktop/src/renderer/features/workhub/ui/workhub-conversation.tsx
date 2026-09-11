@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { useContext, useMemo, type ComponentProps, type CSSProperties } from 'react';
+import { useContext, useMemo, useState, type ComponentProps, type CSSProperties } from 'react';
 import { ChatView, useUiLocale } from '@maka/ui';
 import type { UiLocale } from '@maka/core/ui-locale';
 import { Button } from '@astryxdesign/core';
@@ -51,6 +51,17 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
   const { onOpenWork, workLinks: assignments, promptStates, ...chat } = props;
   const highlight = useContext(WorkHubHighlightContext);
   const locale = useUiLocale();
+  const copy = workHubLiveCopy[locale];
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
+  async function loadHistory(edge: 'older' | 'newer') {
+    if (loadingHistory) return;
+    setLoadingHistory(true);
+    setHistoryError(false);
+    try { await chat.onPrefetchHistory?.(edge); }
+    catch { setHistoryError(true); }
+    finally { setLoadingHistory(false); }
+  }
   // A coordination turn can delegate to several Works. Keep every label and
   // leave its shared bar neutral rather than attributing the entire turn to one.
   const worksByTurn = useMemo(() => {
@@ -73,6 +84,12 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
     promptStatus: <>{works.map((work, index) => <span key={work.id}>
       {index > 0 ? ' / ' : ''}<WorkHubDelegationStatus work={work} locale={locale} showName={works.length > 1} />
     </span>)}</>,
+    messageRail: works.length === 1 ? <button
+      type="button" className="workhub-message-rail"
+      aria-label={`${copy.filterConversation}: ${works[0]!.targetSessionName} · ${promptTextByTurn.get(turnId) ?? turnId}`}
+      title={`${copy.filterConversation}: ${works[0]!.targetSessionName}`}
+      onClick={() => highlight.selectWork({ sessionId: works[0]!.targetSessionId, name: works[0]!.targetSessionName })}
+    /> : undefined,
     header: <div className="workhub-turn-heading">
       {works.map((work) => <Button
         key={work.targetSessionId}
@@ -92,14 +109,33 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
   }]));
   for (const [turnId, state] of promptStates ?? []) {
     if (!turnDecorations.has(turnId)) turnDecorations.set(turnId, {
-      header: <></>, accentColor: undefined,
+      header: <></>, accentColor: undefined, messageRail: undefined,
       promptStatus: <WorkHubDelegationStatus locale={locale} work={{ id: turnId, coordinationTurnId: turnId, targetSessionId: '', targetSessionName: '', state }} />,
     });
   }
-  return <ChatView {...chat}
+  const selected = highlight.selectedWork;
+  const matchingTurns = new Set([...worksByTurn].filter(([, works]) => works.some((work) => work.targetSessionId === selected?.sessionId)).map(([turnId]) => turnId));
+  const messages = selected ? chat.messages.filter((message) => message.turnId !== undefined && matchingTurns.has(message.turnId)) : chat.messages;
+  const liveTurn = selected && chat.liveTurn && !matchingTurns.has(chat.liveTurn.turnId) ? undefined : chat.liveTurn;
+  return <>
+    {selected && <div className="workhub-conversation-filter" role="region" aria-label={copy.filterConversation}>
+      <span>{selected.name}</span>
+      <Button variant="ghost" label={copy.clearConversationFilter} onClick={() => highlight.selectWork(undefined)} />
+      {chat.hasOlderHistory && <Button variant="ghost" label={copy.olderConversations} isDisabled={loadingHistory} onClick={() => void loadHistory('older')} />}
+      {chat.hasNewerHistory && <Button variant="ghost" label={copy.newerConversations} isDisabled={loadingHistory} onClick={() => void loadHistory('newer')} />}
+      {historyError && <span role="alert">{copy.controlFailed}</span>}
+    </div>}
+    <ChatView key={selected?.sessionId ?? "all"} {...chat}
+    messages={messages}
+    liveTurn={liveTurn}
+    transientMessages={selected ? chat.transientMessages?.filter((message) => message.hostTurnId && matchingTurns.has(message.hostTurnId)) : chat.transientMessages}
+    runningStatus={selected ? Boolean(liveTurn) && chat.runningStatus : chat.runningStatus}
+    emptyOverride={selected ? <p>{copy.noWorkConversation}</p> : chat.emptyOverride}
+    onRetainWindow={selected ? undefined : chat.onRetainWindow}
+    onPrefetchHistory={selected ? undefined : chat.onPrefetchHistory}
     turnDecorations={turnDecorations}
     promptRailDecorations={promptRailDecorations}
     onPromptRailHighlight={(turnId) => highlight.highlight(turnId ? workByTurn.get(turnId) : undefined)}
 
-  />;
+  /></>;
 }

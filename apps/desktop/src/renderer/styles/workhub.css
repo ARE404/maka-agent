@@ -315,3 +315,12 @@ body:has(.workHubLive[data-placement='floating'][data-progress='true'])::after {
 
 .workhub-target-selector { --workhub-selection-label: 0.42 0.075; }
 .dark .workhub-target-selector { --workhub-selection-label: 0.8 0.09; }
+
+/* A real button makes the narrow identity stripe keyboard accessible. */
+.workhub-surface .maka-transcript-turn[data-turn-accent='true'] > .maka-turn > :is(.maka-user-message, .maka-assistant-answer) { position: relative; }
+.workhub-message-rail { position: absolute; inset-block: 0; width: 12px; border: 0; padding: 0; background: transparent; cursor: pointer; z-index: 1; }
+.maka-user-message > .workhub-message-rail { inset-inline-end: -3px; }
+.maka-assistant-answer .workhub-message-rail { inset-inline-start: -3px; }
+.workhub-message-rail:focus-visible { outline: 2px solid var(--maka-turn-accent); outline-offset: 2px; border-radius: 3px; }
+.workhub-conversation-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 16px; font-size: 12px; }
+.workhub-conversation-filter > span { overflow-wrap: anywhere; }

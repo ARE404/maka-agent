@@ -33,7 +33,7 @@ const choices = ['model-a', 'model-b'].map((model, index) => ({
   connectionId: 'connection-test', connectionSlug: 'test', connectionName: 'Test', providerType: 'openai' as const,
   providerLabel: 'OpenAI', model, label: model, isDefault: index === 0, thinkingLevels: [],
 }));
-function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: boolean, selectTarget = false, question = false): WorkHubServices {
+function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: boolean, selectTarget = false, question = false, paged = false): WorkHubServices {
   let failures = failFirst ? 1 : 0;
   let session: SessionSummary & { revision: number } = {
     id: sessionId, name: 'WorkHub', revision: 1, isFlagged: false, isArchived: false, labels: [], hasUnread: false,
@@ -59,6 +59,9 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
     });
     messages.push({ type: 'user', id: 'unlinked', turnId: 'unlinked-turn', ts: 20, text: '先讨论一下整体计划。' });
   }
+  const olderMessages = paged ? messages.slice(0, 6) : [];
+  if (paged) messages = messages.slice(6);
+  let hasOlder = paged;
   const questionRequest: import('@maka/core/events').UserQuestionRequestEvent = {
     type: 'user_question_request', id: 'question-event', ts: 1, turnId: 'question-turn', requestId: 'question-request', toolUseId: 'question-tool',
     questions: [{ question: '首批发布范围选哪个？', options: [{ label: '仅邀请用户' }, { label: '公开测试' }] }],
@@ -68,7 +71,7 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
   let interactionUpdate: Parameters<WorkHubServices['subscribeActiveInteractions']>[0] | undefined;
   let updateTranscript: ((snapshot: WorkHubTranscriptSnapshot) => void) | undefined;
   let updateSessions: (() => void) | undefined;
-  const publish = () => updateTranscript?.({ messages, hasOlder: false, hasNewer: false, ready: true });
+  const publish = () => updateTranscript?.({ messages, hasOlder, hasNewer: false, ready: true });
   return {
     retractQueueEntry: async () => {}, promoteQueueEntry: async () => {},
     updateQueueEntry: async () => {}, reorderQueueEntries: async () => {},
@@ -112,7 +115,10 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
       return { kind: 'committed', session: { ...session, workspace: { target: { kind: 'host_path', path: '/projects/maka' }, hostCwd: '/projects/maka' }, createdAt: 0, activityAt: 0, labelsTruncated: false, llmConnectionId: 'connection-test', collaborationMode: 'agent', orchestrationMode: 'default' } };
     },
     observe: () => () => {},
-    openTranscript: async (_id, handler) => { updateTranscript = handler; publish(); return { observationChanged: () => {}, prefetchHistory: async () => false, retain: () => {}, loadLatest: async () => {}, close: async () => { updateTranscript = undefined; } }; },
+    openTranscript: async (_id, handler) => { updateTranscript = handler; publish(); return { observationChanged: () => {}, prefetchHistory: async () => {
+      if (!hasOlder) return false;
+      messages = [...olderMessages, ...messages]; hasOlder = false; publish(); return true;
+    }, retain: () => {}, loadLatest: async () => {}, close: async () => { updateTranscript = undefined; } }; },
     stop: async () => {
       session = { ...session, runningTurnIds: [] }; updateSessions?.();
       interactionUpdate?.({ sessionId, interactions: [] });
@@ -122,8 +128,8 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
 
   };
 }
-function Surface({ failFirst = false, history = false, colors = false, selectTarget = false, question = false }: { failFirst?: boolean; history?: boolean; colors?: boolean; selectTarget?: boolean; question?: boolean }) {
-  const [services] = useState(() => makeServices(failFirst, history, colors, selectTarget, question));
+function Surface({ failFirst = false, history = false, colors = false, selectTarget = false, question = false, paged = false }: { failFirst?: boolean; history?: boolean; colors?: boolean; selectTarget?: boolean; question?: boolean; paged?: boolean }) {
+  const [services] = useState(() => makeServices(failFirst, history, colors, selectTarget, question, paged));
   return <LocaleProvider locale="zh-CN"><AstryxLocaleProvider><ToastProvider><WorkHubServicesProvider services={services}><div style={{ height: '100dvh' }}><WorkHubRoot /></div></WorkHubServicesProvider></ToastProvider></AstryxLocaleProvider></LocaleProvider>;
 }
 const meta = { title: 'Product/WorkHub', parameters: { layout: 'fullscreen' } } satisfies Meta;
@@ -307,3 +313,52 @@ export const QuestionStopped: Story = {
     expect(canvasElement.querySelector('.workhub-delegation-status')).toHaveTextContent('中止');
   },
 };
+
+export const FilterWorkConversations: Story = {
+  render: () => <Surface history colors />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4));
+    writes.open.mockClear();
+    await userEvent.click(canvasElement.querySelector('.maka-user-message .workhub-message-rail') as HTMLElement);
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(2));
+    expect(canvas.queryByText('请检查发布检查清单。')).toBeNull();
+    expect(canvas.queryByText('先讨论一下整体计划。')).toBeNull();
+    expect(canvas.getByText('继续补充异常场景。')).toBeInTheDocument();
+    expect(writes.open).not.toHaveBeenCalled();
+    await userEvent.click(canvas.getByRole('button', { name: '显示全部对话' }));
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4));
+    const rail = canvasElement.querySelectorAll('.workhub-navigation-item')[1] as HTMLElement;
+    await userEvent.dblClick(rail);
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(1));
+    expect(canvas.getByText('请检查发布检查清单。')).toBeInTheDocument();
+    // Wait beyond the delayed single-click action: double-click must never open a Session.
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    expect(writes.open).not.toHaveBeenCalled();
+    await userEvent.click(canvas.getByRole('button', { name: '显示全部对话' }));
+    const answerRail = canvasElement.querySelector('.maka-assistant-answer .workhub-message-rail') as HTMLElement;
+    answerRail.focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(2));
+    await userEvent.click(canvas.getByRole('button', { name: '显示全部对话' }));
+    await userEvent.click(rail);
+    await waitFor(() => expect(writes.open).toHaveBeenCalledTimes(1));
+  },
+};
+
+export const FilterWorkHistoryPages: Story = {
+  render: () => <Surface history colors paged />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => expect(canvas.getByText('继续补充异常场景。')).toBeInTheDocument());
+    await userEvent.click(canvasElement.querySelector('.maka-user-message .workhub-message-rail') as HTMLElement);
+    const older = canvas.queryByRole('button', { name: '更早的历史' });
+    if (older) await userEvent.click(older);
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(2));
+    expect(canvas.getByText('请检查支付回调幂等性。')).toBeInTheDocument();
+    expect(canvas.queryByText('请检查发布检查清单。')).toBeNull();
+    await userEvent.click(canvas.getByRole('button', { name: '显示全部对话' }));
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4));
+  },
+};
+export const FilterWorkConversationsNarrow: Story = { ...FilterWorkConversations };

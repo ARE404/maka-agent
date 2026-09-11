@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { useContext, useRef, useState, type CSSProperties } from 'react';
+import { useContext, useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { WorkHubRailCopy } from '../../../locales/workhub-copy.js';
 import type { UiLocale } from '@maka/core/ui-locale';
 import { Button, dotForStatus, presentSessionStatus } from '@maka/ui';
@@ -29,6 +29,7 @@ import {
   type WorkHubWorkFilter,
 } from '../model/anchor-rail.js';
 
+import { workHubLiveCopy } from '../locales/workhub-live-copy.js';
 import { WorkHubHighlightContext, workHubIdentityHue } from './workhub-work-identity.js';
 
 export function WorkHubNavigationRail(props: {
@@ -40,6 +41,8 @@ export function WorkHubNavigationRail(props: {
   readonly onOpenSession: (sessionId: string) => void;
 }) {
   const highlight = useContext(WorkHubHighlightContext);
+  const openTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(openTimer.current), []);
   const drag = useRef<{ pointerId: number; startX: number; scrollLeft: number; list: HTMLElement; moved: boolean } | undefined>(undefined);
   const [filter, setFilter] = useState<WorkHubWorkFilter>('all');
   const anchors = deriveWorkHubAnchors({
@@ -125,12 +128,18 @@ export function WorkHubNavigationRail(props: {
                   onMouseLeave={() => highlight.highlight(undefined)}
                   onFocus={() => highlight.highlight(anchor.target.sessionId)}
                   onBlur={() => highlight.highlight(undefined)}
-                  label={<span className="workhub-navigation-label">{anchor.sessionName}</span>}
+                  label={<span className="workhub-navigation-label" title={workHubLiveCopy[props.locale].navigationGesture}>{anchor.sessionName}</span>}
                   description={<><span className="workhub-navigation-workspace">{anchor.projectName}</span>{` · ${anchor.target.sessionId === props.focusSessionId ? `${props.copy.focused} · ` : ''}${state}`}</>}
                   startContent={variant ? <StatusDot variant={variant} label={state} /> : undefined}
                   isSelected={anchor.target.sessionId === props.focusSessionId}
                   aria-current={anchor.target.sessionId === props.focusSessionId ? 'page' : undefined}
-                  onClick={() => props.onOpenSession(anchor.target.sessionId)}
+                  onClick={(event) => {
+                    clearTimeout(openTimer.current);
+                    if (event.shiftKey) highlight.selectWork({ sessionId: anchor.target.sessionId, name: anchor.sessionName });
+                    else if (event.detail === 0) props.onOpenSession(anchor.target.sessionId);
+                    else if (event.detail >= 2) highlight.selectWork({ sessionId: anchor.target.sessionId, name: anchor.sessionName });
+                    else if (event.detail === 1) openTimer.current = setTimeout(() => props.onOpenSession(anchor.target.sessionId), 500);
+                  }}
                 />
               );
             })}

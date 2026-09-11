@@ -22,7 +22,9 @@ import { createContext, useState, type ReactNode } from 'react';
 export const WorkHubHighlightContext = createContext<{
   sessionId: string | undefined;
   highlight(sessionId: string | undefined): void;
-}>({ sessionId: undefined, highlight: () => {} });
+  selectedWork?: { sessionId: string; name: string };
+  selectWork(work: { sessionId: string; name: string } | undefined): void;
+}>({ sessionId: undefined, highlight: () => {}, selectWork: () => {} });
 
 /** Stable across refreshes and reordering; color supplements the visible work name. */
 export function workHubIdentityHue(sessionId: string): number {
@@ -33,10 +35,11 @@ export function workHubIdentityHue(sessionId: string): number {
 }
 
 
-/** Work identity hover is local presentation state shared by the three rails. */
+/** Work identity hover and conversation filtering are local presentation state. */
 export function WorkHubHighlightProvider({ children }: { children: ReactNode }) {
   const [sessionId, highlight] = useState<string>();
-  return <WorkHubHighlightContext.Provider value={{ sessionId, highlight }}>
+  const [selectedWork, selectWork] = useState<{ sessionId: string; name: string }>();
+  return <WorkHubHighlightContext.Provider value={{ sessionId, highlight, selectedWork, selectWork }}>
     {children}
   </WorkHubHighlightContext.Provider>;
 }

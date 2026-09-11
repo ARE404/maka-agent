@@ -378,6 +378,8 @@ export const TurnView = memo(function TurnView(props: {
   turn: TurnViewModel;
   /** Optional identity repeated beside each prompt and answer in this turn. */
   messageHeader?: ReactNode;
+  /** Optional accessible action on each message edge. */
+  messageRail?: ReactNode;
   /** Host-owned status of the root prompt, displayed before its timestamp. */
   promptStatus?: ReactNode;
   transientMessages?: readonly TransientUserMessageProjection[];
@@ -579,6 +581,7 @@ export const TurnView = memo(function TurnView(props: {
           sender="user"
           className="maka-chat-message maka-user-message"
         >
+          {props.messageRail}
           {props.messageHeader}
           <UserMessageBody
             status={props.promptStatus}
@@ -648,6 +651,7 @@ export const TurnView = memo(function TurnView(props: {
               sender="user"
               className="maka-chat-message maka-user-message maka-steering-message"
             >
+              {props.messageRail}
               {props.messageHeader}
               <UserMessageBody
                 messageId={message.id}
@@ -677,6 +681,7 @@ export const TurnView = memo(function TurnView(props: {
               className="maka-chat-message maka-assistant-answer"
             >
             <div className="maka-assistant-answer-content">
+              {props.messageRail}
               {props.messageHeader}
               {/* The turn timeline is the rendering source of truth
                 (materialize.ts): each step's 深度思考 disclosure, answer bubble,
