@@ -25,6 +25,7 @@ import { backup, DatabaseSync } from 'node:sqlite';
 import { isCanonicalStorageRef } from '@maka/core/events';
 import {
   discoverMarkedStorageRoot,
+  resolveStorageRoot,
   runWithStorageRootLease,
   tryAcquireInteractiveRootOwner,
 } from './root-authority.js';
@@ -47,9 +48,32 @@ import { SQLITE_SESSION_MESSAGE_CHUNK_MARKER } from './sqlite-session-metadata-s
 export async function withOfflineContextSnapshot<T>(
   root: string,
   operation: (contextLocked: boolean) => Promise<T>,
+  options: {
+    /**
+     * Take the authority even when the root has no context database yet.
+     *
+     * A reader only needs it when there is something to read, but a writer
+     * that is about to CREATE the context store needs it too -- otherwise the
+     * one case where it matters most, a fresh workspace, is the one case that
+     * runs unprotected.
+     */
+    requireAuthority?: boolean;
+  } = {},
 ): Promise<T> {
-  if (!(await exists(join(root, CONTEXT_OFFLOAD_DATABASE_NAME)))) return operation(false);
-  const capability = await discoverMarkedStorageRoot({ path: root });
+  if (
+    options.requireAuthority !== true &&
+    !(await exists(join(root, CONTEXT_OFFLOAD_DATABASE_NAME)))
+  ) {
+    return operation(false);
+  }
+  // Discovery finds a marked root; it does not make one. A workspace that has
+  // never been opened is exactly the target an import writes to first, so when
+  // the caller says it is about to write, the root is resolved -- which
+  // initialises it -- rather than merely looked for.
+  const capability =
+    options.requireAuthority === true
+      ? await resolveStorageRoot({ path: root, kind: 'interactive' })
+      : await discoverMarkedStorageRoot({ path: root });
   const owner = await tryAcquireInteractiveRootOwner(capability);
   if (!owner)
     throw new Error(
