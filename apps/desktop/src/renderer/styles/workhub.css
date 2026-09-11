@@ -302,3 +302,12 @@ body:has(.workHubLive[data-placement='floating'][data-progress='true'])::after {
 .maka-assistant-answer .workhub-turn-label {
   text-align: left;
 }
+
+.workhub-target-selector { width: min(var(--maka-reading-measure), calc(100% - 2 * var(--space-6))); margin-inline: auto; }
+.workhub-selection-hint { margin: 4px 0 0; color: var(--muted-foreground); font-size: 12px; }
+.workhub-target-selector [role="radiogroup"] { max-height: 260px; overflow-y: auto; }
+.workhub-selection-actions { flex-wrap: wrap; }
+.workhub-selection-actions > :last-child { margin-inline-start: auto; }
+
+.workhub-target-selector { --workhub-selection-label: 0.42 0.075; }
+.dark .workhub-target-selector { --workhub-selection-label: 0.8 0.09; }

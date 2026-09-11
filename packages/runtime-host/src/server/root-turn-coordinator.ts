@@ -235,6 +235,7 @@ export type RootMessageStartRequest =
     });
 
 export interface HostWorkHubRoutingDecisionPreparation {
+  readonly allowTargetSelection?: boolean;
   readonly header: SessionHeader;
   readonly turnId: string;
   readonly content: MessageContent;
@@ -1565,14 +1566,20 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
     content: MessageContent,
     execution: RootExecutionDescriptor,
     inputClosedSignal?: AbortSignal,
+    allowTargetSelection = false,
   ): Promise<RootExecutionDescriptor> {
-    if (execution.kind !== 'workhub_coordination' || !this.prepareWorkHubRoutingDecision) {
+    if (
+      execution.kind !== 'workhub_coordination' ||
+      execution.routingDecision ||
+      !this.prepareWorkHubRoutingDecision
+    ) {
       return execution;
     }
     return {
       ...execution,
       routingDecision: await this.prepareWorkHubRoutingDecision({
         header,
+        allowTargetSelection,
         turnId,
         content,
         ...(inputClosedSignal ? { inputClosedSignal } : {}),
@@ -2086,6 +2093,7 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
             ...(capabilityBinding ? { capabilityBinding } : {}),
           },
           context.inputClosedSignal,
+          true,
         );
         if (!this.beginRootAdmission(reservation)) {
           return completedStart(sessionBusy('Root Turn reservation is no longer current'));

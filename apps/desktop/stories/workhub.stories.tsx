@@ -33,7 +33,7 @@ const choices = ['model-a', 'model-b'].map((model, index) => ({
   connectionId: 'connection-test', connectionSlug: 'test', connectionName: 'Test', providerType: 'openai' as const,
   providerLabel: 'OpenAI', model, label: model, isDefault: index === 0, thinkingLevels: [],
 }));
-function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: boolean): WorkHubServices {
+function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: boolean, selectTarget = false): WorkHubServices {
   let failures = failFirst ? 1 : 0;
   let session: SessionSummary & { revision: number } = {
     id: sessionId, name: 'WorkHub', revision: 1, isFlagged: false, isArchived: false, labels: [], hasUnread: false,
@@ -82,6 +82,10 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
     prepareAttachments: async (id, items) => { writes.upload(id, items); return [{ name: 'requirements.txt', kind: 'other', mimeType: 'text/plain', bytes: 12, ref: { kind: 'session_file', sessionId: 'maka_workhub_coordination', relativePath: 'artifact-1' } }]; },
     answer: async (id, input) => {
       writes.answer(id, input);
+      if (selectTarget && !input.selection) return { kind: 'selection_required', turnId: input.turnId, request: {
+        requestId: 'selection-request', candidateSetId: `sha256:${'0'.repeat(64)}`,
+        candidates: [target, secondTarget].map((candidate, index) => ({ candidateRef: `candidate-${index}`, sessionId: candidate.id, sessionName: candidate.name, workspace: { target: { kind: 'host_path' as const, path: candidate.cwd }, hostCwd: candidate.cwd }, state: 'active' as const, updatedAt: 1 })),
+      } };
       if (failures-- > 0) throw new Error('Temporary Host failure');
       messages = [...messages, { type: 'user', id: input.turnId, turnId: input.turnId, ts: 4, text: input.text, attachments: input.attachments }, { type: 'assistant', id: `${input.turnId}-answer`, turnId: input.turnId, ts: 5, modelId: 'model-a', text: '已收到。' }, { type: 'turn_state', id: `${input.turnId}-done`, turnId: input.turnId, ts: 6, status: 'completed' }];
       publish(); return { kind: 'admitted', turnId: input.turnId };
@@ -95,8 +99,8 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
     stop: async () => [],
   };
 }
-function Surface({ failFirst = false, history = false, colors = false }: { failFirst?: boolean; history?: boolean; colors?: boolean }) {
-  const [services] = useState(() => makeServices(failFirst, history, colors));
+function Surface({ failFirst = false, history = false, colors = false, selectTarget = false }: { failFirst?: boolean; history?: boolean; colors?: boolean; selectTarget?: boolean }) {
+  const [services] = useState(() => makeServices(failFirst, history, colors, selectTarget));
   return <LocaleProvider locale="zh-CN"><AstryxLocaleProvider><ToastProvider><WorkHubServicesProvider services={services}><div style={{ height: '100dvh' }}><WorkHubRoot /></div></WorkHubServicesProvider></ToastProvider></AstryxLocaleProvider></LocaleProvider>;
 }
 const meta = { title: 'Product/WorkHub', parameters: { layout: 'fullscreen' } } satisfies Meta;
@@ -192,5 +196,57 @@ export const ColoredWorkHistory: Story = {
     await userEvent.click(label);
     expect(writes.open).toHaveBeenCalledWith(targetId);
     await userEvent.unhover(label);
+  },
+};
+
+export const TargetSelection: Story = {
+  render: () => <Surface selectTarget />,
+  play: async ({ canvasElement }) => {
+    const editor = canvasElement.querySelector('[contenteditable="true"]') as HTMLElement;
+    await userEvent.click(editor);
+    await userEvent.type(editor, '继续支付相关的工作，把异常场景补齐。');
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(canvasElement.querySelector('.workhub-target-selector')).toBeInTheDocument());
+    expect(canvasElement.querySelector('.maka-turn-processing')).toBeNull();
+  },
+};
+
+export const KeyboardTargetSelection: Story = {
+  render: () => <Surface selectTarget />,
+  play: async (context) => {
+    Object.values(writes).forEach((spy) => spy.mockClear());
+    await TargetSelection.play!(context);
+    const canvas = within(context.canvasElement);
+    expect(canvas.getByRole('button', { name: '确认目标' })).toBeDisabled();
+    await userEvent.keyboard('2');
+    expect(canvas.getAllByRole('radio')[1]).toBeChecked();
+    expect(writes.answer).toHaveBeenCalledTimes(1);
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(context.canvasElement.querySelector('.workhub-target-selector')).toBeNull());
+    expect(writes.answer).toHaveBeenLastCalledWith(sessionId, expect.objectContaining({ text: '继续支付相关的工作，把异常场景补齐。', selection: { requestId: 'selection-request', kind: 'existing', candidateRef: 'candidate-1' } }));
+    const editor = context.canvasElement.querySelector('[contenteditable="true"]') as HTMLElement;
+    await waitFor(() => expect(editor).toHaveTextContent(''));
+    await userEvent.click(editor); await userEvent.type(editor, '需要进一步说明'); await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(context.canvasElement.querySelector('.workhub-target-selector')).toBeInTheDocument());
+    await userEvent.keyboard('{ArrowDown}');
+    expect(canvas.getAllByRole('radio')[0]).toBeChecked();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(canvas.getAllByRole('radio')[1]).toBeChecked();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(context.canvasElement.querySelector('.workhub-target-selector')).toBeNull());
+    expect(editor).toHaveTextContent('需要进一步说明');
+    expect(writes.answer).toHaveBeenCalledTimes(3);
+  },
+};
+
+export const TargetSelectionFailure: Story = {
+  render: () => <Surface selectTarget failFirst />,
+  play: async (context) => {
+    await TargetSelection.play!(context);
+    await userEvent.keyboard('1{Enter}');
+    await waitFor(() => expect(context.canvasElement.querySelector('.workhub-target-selector')).toBeNull());
+    const editor = context.canvasElement.querySelector('[contenteditable="true"]') as HTMLElement;
+    expect(editor).toHaveTextContent('继续支付相关的工作，把异常场景补齐。');
+    expect(within(context.canvasElement).getByRole('alert')).toHaveTextContent('Temporary Host failure');
   },
 };

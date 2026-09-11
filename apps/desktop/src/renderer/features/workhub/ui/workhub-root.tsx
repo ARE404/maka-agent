@@ -23,6 +23,7 @@ import { Button, IconButton } from '@astryxdesign/core';
 import { ChevronDown, PictureInPicture2, Undo2, X } from '@maka/ui/icons';
 import { WorkHubProgressCard } from './workhub-progress-card.js';
 import { WorkHubComposer } from './workhub-composer.js';
+import { WorkHubTargetSelector } from './workhub-target-selector.js';
 import { WorkHubConversation } from './workhub-conversation.js';
 import { WorkHubNavigationRail } from './workhub-navigation-rail.js';
 import { WorkHubHighlightProvider } from './workhub-work-identity.js';
@@ -90,6 +91,12 @@ export function WorkHubRoot() {
   const progress = presentation?.progressRequest !== undefined;
   const editingProgress = progress && editingProgressRequest === presentation.progressRequest;
   const floating = presentation?.placement === 'floating';
+  useEffect(() => {
+    if (controller.targetSelection) {
+      setConversationExpanded(true);
+      void services.presentation.showConversation(presentation?.progressRequest).catch(controller.report);
+    }
+  }, [controller.targetSelection]);
   const showConversation = !progress && (!floating || conversationExpanded);
   useLayoutEffect(() => {
     const element = surface.current;
@@ -263,6 +270,11 @@ export function WorkHubRoot() {
                 )}
               </div>
             )}
+            {controller.targetSelection && <WorkHubTargetSelector key={controller.targetSelection.requestId}
+              request={controller.targetSelection} submitting={controller.selectionSubmitting}
+              onChoose={controller.chooseTarget}
+              onDismiss={() => { controller.dismissTargetSelection(); requestAnimationFrame(() => composer.current?.focus()); }} />}
+            <div hidden={Boolean(controller.targetSelection)}>
             <WorkHubComposer
               pendingMessages={controller.transientMessages}
               queuedMessages={controller.messageQueue.entries}
@@ -302,6 +314,7 @@ export function WorkHubRoot() {
                 </div>
               }
             />
+            </div>
             {!progress && floating && !conversationExpanded && (
               <IconButton className="workHubExpandButton" type="button" size="sm" variant="ghost" icon={<ChevronDown size={14} style={{ rotate: '180deg' }} />} label={t.expandConversation} aria-expanded={false} onClick={toggleConversation} />
             )}
