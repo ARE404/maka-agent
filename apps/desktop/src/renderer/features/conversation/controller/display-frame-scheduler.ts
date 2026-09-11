@@ -17,18 +17,19 @@
  * under the License.
  */
 
-mod lifetime;
-mod muxer;
-mod signaling;
-mod transport;
-mod upgrade;
-
-pub(crate) use muxer::WebRtcConnection;
-pub(crate) use signaling::{Signal, SignalingError, read_signal, write_signal};
-pub(crate) use transport::{WebRtcTransport, WebRtcTransportControl};
-pub(crate) use upgrade::{UpgradeOptions, UpgradeRole, upgrade_connection};
-
-pub(crate) const SIGNALING_PROTOCOL: &str = "/webrtc-signaling/0.0.1";
-
-#[cfg(test)]
-mod tests;
+export function createConversationDisplayFrameScheduler(): ((callback: () => void) => void) | undefined {
+  if (typeof requestAnimationFrame !== 'function') return undefined;
+  return (callback) => {
+    let pending = true;
+    const run = () => {
+      if (!pending) return;
+      pending = false;
+      // Hidden windows can suspend frames while the timeout keeps flushing.
+      cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+      callback();
+    };
+    const frameId = requestAnimationFrame(run);
+    const timeoutId = window.setTimeout(run, 100);
+  };
+}
