@@ -25,12 +25,10 @@ import { WorkHubHighlightContext, workHubIdentityHue } from './workhub-work-iden
 import type { WorkHubLinkedWork } from '../model/linked-work.js';
 import { workHubLiveCopy } from '../locales/workhub-live-copy.js';
 
-export function WorkHubResultCard(props: {
+export function WorkHubDelegationStatus(props: {
   work: WorkHubLinkedWork;
   locale: UiLocale;
-  highlighted: boolean;
-  onHighlight(highlighted: boolean): void;
-  onOpenWork(sessionId: string): void;
+  showName?: boolean;
 }) {
   const { work } = props;
   const copy = workHubLiveCopy[props.locale];
@@ -44,28 +42,9 @@ export function WorkHubResultCard(props: {
     aborted: copy.delegationAborted,
     recovering: copy.delegationRecovering,
   }[state];
-  return <div className="workhub-message-identity workhub-work-identity"
-    style={{ '--workhub-work-hue': workHubIdentityHue(work.targetSessionId) } as CSSProperties}
-    data-work-session-id={work.targetSessionId}
-    data-work-highlighted={props.highlighted}
-    data-work-state={state}
-    onMouseEnter={() => props.onHighlight(true)}
-    onMouseLeave={() => props.onHighlight(false)}
-    onFocus={() => props.onHighlight(true)}
-    onBlur={() => props.onHighlight(false)}>
-    <div className="workhub-result-card">
-      <div className="workhub-result-heading">
-        <strong>{work.workspaceName ? `${work.workspaceName} / ` : ''}{work.targetSessionName}</strong>
-        <span role="status">{stateLabel}</span>
-      </div>
-      {work.resultPreview ? <p>{work.resultPreview}</p> : null}
-      <Button
-        variant="ghost"
-        label={work.resultPreview ? copy.openResult : copy.openWork}
-        onClick={() => props.onOpenWork(work.targetSessionId)}
-      />
-    </div>
-  </div>;
+  return <span className="workhub-delegation-status" role="status" data-work-state={state}>
+    {props.showName ? `${work.targetSessionName}: ` : ''}{stateLabel}
+  </span>;
 }
 
 export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { workLinks: readonly WorkHubLinkedWork[]; onOpenWork(sessionId: string): void }) {
@@ -91,6 +70,9 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
   }])), [workByTurn, highlight.sessionId]);
   const turnDecorations = new Map([...worksByTurn].map(([turnId, works]) => [turnId, {
     accentColor: promptRailDecorations.get(turnId)?.accentColor,
+    promptStatus: <>{works.map((work, index) => <span key={work.id}>
+      {index > 0 ? ' / ' : ''}<WorkHubDelegationStatus work={work} locale={locale} showName={works.length > 1} />
+    </span>)}</>,
     header: <div className="workhub-turn-heading">
       {works.map((work) => <Button
         key={work.targetSessionId}
@@ -112,17 +94,6 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
     turnDecorations={turnDecorations}
     promptRailDecorations={promptRailDecorations}
     onPromptRailHighlight={(turnId) => highlight.highlight(turnId ? workByTurn.get(turnId) : undefined)}
-    conversationItems={assignments.map((assignment) => ({
-      id: assignment.id,
-      afterTurnId: assignment.coordinationTurnId,
-      renderWhenAnchorMissing: true,
-      content: <WorkHubResultCard
-        work={assignment}
-        locale={locale}
-        highlighted={highlight.sessionId === assignment.targetSessionId}
-        onHighlight={(active) => highlight.highlight(active ? assignment.targetSessionId : undefined)}
-        onOpenWork={onOpenWork}
-      />,
-    }))}
+
   />;
 }

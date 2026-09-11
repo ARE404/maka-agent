@@ -202,7 +202,7 @@ export function ChatView(props: {
    */
   emptyOverride?: ReactNode;
   /** Optional host-owned identity beside a turn; absent for ordinary transcripts. */
-  turnDecorations?: ReadonlyMap<string, { header: ReactNode; accentColor?: string }>;
+  turnDecorations?: ReadonlyMap<string, { header: ReactNode; accentColor?: string; promptStatus?: ReactNode }>;
   /** Session-owned records anchored after a durable conversation turn. */
   conversationItems?: ReadonlyArray<{
     id: string;
@@ -773,7 +773,7 @@ export function ChatView(props: {
                       turn={turn}
                       activityObserved={turn.turnId === props.activeTurn?.turnId}
                       messageHeader={decoration?.header}
-
+                      promptStatus={decoration?.promptStatus}
                       transientMessages={turn.turnId === tailTurnId ? inlineTransientMessages : undefined}
                       userLabel={props.userLabel}
                       footerActions={turnPresentation?.footerActionsByTurn[turn.turnId]}

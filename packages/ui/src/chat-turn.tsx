@@ -165,6 +165,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   editDisabled?: boolean;
   editDisabledReason?: string;
   delivery?: TransientUserMessageProjection;
+  status?: ReactNode;
 }) {
   const locale = useUiLocale();
   const copyText = getConversationCopy(locale).messages;
@@ -177,21 +178,24 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   // than in Astryx's `timestamp` slot: that slot draws a `·` before the footer,
   // and a separator between always-visible text and hover-revealed buttons
   // reads as a stray mark at rest.
+  const timeOrDelivery = props.delivery?.deliveryStatus ? (
+    <span className="maka-message-delivery" role="status" title={props.delivery.deliveryDetail}>
+      {props.delivery.deliveryStatus}
+    </span>
+  ) : props.ts !== undefined ? (
+    // Timestamp takes milliseconds directly for modern chat timestamps.
+    <Timestamp className="maka-message-time-inline" value={props.ts} format="auto" isLive />
+  ) : null;
   const userMetadata = (
     <ChatMessageMetadata
       className="maka-message-meta"
       footer={
         <>
-          {props.delivery?.deliveryStatus ? (
-            <span className="maka-message-delivery" role="status" title={props.delivery.deliveryDetail}>
-              {props.delivery.deliveryStatus}
-            </span>
-          ) : props.ts !== undefined ? (
-            /* `value` takes ms directly: Timestamp's own parseValue reads
-               anything past 1e12 as milliseconds (2001-09-09 onward), and a
-               chat message never predates that. */
-            <Timestamp className="maka-message-time-inline" value={props.ts} format="auto" isLive />
-          ) : null}
+          {props.status ? <span className="maka-message-status-time">
+            {props.status}
+            {timeOrDelivery ? <span aria-hidden="true">·</span> : null}
+            {timeOrDelivery}
+          </span> : timeOrDelivery}
           {props.delivery?.deliveryActions?.map((action) => (
             <UiButton key={action.label} label={action.label} variant="ghost" size="sm" onClick={action.onClick} />
           ))}
@@ -372,6 +376,8 @@ export const TurnView = memo(function TurnView(props: {
   turn: TurnViewModel;
   /** Optional identity repeated beside each prompt and answer in this turn. */
   messageHeader?: ReactNode;
+  /** Host-owned status of the root prompt, displayed before its timestamp. */
+  promptStatus?: ReactNode;
   transientMessages?: readonly TransientUserMessageProjection[];
   userLabel?: string;
   /**
@@ -573,6 +579,7 @@ export const TurnView = memo(function TurnView(props: {
         >
           {props.messageHeader}
           <UserMessageBody
+            status={props.promptStatus}
             messageId={turn.user.id}
             text={turn.user.text}
             ts={turn.user.ts}

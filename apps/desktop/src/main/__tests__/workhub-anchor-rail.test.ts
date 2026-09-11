@@ -27,12 +27,11 @@ import {
   matchesWorkHubFilter,
   MAX_WORKHUB_ANCHORS,
   WorkHubNavigationRail,
-  WorkHubResultCard,
   workHubLinkedWork,
   workHubTurnResultPreview,
 } from "../../renderer/features/workhub/index.js";
 import { ChatSurfaceLayout, LocaleProvider } from '@maka/ui';
-import { WorkHubConversation } from '../../renderer/features/workhub/ui/workhub-conversation.js';
+import { WorkHubConversation, WorkHubDelegationStatus } from '../../renderer/features/workhub/testing.js';
 import { getWorkHubRailCopy } from "../../renderer/locales/workhub-copy.js";
 import type { ToolCallMessage, ToolResultMessage } from '@maka/core/session';
 
@@ -55,9 +54,9 @@ test('durable task results restore Host-scoped work links without treating faile
   ], [], 'Work'), []);
 });
 
-test('a completed delegation returns its bounded result in the WorkHub conversation', () => {
+test('a completed delegation renders only its status beside the prompt timestamp', () => {
   const target = JSON.stringify(['host-a', 'task-a']);
-  const markup = renderToStaticMarkup(createElement(WorkHubResultCard, {
+  const markup = renderToStaticMarkup(createElement(WorkHubDelegationStatus, {
     work: {
       id: 'delegation-record',
       coordinationTurnId: 'coordination-turn',
@@ -69,14 +68,10 @@ test('a completed delegation returns its bounded result in the WorkHub conversat
       resultPreview: 'All release checks passed. The report is ready.',
     },
     locale: 'en',
-    highlighted: false,
-    onHighlight: () => undefined,
-    onOpenWork: () => undefined,
   }));
 
   assert.match(markup, /Completed/u);
-  assert.match(markup, /All release checks passed\. The report is ready\./u);
-  assert.match(markup, /Open result/u);
+  assert.doesNotMatch(markup, /All release checks|Open result/u);
 });
 
 test('delegated result previews select the exact Turn and stay character-bounded', () => {

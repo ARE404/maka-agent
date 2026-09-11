@@ -18,3 +18,5 @@
  */
 
 export { useWorkHubController } from './controller/use-workhub-controller.js';
+
+export { WorkHubConversation, WorkHubDelegationStatus } from './ui/workhub-conversation.js';

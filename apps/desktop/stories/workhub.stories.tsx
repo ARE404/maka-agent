@@ -53,7 +53,7 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
       const turnId = `turn-${index + 1}`;
       return [
         { type: 'user', id: `user-${index}`, turnId, ts: index * 3, text: index === 2 ? '继续补充异常场景。' : `请检查${work.name}。` },
-        { type: 'assistant', id: `answer-${index}`, turnId, ts: index * 3 + 1, modelId: 'model-a', text: '任务已交给对应 Work，执行结果将在下方更新。' },
+        { type: 'assistant', id: `answer-${index}`, turnId, ts: index * 3 + 1, modelId: 'model-a', text: '任务已交给对应 Work。' },
         { ...link, id: `link-${index}`, turnId, coordinationTurnId: turnId, targetSessionId: work.id, targetSessionName: work.name } as StoredMessage,
       ];
     });
@@ -74,7 +74,7 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
     listSessions: async () => coloredHistory ? [target, secondTarget] : [target], subscribeSessions: (handler) => { updateSessions = handler; return () => { updateSessions = undefined; }; }, modelChoices: async () => choices,
     delegationFeedback: async (references) => references.map(({ id }) => ({
       id,
-      state: 'completed' as const,
+      state: coloredHistory && id === 'link-1' ? 'waiting_for_user' as const : coloredHistory && id === 'link-2' ? 'running' as const : 'completed' as const,
       resultPreview: '重复投递测试已通过，支付回调保持同一响应。',
     })),
     attachments: { pickFiles: async () => ({ ok: true, files: [{ approvalId: 'file-1', name: 'requirements.txt', size: 12, mimeType: 'text/plain' }] }), previewApproval: async () => ({ ok: false, reason: 'not-image' }) },
@@ -109,13 +109,13 @@ export const FullConversationAndWorkIdentity: Story = {
     Object.values(writes).forEach((spy) => spy.mockClear());
     const canvas = within(canvasElement);
     await waitFor(() => expect(canvas.getByText(/END_OF_FULL_RESPONSE/)).toBeInTheDocument());
-    await waitFor(() => expect(canvas.getByText('重复投递测试已通过，支付回调保持同一响应。')).toBeInTheDocument());
-    await userEvent.click(canvas.getByRole('button', { name: '打开结果' }));
+    await waitFor(() => expect(canvasElement.querySelector('.workhub-delegation-status')).toHaveTextContent('已完成'));
+    expect(canvasElement.querySelector('.workhub-result-card')).toBeNull();
+    await userEvent.click(canvasElement.querySelector('.workhub-turn-label') as HTMLElement);
     await waitFor(() => expect(writes.open).toHaveBeenCalledWith(targetId));
-    await expect(canvasElement.querySelector('.workhub-message-identity')).toHaveAttribute('data-work-session-id', targetId);
     const navigation = canvasElement.querySelector('.workhub-navigation-item') as HTMLElement;
     await userEvent.hover(navigation);
-    await waitFor(() => expect(canvasElement.querySelector('.workhub-message-identity')).toHaveAttribute('data-work-highlighted', 'true'));
+    await waitFor(() => expect(canvasElement.querySelector('.workhub-turn-label')).toHaveAttribute('data-work-highlighted', 'true'));
   },
 };
 export const FullConversationNarrow: Story = { ...FullConversationAndWorkIdentity, parameters: { viewport: { defaultViewport: 'tablet' } } };
@@ -171,8 +171,12 @@ export const ColoredWorkHistory: Story = {
     expect(turns[0]!.querySelector('.workhub-turn-label')).toHaveTextContent('maka / 支付回调幂等性');
     expect(turns[1]!.querySelector('.workhub-turn-label')).toHaveTextContent('desktop / 发布检查清单');
     expect(canvasElement.querySelector('[data-transcript-turn-id="unlinked-turn"]')).not.toHaveAttribute('data-turn-accent');
-    for (const turn of turns) {
+    for (const [index, turn] of turns.entries()) {
       expect(turn.querySelectorAll('.workhub-turn-label')).toHaveLength(2);
+      const status = turn.querySelector('.maka-user-message .workhub-delegation-status')!;
+      expect(status).toHaveTextContent(['已完成', '等待用户', '进行中'][index]!);
+      expect(turn.querySelector('.maka-assistant-answer .workhub-delegation-status')).toBeNull();
+      expect(canvasElement.querySelector('.workhub-result-card')).toBeNull();
       expect(getComputedStyle(turn.querySelector('.workhub-turn-label')!).fontSize).toBe('11px');
       const prompt = getComputedStyle(turn.querySelector('.maka-user-message')!);
       const answer = getComputedStyle(turn.querySelector('.maka-assistant-answer')!);
