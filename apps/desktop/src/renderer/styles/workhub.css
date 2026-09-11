@@ -254,9 +254,13 @@ body:has(.workHubLive[data-placement='floating'][data-progress='true'])::after {
 }
 
 /* Each message carries Work identity on its sender's edge. */
-.workhub-surface .maka-transcript-turn[data-turn-accent='true'] > .maka-turn > .maka-user-message {
-  border-inline-end: 3px solid var(--maka-turn-accent);
+.workhub-surface .maka-user-message {
+  border-inline-end: 3px solid transparent;
   padding-inline-end: 12px;
+}
+
+.workhub-surface .maka-transcript-turn[data-turn-accent='true'] > .maka-turn > .maka-user-message {
+  border-inline-end-color: var(--maka-turn-accent);
 }
 
 .workhub-surface .maka-transcript-turn[data-turn-accent='true'] > .maka-turn > .maka-assistant-answer {

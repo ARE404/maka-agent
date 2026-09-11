@@ -213,6 +213,9 @@ export const ColoredWorkHistory: Story = {
       expect(answer.borderRightWidth).toBe('0px');
       expect(getComputedStyle(turn).borderLeftWidth).toBe('0px');
     }
+    const metadataRights = [...canvasElement.querySelectorAll('.maka-user-message .maka-message-meta')].map((element) => element.getBoundingClientRect().right);
+    expect(metadataRights).toHaveLength(4);
+    expect(Math.max(...metadataRights) - Math.min(...metadataRights)).toBeLessThan(1);
     const label = turns[0]!.querySelector<HTMLElement>('.workhub-turn-label')!;
     await userEvent.hover(label);
     await waitFor(() => expect(turns[2]!.querySelector('.workhub-turn-label')).toHaveAttribute('data-work-highlighted', 'true'));
