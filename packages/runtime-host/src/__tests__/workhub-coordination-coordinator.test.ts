@@ -108,9 +108,9 @@ describe('Host WorkHub Coordination coordinator', () => {
       admission,
       {},
       {
-        decide: async ({ resolveCandidates }) => {
+        decide: async ({ resolveCandidates, userText }) => {
           modelCalls++;
-          await resolveCandidates();
+          if (userText !== 'Unclear intent') await resolveCandidates();
           return { kind: 'routing', disposition: 'clarify' };
         },
       },
@@ -215,6 +215,12 @@ describe('Host WorkHub Coordination coordinator', () => {
       );
       assert(created.ok && !created.result.targetSelection);
       assert.deepEqual(decisions[1], { kind: 'routing', disposition: 'create_new' });
+      const unclear = await workhub.handlers['workhub.coordination.answer'](
+        { turnId: 'unclear-intent', text: 'Unclear intent' },
+        CONTEXT,
+      );
+      assert(unclear.ok && unclear.result.targetSelection);
+      assert.equal(decisions.length, 2, 'intent clarification also waits before admission');
     } finally {
       await store.close?.();
       await rm(root, { recursive: true, force: true });

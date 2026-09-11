@@ -1149,3 +1149,5 @@
 
 .maka-choice-panel { outline: none; }
 .maka-choice-shortcut { color: var(--muted-foreground); font-size: 11px; font-weight: 400; }
+
+.maka-choice-hint { margin: 6px 0; font-size: 11px; color: var(--muted-foreground); }

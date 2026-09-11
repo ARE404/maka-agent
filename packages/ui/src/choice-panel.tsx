@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useRef, type ReactNode, type CSSProperties, type KeyboardEvent } from 'react';
+import { useUiLocale } from './locale-context.js';
 import { RadioList, RadioListItem } from '@astryxdesign/core';
 
 export interface ChoicePanelOption {
@@ -38,6 +39,10 @@ export function ChoicePanel(props: {
   onEscape(): void;
   children?: ReactNode;
 }) {
+  const locale = useUiLocale();
+  const hint = locale === 'zh-CN' ? '1–9 选择 · ↑↓ 切换 · Enter 确认 · Esc 继续说明'
+    : locale === 'zh-TW' ? '1–9 選擇 · ↑↓ 切換 · Enter 確認 · Esc 繼續說明'
+    : '1–9 select · ↑↓ navigate · Enter confirm · Esc explain';
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => { root.current?.focus(); }, []);
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -67,6 +72,7 @@ export function ChoicePanel(props: {
         style={option.accentColor ? { '--_item-label-color': option.accentColor } as CSSProperties : undefined}
         endContent={index < 9 ? <kbd className="maka-choice-shortcut" aria-hidden="true">{index + 1}</kbd> : undefined} />)}
     </RadioList>
+    <p className="maka-choice-hint">{hint}</p>
     {props.children}
   </div>;
 }

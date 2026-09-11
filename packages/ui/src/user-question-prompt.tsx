@@ -42,6 +42,7 @@ export function UserQuestionPrompt(props: {
   const titleId = useId();
   const [questionIndex, setQuestionIndex] = useState(0);
   const [drafts, setDrafts] = useState<QuestionAnswerDraft[]>(() => createQuestionDrafts(props.request.questions));
+  const [responseError, setResponseError] = useState<string>();
   const [responsePending, setResponsePending] = useState(false);
   const responsePendingRef = useRef(false);
   const activeRequestIdRef = useRef(props.request.requestId);
@@ -49,6 +50,7 @@ export function UserQuestionPrompt(props: {
 
   useEffect(() => {
     activeRequestIdRef.current = props.request.requestId;
+    setResponseError(undefined);
     setQuestionIndex(0);
     setDrafts(createQuestionDrafts(props.request.questions));
     responsePendingRef.current = false;
@@ -81,8 +83,11 @@ export function UserQuestionPrompt(props: {
     const requestId = props.request.requestId;
     responsePendingRef.current = true;
     setResponsePending(true);
+    setResponseError(undefined);
     try {
       await props.onRespond(buildUserQuestionResponse(props.request, drafts));
+    } catch (reason) {
+      if (mountedRef.current && activeRequestIdRef.current === requestId) setResponseError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       if (activeRequestIdRef.current === requestId) {
         responsePendingRef.current = false;
@@ -105,6 +110,7 @@ export function UserQuestionPrompt(props: {
           </div>
         </header>
 
+        {responseError && <p role="alert">{responseError}</p>}
         <div className="maka-question-options">
           <ChoicePanel
             key={questionIndex}

@@ -828,6 +828,7 @@ export function ChatView(props: {
                 <TransientUserMessage
                   key={message.id}
                   message={message}
+                  status={message.hostTurnId ? props.turnDecorations?.get(message.hostTurnId)?.promptStatus : undefined}
                 />
               ))}
               {/* A send arm already names its Turn, but the transcript may not

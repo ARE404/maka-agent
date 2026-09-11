@@ -28,12 +28,12 @@ import { desktopSessionKey } from '../src/shared/runtime-host-identity.js';
 // Real host: a persistent WebContentsView mounts WorkHubRoot once and moves between windows.
 const sessionId = desktopSessionKey({ hostId: 'story-host', sessionId: 'maka_workhub_coordination' });
 const targetId = desktopSessionKey({ hostId: 'story-host', sessionId: 'payments' });
-const writes = { answer: fn(), model: fn(), upload: fn(), open: fn() };
+const writes = { answer: fn(), model: fn(), upload: fn(), open: fn(), question: fn() };
 const choices = ['model-a', 'model-b'].map((model, index) => ({
   connectionId: 'connection-test', connectionSlug: 'test', connectionName: 'Test', providerType: 'openai' as const,
   providerLabel: 'OpenAI', model, label: model, isDefault: index === 0, thinkingLevels: [],
 }));
-function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: boolean, selectTarget = false): WorkHubServices {
+function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: boolean, selectTarget = false, question = false): WorkHubServices {
   let failures = failFirst ? 1 : 0;
   let session: SessionSummary & { revision: number } = {
     id: sessionId, name: 'WorkHub', revision: 1, isFlagged: false, isArchived: false, labels: [], hasUnread: false,
@@ -59,6 +59,13 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
     });
     messages.push({ type: 'user', id: 'unlinked', turnId: 'unlinked-turn', ts: 20, text: '先讨论一下整体计划。' });
   }
+  const questionRequest: import('@maka/core/events').UserQuestionRequestEvent = {
+    type: 'user_question_request', id: 'question-event', ts: 1, turnId: 'question-turn', requestId: 'question-request', toolUseId: 'question-tool',
+    questions: [{ question: '首批发布范围选哪个？', options: [{ label: '仅邀请用户' }, { label: '公开测试' }] }],
+  };
+  if (question) session = { ...session, runningTurnIds: ['question-turn'] };
+  if (question) messages = [{ type: 'user', id: 'question-user', turnId: 'question-turn', ts: 1, text: '帮我安排发布。' }, { type: 'turn_state', id: 'question-running', turnId: 'question-turn', ts: 2, status: 'running' }];
+  let interactionUpdate: Parameters<WorkHubServices['subscribeActiveInteractions']>[0] | undefined;
   let updateTranscript: ((snapshot: WorkHubTranscriptSnapshot) => void) | undefined;
   let updateSessions: (() => void) | undefined;
   const publish = () => updateTranscript?.({ messages, hasOlder: false, hasNewer: false, ready: true });
@@ -80,6 +87,16 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
     attachments: { pickFiles: async () => ({ ok: true, files: [{ approvalId: 'file-1', name: 'requirements.txt', size: 12, mimeType: 'text/plain' }] }), previewApproval: async () => ({ ok: false, reason: 'not-image' }) },
     readAttachmentBytes: async () => { throw new Error('Not an image'); },
     prepareAttachments: async (id, items) => { writes.upload(id, items); return [{ name: 'requirements.txt', kind: 'other', mimeType: 'text/plain', bytes: 12, ref: { kind: 'session_file', sessionId: 'maka_workhub_coordination', relativePath: 'artifact-1' } }]; },
+    listActiveInteractions: async () => question ? [questionRequest] : [],
+    subscribeActiveInteractions: (handler) => { interactionUpdate = handler; return () => { interactionUpdate = undefined; }; },
+    respondToUserQuestion: async (id, response) => {
+      writes.question(id, response);
+      if (failures-- > 0) throw new Error('Temporary Host failure');
+      session = { ...session, runningTurnIds: [] }; updateSessions?.();
+      interactionUpdate?.({ sessionId, interactions: [] });
+      messages = [...messages, { type: 'assistant', id: 'question-answer', turnId: 'question-turn', ts: 3, modelId: 'model-a', text: '按公开测试安排发布。' }, { type: 'turn_state', id: 'question-complete', turnId: 'question-turn', ts: 4, status: 'completed' }];
+      publish();
+    },
     answer: async (id, input) => {
       writes.answer(id, input);
       if (selectTarget && !input.selection) return { kind: 'selection_required', turnId: input.turnId, request: {
@@ -96,11 +113,17 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
     },
     observe: () => () => {},
     openTranscript: async (_id, handler) => { updateTranscript = handler; publish(); return { observationChanged: () => {}, prefetchHistory: async () => false, retain: () => {}, loadLatest: async () => {}, close: async () => { updateTranscript = undefined; } }; },
-    stop: async () => [],
+    stop: async () => {
+      session = { ...session, runningTurnIds: [] }; updateSessions?.();
+      interactionUpdate?.({ sessionId, interactions: [] });
+      messages = [...messages, { type: 'turn_state', id: 'question-abort', turnId: 'question-turn', ts: 4, status: 'aborted' }];
+      publish(); return [];
+    },
+
   };
 }
-function Surface({ failFirst = false, history = false, colors = false, selectTarget = false }: { failFirst?: boolean; history?: boolean; colors?: boolean; selectTarget?: boolean }) {
-  const [services] = useState(() => makeServices(failFirst, history, colors, selectTarget));
+function Surface({ failFirst = false, history = false, colors = false, selectTarget = false, question = false }: { failFirst?: boolean; history?: boolean; colors?: boolean; selectTarget?: boolean; question?: boolean }) {
+  const [services] = useState(() => makeServices(failFirst, history, colors, selectTarget, question));
   return <LocaleProvider locale="zh-CN"><AstryxLocaleProvider><ToastProvider><WorkHubServicesProvider services={services}><div style={{ height: '100dvh' }}><WorkHubRoot /></div></WorkHubServicesProvider></ToastProvider></AstryxLocaleProvider></LocaleProvider>;
 }
 const meta = { title: 'Product/WorkHub', parameters: { layout: 'fullscreen' } } satisfies Meta;
@@ -208,6 +231,7 @@ export const TargetSelection: Story = {
     await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(canvasElement.querySelector('.workhub-target-selector')).toBeInTheDocument());
     expect(canvasElement.querySelector('.maka-turn-processing')).toBeNull();
+    expect(canvasElement.querySelector('.workhub-delegation-status')).toHaveTextContent('等待');
   },
 };
 
@@ -248,5 +272,35 @@ export const TargetSelectionFailure: Story = {
     const editor = context.canvasElement.querySelector('[contenteditable="true"]') as HTMLElement;
     expect(editor).toHaveTextContent('继续支付相关的工作，把异常场景补齐。');
     expect(within(context.canvasElement).getByRole('alert')).toHaveTextContent('Temporary Host failure');
+    expect(context.canvasElement.querySelector('.workhub-delegation-status')).toHaveTextContent('失败');
+  },
+};
+
+export const QuestionLifecycle: Story = {
+  render: () => <Surface question failFirst />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => expect(canvas.getByRole('heading', { name: '首批发布范围选哪个？' })).toBeInTheDocument());
+    expect(canvasElement.querySelector('.workhub-delegation-status')).toHaveTextContent('等待');
+    expect(canvasElement.querySelector('.maka-turn-processing')).toBeNull();
+    await userEvent.keyboard('2{Enter}');
+    await waitFor(() => expect(canvas.getByRole('alert')).toHaveTextContent('Temporary Host failure'));
+    expect(canvas.getAllByRole('radio')[1]).toBeChecked();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(canvasElement.querySelector('.maka-user-question-prompt')).toBeNull());
+    expect(canvasElement.querySelector('.workhub-delegation-status')).toHaveTextContent('已完成');
+    expect(canvas.getByText('按公开测试安排发布。')).toBeInTheDocument();
+    expect(writes.question).toHaveBeenLastCalledWith(sessionId, expect.objectContaining({ requestId: 'question-request' }));
+  },
+};
+
+export const QuestionStopped: Story = {
+  render: () => <Surface question />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => expect(canvasElement.querySelector('.maka-user-question-prompt')).toBeInTheDocument());
+    await userEvent.click(canvas.getByRole('button', { name: '停止' }));
+    await waitFor(() => expect(canvasElement.querySelector('.maka-user-question-prompt')).toBeNull());
+    expect(canvasElement.querySelector('.workhub-delegation-status')).toHaveTextContent('中止');
   },
 };

@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ChatSurfaceLayout, MakaWordmark, useUiLocale, type ComposerHandle } from '@maka/ui';
+import { ChatSurfaceLayout, UserQuestionPrompt, MakaWordmark, useUiLocale, type ComposerHandle } from '@maka/ui';
 import { Button, IconButton } from '@astryxdesign/core';
 import { ChevronDown, PictureInPicture2, Undo2, X } from '@maka/ui/icons';
 import { WorkHubProgressCard } from './workhub-progress-card.js';
@@ -81,6 +81,12 @@ export function WorkHubRoot() {
   const surface = useRef<HTMLElement>(null);
   const [editingProgressRequest, setEditingProgressRequest] = useState<number>();
   const [expandedOverride, setConversationExpanded] = useState<boolean>();
+  const promptStates = new Map<string, import('../model/linked-work.js').WorkHubDelegationState>();
+  for (const message of transcript.messages) if (message.type === 'turn_state') promptStates.set(message.turnId, message.status);
+  for (const [turnId, state] of Object.entries(controller.turnStates)) promptStates.set(turnId, state);
+  if (controller.liveTurn && !controller.liveTurn.terminal) promptStates.set(controller.liveTurn.turnId, 'running');
+  if (controller.pendingTurnId && controller.sending) promptStates.set(controller.pendingTurnId, controller.targetSelection ? 'waiting_for_user' : 'running');
+  if (controller.activeInteraction) promptStates.set(controller.activeInteraction.turnId, 'waiting_for_user');
   const hasConversation = transcript.messages.length > 0 || busy || Boolean(controller.liveTurn);
   const conversationExpanded = expandedOverride ?? hasConversation;
   const hasConversationRef = useRef(hasConversation);
@@ -92,11 +98,11 @@ export function WorkHubRoot() {
   const editingProgress = progress && editingProgressRequest === presentation.progressRequest;
   const floating = presentation?.placement === 'floating';
   useEffect(() => {
-    if (controller.targetSelection) {
+    if (controller.targetSelection || controller.activeQuestion) {
       setConversationExpanded(true);
       void services.presentation.showConversation(presentation?.progressRequest).catch(controller.report);
     }
-  }, [controller.targetSelection]);
+  }, [controller.targetSelection, controller.activeQuestion]);
   const showConversation = !progress && (!floating || conversationExpanded);
   useLayoutEffect(() => {
     const element = surface.current;
@@ -274,7 +280,10 @@ export function WorkHubRoot() {
               request={controller.targetSelection} submitting={controller.selectionSubmitting}
               onChoose={controller.chooseTarget}
               onDismiss={() => { controller.dismissTargetSelection(); requestAnimationFrame(() => composer.current?.focus()); }} />}
-            <div hidden={Boolean(controller.targetSelection)}>
+            {controller.activeQuestion && <UserQuestionPrompt key={controller.activeQuestion.requestId}
+              request={controller.activeQuestion} onRespond={async (response) => { await controller.respondToUserQuestion(response); requestAnimationFrame(() => composer.current?.focus()); }}
+              onStop={controller.stop} stopPending={controller.stopPending} />}
+            <div hidden={Boolean(controller.targetSelection || controller.activeQuestion)}>
             <WorkHubComposer
               pendingMessages={controller.transientMessages}
               queuedMessages={controller.messageQueue.entries}
@@ -326,6 +335,7 @@ export function WorkHubRoot() {
         <WorkHubNavigationRail locale={locale} sessions={tasks} delegatedSessionIds={delegatedSessionIds} copy={getWorkHubRailCopy(locale)} onOpenSession={(id) => call(services.presentation.openSession(id))} />
         <div className="workhub-conversation-shell">
         <WorkHubConversation
+          promptStates={promptStates}
           workLinks={linksWithFeedback}
           onReadAttachmentBytes={services.readAttachmentBytes}
           onOpenWork={(id) => call(services.presentation.openSession(id))}

@@ -866,9 +866,13 @@ export class HostWorkHubCoordinationCoordinator {
     if (
       input.allowTargetSelection &&
       decision.kind === 'routing' &&
-      decision.disposition === 'clarify' &&
-      candidates
+      decision.disposition === 'clarify'
     ) {
+      if (!candidates) {
+        const outcome = await this.#candidates();
+        if (!outcome.ok) return decision;
+        candidates = outcome.result;
+      }
       this.#requireTargetSelection(input.turnId, contentDigest, candidates);
     }
     return decision;

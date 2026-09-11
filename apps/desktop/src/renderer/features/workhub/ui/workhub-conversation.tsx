@@ -22,7 +22,7 @@ import { ChatView, useUiLocale } from '@maka/ui';
 import type { UiLocale } from '@maka/core/ui-locale';
 import { Button } from '@astryxdesign/core';
 import { WorkHubHighlightContext, workHubIdentityHue } from './workhub-work-identity.js';
-import type { WorkHubLinkedWork } from '../model/linked-work.js';
+import type { WorkHubDelegationState, WorkHubLinkedWork } from '../model/linked-work.js';
 import { workHubLiveCopy } from '../locales/workhub-live-copy.js';
 
 export function WorkHubDelegationStatus(props: {
@@ -47,8 +47,8 @@ export function WorkHubDelegationStatus(props: {
   </span>;
 }
 
-export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { workLinks: readonly WorkHubLinkedWork[]; onOpenWork(sessionId: string): void }) {
-  const { onOpenWork, workLinks: assignments, ...chat } = props;
+export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { workLinks: readonly WorkHubLinkedWork[]; onOpenWork(sessionId: string): void; promptStates?: ReadonlyMap<string, WorkHubDelegationState> }) {
+  const { onOpenWork, workLinks: assignments, promptStates, ...chat } = props;
   const highlight = useContext(WorkHubHighlightContext);
   const locale = useUiLocale();
   // A coordination turn can delegate to several Works. Keep every label and
@@ -90,6 +90,12 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
       />)}
     </div>,
   }]));
+  for (const [turnId, state] of promptStates ?? []) {
+    if (!turnDecorations.has(turnId)) turnDecorations.set(turnId, {
+      header: <></>, accentColor: undefined,
+      promptStatus: <WorkHubDelegationStatus locale={locale} work={{ id: turnId, coordinationTurnId: turnId, targetSessionId: '', targetSessionName: '', state }} />,
+    });
+  }
   return <ChatView {...chat}
     turnDecorations={turnDecorations}
     promptRailDecorations={promptRailDecorations}

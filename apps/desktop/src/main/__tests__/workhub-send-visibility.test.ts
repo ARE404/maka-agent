@@ -116,6 +116,9 @@ async function mountController(failFirstRead = false, overrides: Partial<WorkHub
     updateQueueEntry: async (...input: Parameters<WorkHubServices['updateQueueEntry']>) => { queueMutations.push(['update', ...input]); },
     reorderQueueEntries: async (...input: Parameters<WorkHubServices['reorderQueueEntries']>) => { queueMutations.push(['reorder', ...input]); },
     enqueueMessage: async (...input: Parameters<WorkHubServices['enqueueMessage']>) => { steers.push(input); onSteer?.(input); return steerResult; },
+    listActiveInteractions: async () => [],
+    subscribeActiveInteractions: () => () => {},
+    respondToUserQuestion: async () => {},
     answer: (_id: string, input: Parameters<WorkHubServices['answer']>[1]) => invoke('workhub:answer', input),
     stop: async (target: string, turnId: string) => {
       const result = await invoke('sessions:stop', target, { source: 'stop_button', expectedTurnId: turnId }) as DesktopSessionStopResult;
@@ -274,19 +277,20 @@ test('WorkHub holds transcript and live handoff together until publication is ad
   h.latestRead.resolve();
 });
 
-test('WorkHub removes a failed submission from the conversation and preserves its retry identity', async () => {
+test('WorkHub marks a failed submission and preserves its retry identity', async () => {
   const h = await mountController();
   let sent!: Promise<boolean>;
   await act(async () => { sent = h.controller.send('retry this prompt', []); });
   const turnId = h.requests[0]!.turnId;
   await act(async () => { h.admission.reject(new Error('admission rejected')); assert.equal(await sent, false); });
-  assert.equal(h.controller.transientMessages.length, 0);
+  assert.equal(h.controller.transientMessages.length, 1);
+  assert.equal(h.controller.turnStates[turnId], 'failed');
   assert.equal(h.controller.error, 'admission rejected');
   assert.equal(h.controller.liveTurn, undefined, 'rejected admission retires the waiting feedback');
   assert.equal(h.controller.busy, false);
   await act(async () => { assert.equal(await h.controller.send('retry this prompt', []), false); });
   assert.equal(h.requests[1]!.turnId, turnId);
-  assert.equal(h.controller.transientMessages.length, 0);
+  assert.equal(h.controller.transientMessages.length, 1);
   h.latestRead.resolve();
 });
 
