@@ -316,15 +316,18 @@ body:has(.workHubLive[data-placement='floating'][data-progress='true'])::after {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 4px;
-  margin-bottom: 4px;
+  margin-bottom: 0;
 }
 
 .workhub-turn-label {
   max-width: 100%;
   height: auto;
-  min-height: 28px;
+  min-height: 18px;
+  padding: 0;
   color: var(--workhub-work-label);
-  font-size: var(--font-size-body-xs);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
   white-space: normal;
   overflow-wrap: anywhere;
   text-align: right;
@@ -332,4 +335,17 @@ body:has(.workHubLive[data-placement='floating'][data-progress='true'])::after {
 
 .workhub-navigation-workspace {
   color: var(--workhub-work-label);
+}
+
+.workhub-surface .maka-user-message :has(> .workhub-turn-heading) {
+  row-gap: 4px;
+}
+
+.maka-assistant-answer .workhub-turn-heading {
+  justify-content: flex-start;
+  margin-bottom: -4px;
+}
+
+.maka-assistant-answer .workhub-turn-label {
+  text-align: left;
 }

@@ -172,6 +172,8 @@ export const ColoredWorkHistory: Story = {
     expect(turns[1]!.querySelector('.workhub-turn-label')).toHaveTextContent('desktop / 发布检查清单');
     expect(canvasElement.querySelector('[data-transcript-turn-id="unlinked-turn"]')).not.toHaveAttribute('data-turn-accent');
     for (const turn of turns) {
+      expect(turn.querySelectorAll('.workhub-turn-label')).toHaveLength(2);
+      expect(getComputedStyle(turn.querySelector('.workhub-turn-label')!).fontSize).toBe('11px');
       const prompt = getComputedStyle(turn.querySelector('.maka-user-message')!);
       const answer = getComputedStyle(turn.querySelector('.maka-assistant-answer')!);
       expect(prompt.borderRightWidth).toBe('3px');

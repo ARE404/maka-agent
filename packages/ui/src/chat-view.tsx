@@ -769,10 +769,11 @@ export function ChatView(props: {
                     data-turn-accent={decoration?.accentColor ? 'true' : undefined}
                     style={decoration?.accentColor ? { '--maka-turn-accent': decoration.accentColor } as CSSProperties : undefined}
                   >
-                    {decoration?.header}
                     <TurnView
                       turn={turn}
                       activityObserved={turn.turnId === props.activeTurn?.turnId}
+                      messageHeader={decoration?.header}
+
                       transientMessages={turn.turnId === tailTurnId ? inlineTransientMessages : undefined}
                       userLabel={props.userLabel}
                       footerActions={turnPresentation?.footerActionsByTurn[turn.turnId]}

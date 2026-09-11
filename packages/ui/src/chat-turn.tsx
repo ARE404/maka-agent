@@ -370,6 +370,8 @@ function MessageCopyButton(props: {
  */
 export const TurnView = memo(function TurnView(props: {
   turn: TurnViewModel;
+  /** Optional identity repeated beside each prompt and answer in this turn. */
+  messageHeader?: ReactNode;
   transientMessages?: readonly TransientUserMessageProjection[];
   userLabel?: string;
   /**
@@ -569,6 +571,7 @@ export const TurnView = memo(function TurnView(props: {
           sender="user"
           className="maka-chat-message maka-user-message"
         >
+          {props.messageHeader}
           <UserMessageBody
             messageId={turn.user.id}
             text={turn.user.text}
@@ -636,6 +639,7 @@ export const TurnView = memo(function TurnView(props: {
               sender="user"
               className="maka-chat-message maka-user-message maka-steering-message"
             >
+              {props.messageHeader}
               <UserMessageBody
                 messageId={message.id}
                 text={message.text}
@@ -664,6 +668,7 @@ export const TurnView = memo(function TurnView(props: {
               className="maka-chat-message maka-assistant-answer"
             >
             <div className="maka-assistant-answer-content">
+              {props.messageHeader}
               {/* The turn timeline is the rendering source of truth
                 (materialize.ts): each step's 深度思考 disclosure, answer bubble,
                 and Astryx tool group in the order the model produced them.
