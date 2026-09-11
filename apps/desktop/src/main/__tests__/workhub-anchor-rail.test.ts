@@ -31,6 +31,8 @@ import {
   workHubLinkedWork,
   workHubTurnResultPreview,
 } from "../../renderer/features/workhub/index.js";
+import { ChatSurfaceLayout, LocaleProvider } from '@maka/ui';
+import { WorkHubConversation } from '../../renderer/features/workhub/ui/workhub-conversation.js';
 import { getWorkHubRailCopy } from "../../renderer/locales/workhub-copy.js";
 import type { ToolCallMessage, ToolResultMessage } from '@maka/core/session';
 
@@ -38,8 +40,11 @@ test('durable task results restore Host-scoped work links without treating faile
   const target = JSON.stringify(['host-a', 'task-a']);
   const call: ToolCallMessage = { type: 'tool_call', id: 'task-call', turnId: 'turn', ts: 1, toolName: 'mcp__desktop_workhub__tasks', args: {} };
   const result: ToolResultMessage = { type: 'tool_result', id: 'task-result', turnId: 'turn', ts: 2, toolUseId: call.id, isError: false, content: { kind: 'json', value: { disposition: 'create_new', targetSessionKey: target } } };
-  const expected = [{ id: result.id, coordinationTurnId: call.turnId, targetSessionId: target, targetSessionName: 'Renamed task' }];
+  const expected = [{ id: result.id, coordinationTurnId: call.turnId, targetSessionId: target, targetSessionName: 'Renamed task', workspaceName: undefined }];
   assert.deepEqual(workHubLinkedWork([call, result], [{ id: target, name: 'Renamed task' }], 'Work'), expected);
+  for (const cwd of ['/projects/payments/', 'C:\\projects\\payments\\']) {
+    assert.deepEqual(workHubLinkedWork([call, result], [{ id: target, name: 'Renamed task', cwd }], 'Work'), [{ ...expected[0], workspaceName: 'payments' }]);
+  }
   assert.deepEqual(workHubLinkedWork([call, { ...result, content: { kind: 'json', value: { content: [], structuredContent: { disposition: 'create_new', targetSessionKey: target } } } }], [{ id: target, name: 'Renamed task' }], 'Work'), expected);
   assert.deepEqual(workHubLinkedWork([call, { ...result, content: { kind: 'text', text: JSON.stringify({ disposition: 'delegate_existing', targetSessionKey: target }) } }], [], 'Work'), [{ ...expected[0], targetSessionName: 'Work' }]);
   assert.deepEqual(workHubLinkedWork([
@@ -185,4 +190,19 @@ test("focus display is derived from the selected Session ID, not delegation prio
   }));
   assert.equal(markup.match(/aria-current="page"/gu)?.length, 1);
   assert.equal(markup.match(/Focused · Running/gu)?.length, 1);
+});
+
+
+test('a shared coordination turn keeps every Work label without assigning one Work color to the whole turn', () => {
+  const markup = renderToStaticMarkup(createElement(LocaleProvider, { locale: 'en', children: null },
+    createElement(ChatSurfaceLayout, { composer: null, children: null }, createElement(WorkHubConversation, {
+      activeSession: { id: 'coordination', name: 'WorkHub', status: 'active', labels: [], isFlagged: false, isArchived: false, hasUnread: false, backend: 'ai-sdk', llmConnectionSlug: 'test', connectionLocked: false, model: 'test', permissionMode: 'ask' },
+      messages: [{ type: 'user', id: 'user', turnId: 'shared', text: 'Do both tasks', ts: 1 }],
+      scrollBehavior: 'auto', onNew: () => {}, onOpenWork: () => {},
+      workLinks: ['Alpha', 'Beta'].map((name) => ({ id: name, coordinationTurnId: 'shared', targetSessionId: name, targetSessionName: name, workspaceName: 'Workspace' })),
+    })),
+  ));
+  assert.match(markup, /Workspace \/ Alpha/);
+  assert.match(markup, /Workspace \/ Beta/);
+  assert.doesNotMatch(markup, /data-turn-accent/);
 });

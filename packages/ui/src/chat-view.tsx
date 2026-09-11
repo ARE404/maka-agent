@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   ICON_SIZE,
   AlertTriangle,
@@ -201,6 +201,8 @@ export function ChatView(props: {
    * the regular prompt-suggestion hero shows.
    */
   emptyOverride?: ReactNode;
+  /** Optional host-owned identity beside a turn; absent for ordinary transcripts. */
+  turnDecorations?: ReadonlyMap<string, { header: ReactNode; accentColor?: string }>;
   /** Session-owned records anchored after a durable conversation turn. */
   conversationItems?: ReadonlyArray<{
     id: string;
@@ -758,12 +760,16 @@ export function ChatView(props: {
                 ? emptyContent
                 : null}
               {turns.map((turn) => {
+                const decoration = props.turnDecorations?.get(turn.turnId);
                 return (
                   <div
                     key={turn.turnId}
                     className="maka-transcript-turn"
                     data-transcript-turn-id={turn.turnId}
+                    data-turn-accent={decoration?.accentColor ? 'true' : undefined}
+                    style={decoration?.accentColor ? { '--maka-turn-accent': decoration.accentColor } as CSSProperties : undefined}
                   >
+                    {decoration?.header}
                     <TurnView
                       turn={turn}
                       activityObserved={turn.turnId === props.activeTurn?.turnId}

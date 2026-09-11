@@ -55,7 +55,7 @@ export function WorkHubResultCard(props: {
     onBlur={() => props.onHighlight(false)}>
     <div className="workhub-result-card">
       <div className="workhub-result-heading">
-        <strong>{work.targetSessionName}</strong>
+        <strong>{work.workspaceName ? `${work.workspaceName} / ` : ''}{work.targetSessionName}</strong>
         <span role="status">{stateLabel}</span>
       </div>
       {work.resultPreview ? <p>{work.resultPreview}</p> : null}
@@ -72,12 +72,44 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
   const { onOpenWork, workLinks: assignments, ...chat } = props;
   const highlight = useContext(WorkHubHighlightContext);
   const locale = useUiLocale();
-  const workByTurn = useMemo(() => new Map(assignments.map((assignment) => [assignment.coordinationTurnId, assignment.targetSessionId])), [assignments]);
+  // A coordination turn can delegate to several Works. Keep every label and
+  // leave its shared bar neutral rather than attributing the entire turn to one.
+  const worksByTurn = useMemo(() => {
+    const grouped = new Map<string, WorkHubLinkedWork[]>();
+    for (const work of assignments) {
+      const works = grouped.get(work.coordinationTurnId) ?? [];
+      if (!works.some((item) => item.targetSessionId === work.targetSessionId)) works.push(work);
+      grouped.set(work.coordinationTurnId, works);
+    }
+    return grouped;
+  }, [assignments]);
+  const workByTurn = useMemo(() => new Map([...worksByTurn].flatMap(([turnId, works]) =>
+    works.length === 1 ? [[turnId, works[0]!.targetSessionId] as const] : [])), [worksByTurn]);
   const promptRailDecorations = useMemo(() => new Map([...workByTurn].map(([turnId, sessionId]) => [turnId, {
     accentColor: `oklch(var(--workhub-${highlight.sessionId === sessionId ? 'highlight' : 'tone'}) ${workHubIdentityHue(sessionId)})`,
     highlighted: highlight.sessionId === sessionId,
   }])), [workByTurn, highlight.sessionId]);
+  const turnDecorations = new Map([...worksByTurn].map(([turnId, works]) => [turnId, {
+    accentColor: promptRailDecorations.get(turnId)?.accentColor,
+    header: <div className="workhub-turn-heading">
+      {works.map((work) => <Button
+        key={work.targetSessionId}
+        variant="ghost"
+        className="workhub-work-identity workhub-turn-label"
+        style={{ '--workhub-work-hue': workHubIdentityHue(work.targetSessionId) } as CSSProperties}
+        data-work-session-id={work.targetSessionId}
+        data-work-highlighted={highlight.sessionId === work.targetSessionId}
+        label={work.workspaceName ? `${work.workspaceName} / ${work.targetSessionName}` : work.targetSessionName}
+        onMouseEnter={() => highlight.highlight(work.targetSessionId)}
+        onMouseLeave={() => highlight.highlight(undefined)}
+        onFocus={() => highlight.highlight(work.targetSessionId)}
+        onBlur={() => highlight.highlight(undefined)}
+        onClick={() => onOpenWork(work.targetSessionId)}
+      />)}
+    </div>,
+  }]));
   return <ChatView {...chat}
+    turnDecorations={turnDecorations}
     promptRailDecorations={promptRailDecorations}
     onPromptRailHighlight={(turnId) => highlight.highlight(turnId ? workByTurn.get(turnId) : undefined)}
     conversationItems={assignments.map((assignment) => ({

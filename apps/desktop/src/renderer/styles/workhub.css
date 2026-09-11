@@ -299,3 +299,32 @@ body:has(.workHubLive[data-placement='floating'][data-progress='true'])::after {
 @media (prefers-reduced-motion: reduce) {
   .workHubLive[data-placement='floating'], .workHubLive[data-placement='floating']::before, body:has(.workHubLive[data-placement='floating'])::after, .workHubLive[data-conversation-expanded] .workHubHistory { transition: none; }
 }
+
+/* The stripe identifies the linked Work, not execution status. */
+.workhub-surface .maka-transcript-turn[data-turn-accent='true'] {
+  border-inline-start: 3px solid var(--maka-turn-accent);
+  padding-inline-start: 12px;
+}
+
+.workhub-turn-heading {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.workhub-turn-label {
+  max-width: 100%;
+  height: auto;
+  min-height: 28px;
+  color: var(--workhub-work-label);
+  font-size: var(--font-size-body-xs);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.workhub-navigation-workspace {
+  color: var(--workhub-work-label);
+}

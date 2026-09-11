@@ -187,3 +187,17 @@ test('ChatSurfaceLayout preserves the public emptyState for absent children', ()
     assert.doesNotMatch(markup, /maka-prompt-rail-host/);
   }
 });
+
+
+test('turn identity stays on its exact durable anchor and is absent from ordinary transcripts', () => {
+  const messages = ['one', 'two'].map((turnId) => ({ type: 'user' as const, id: `user-${turnId}`, turnId, text: turnId, ts: 1 }));
+  const { document } = parseHTML(renderChat(undefined, {
+    messages,
+    turnDecorations: new Map([['one', { header: <span>Workspace / Work</span>, accentColor: 'red' }]]),
+  }));
+  const one = document.querySelector('[data-transcript-turn-id="one"]')!;
+  assert.equal(one.getAttribute('data-turn-accent'), 'true');
+  assert.match(one.textContent!, /Workspace \/ Work/);
+  assert.equal(document.querySelector('[data-transcript-turn-id="two"]')!.getAttribute('data-turn-accent'), null);
+  assert.doesNotMatch(renderChat(undefined, { messages }), /data-turn-accent|Workspace \/ Work/);
+});

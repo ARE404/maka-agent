@@ -126,7 +126,7 @@ export function WorkHubNavigationRail(props: {
                   onFocus={() => highlight.highlight(anchor.target.sessionId)}
                   onBlur={() => highlight.highlight(undefined)}
                   label={<span className="workhub-navigation-label">{anchor.sessionName}</span>}
-                  description={`${anchor.target.sessionId === props.focusSessionId ? props.copy.focused : anchor.projectName} · ${state}`}
+                  description={<><span className="workhub-navigation-workspace">{anchor.projectName}</span>{` · ${anchor.target.sessionId === props.focusSessionId ? `${props.copy.focused} · ` : ''}${state}`}</>}
                   startContent={variant ? <StatusDot variant={variant} label={state} /> : undefined}
                   isSelected={anchor.target.sessionId === props.focusSessionId}
                   aria-current={anchor.target.sessionId === props.focusSessionId ? 'page' : undefined}

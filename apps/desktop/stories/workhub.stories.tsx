@@ -33,7 +33,7 @@ const choices = ['model-a', 'model-b'].map((model, index) => ({
   connectionId: 'connection-test', connectionSlug: 'test', connectionName: 'Test', providerType: 'openai' as const,
   providerLabel: 'OpenAI', model, label: model, isDefault: index === 0, thinkingLevels: [],
 }));
-function makeServices(failFirst: boolean, withHistory: boolean): WorkHubServices {
+function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: boolean): WorkHubServices {
   let failures = failFirst ? 1 : 0;
   let session: SessionSummary & { revision: number } = {
     id: sessionId, name: 'WorkHub', revision: 1, isFlagged: false, isArchived: false, labels: [], hasUnread: false,
@@ -46,6 +46,19 @@ function makeServices(failFirst: boolean, withHistory: boolean): WorkHubServices
     { type: 'assistant', id: 'answer-1', turnId: 'turn-1', ts: 2, modelId: 'model-a', text: '已将任务交给支付回调工作。完整说明保留在工作台。\n\n' + '重复请求需要保持同一响应。'.repeat(70) + '\n\nEND_OF_FULL_RESPONSE' },
     { type: 'workhub_coordination', kind: 'delegation_assigned', id: 'link-1', turnId: 'turn-1', coordinationTurnId: 'turn-1', ts: 3, schemaVersion: 1, actionId: 'action-1', actionFingerprint: `sha256:${'0'.repeat(64)}`, disposition: 'delegate_existing', userText: '继续支付回调幂等性，补充重复投递测试点。', targetSessionId: targetId, targetSessionName: target.name, targetTurnId: 'target-turn', targetMessageId: 'target-message', delegationId: 'delegation-1' },
   ] : [];
+  const secondTarget = { ...target, id: desktopSessionKey({ hostId: 'story-host', sessionId: 'release' }), name: '发布检查清单', cwd: '/projects/desktop' };
+  if (coloredHistory) {
+    const link = messages.find((message) => message.type === 'workhub_coordination' && message.kind === 'delegation_assigned')!;
+    messages = [target, secondTarget, target].flatMap((work, index): StoredMessage[] => {
+      const turnId = `turn-${index + 1}`;
+      return [
+        { type: 'user', id: `user-${index}`, turnId, ts: index * 3, text: index === 2 ? '继续补充异常场景。' : `请检查${work.name}。` },
+        { type: 'assistant', id: `answer-${index}`, turnId, ts: index * 3 + 1, modelId: 'model-a', text: '任务已交给对应 Work，执行结果将在下方更新。' },
+        { ...link, id: `link-${index}`, turnId, coordinationTurnId: turnId, targetSessionId: work.id, targetSessionName: work.name } as StoredMessage,
+      ];
+    });
+    messages.push({ type: 'user', id: 'unlinked', turnId: 'unlinked-turn', ts: 20, text: '先讨论一下整体计划。' });
+  }
   let updateTranscript: ((snapshot: WorkHubTranscriptSnapshot) => void) | undefined;
   let updateSessions: (() => void) | undefined;
   const publish = () => updateTranscript?.({ messages, hasOlder: false, hasNewer: false, ready: true });
@@ -58,7 +71,7 @@ function makeServices(failFirst: boolean, withHistory: boolean): WorkHubServices
     control: { getSnapshot: async () => ({ revision: 0, phase: 'idle', canUndo: false }), subscribe: () => () => {}, stop: async () => {}, undo: async () => {} },
     resolve: async () => sessionId, subscribeHosts: () => () => {}, subscribeAvailability: () => () => {},
     getSession: async () => session,
-    listSessions: async () => [target], subscribeSessions: (handler) => { updateSessions = handler; return () => { updateSessions = undefined; }; }, modelChoices: async () => choices,
+    listSessions: async () => coloredHistory ? [target, secondTarget] : [target], subscribeSessions: (handler) => { updateSessions = handler; return () => { updateSessions = undefined; }; }, modelChoices: async () => choices,
     delegationFeedback: async (references) => references.map(({ id }) => ({
       id,
       state: 'completed' as const,
@@ -82,8 +95,8 @@ function makeServices(failFirst: boolean, withHistory: boolean): WorkHubServices
     stop: async () => [],
   };
 }
-function Surface({ failFirst = false, history = false }: { failFirst?: boolean; history?: boolean }) {
-  const [services] = useState(() => makeServices(failFirst, history));
+function Surface({ failFirst = false, history = false, colors = false }: { failFirst?: boolean; history?: boolean; colors?: boolean }) {
+  const [services] = useState(() => makeServices(failFirst, history, colors));
   return <LocaleProvider locale="zh-CN"><AstryxLocaleProvider><ToastProvider><WorkHubServicesProvider services={services}><div style={{ height: '100dvh' }}><WorkHubRoot /></div></WorkHubServicesProvider></ToastProvider></AstryxLocaleProvider></LocaleProvider>;
 }
 const meta = { title: 'Product/WorkHub', parameters: { layout: 'fullscreen' } } satisfies Meta;
@@ -145,5 +158,24 @@ export const ComposerRetainsFailedAttachment: Story = {
     expect(writes.upload).toHaveBeenCalledTimes(1);
     expect(writes.answer.mock.calls[0]?.[1].turnId).toBe(writes.answer.mock.calls[1]?.[1].turnId);
     await waitFor(() => expect(canvasElement.querySelectorAll('.maka-composer-attachment-token')).toHaveLength(0));
+  },
+};
+
+export const ColoredWorkHistory: Story = {
+  render: () => <Surface history colors />,
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(canvasElement.querySelectorAll('[data-turn-accent="true"]')).toHaveLength(3));
+    const turns = canvasElement.querySelectorAll<HTMLElement>('[data-turn-accent="true"]');
+    expect(turns[0]!.style.getPropertyValue('--maka-turn-accent')).toBe(turns[2]!.style.getPropertyValue('--maka-turn-accent'));
+    expect(turns[0]!.style.getPropertyValue('--maka-turn-accent')).not.toBe(turns[1]!.style.getPropertyValue('--maka-turn-accent'));
+    expect(turns[0]!.querySelector('.workhub-turn-label')).toHaveTextContent('maka / 支付回调幂等性');
+    expect(turns[1]!.querySelector('.workhub-turn-label')).toHaveTextContent('desktop / 发布检查清单');
+    expect(canvasElement.querySelector('[data-transcript-turn-id="unlinked-turn"]')).not.toHaveAttribute('data-turn-accent');
+    const label = turns[0]!.querySelector<HTMLElement>('.workhub-turn-label')!;
+    await userEvent.hover(label);
+    await waitFor(() => expect(turns[2]!.querySelector('.workhub-turn-label')).toHaveAttribute('data-work-highlighted', 'true'));
+    await userEvent.click(label);
+    expect(writes.open).toHaveBeenCalledWith(targetId);
+    await userEvent.unhover(label);
   },
 };
