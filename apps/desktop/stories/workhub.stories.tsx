@@ -446,7 +446,7 @@ export const RetryWhileWorkFiltered: Story = {
     await waitFor(() => expect(canvas.getByRole('alert')).toHaveTextContent('Temporary Host failure'));
     await userEvent.click(canvasElement.querySelector('.workhub-message-rail') as HTMLElement);
     await waitFor(() => expect(canvas.getByRole('button', { name: '显示全部对话' })).toBeInTheDocument());
-    await userEvent.click(canvas.getByRole('button', { name: '重试', exact: true }));
+    await userEvent.click(canvas.getByRole('button', { name: /^重试$/ }));
     await waitFor(() => expect(writes.answer).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(canvas.getByText('已收到。')).toBeInTheDocument());
     expect(canvas.getByText('FILTERED_RETRY_PROBE', { selector: '.maka-user-message *' })).toBeInTheDocument();

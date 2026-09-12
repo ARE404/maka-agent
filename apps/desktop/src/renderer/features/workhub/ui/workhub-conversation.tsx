@@ -79,6 +79,7 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
     accentColor: `oklch(var(--workhub-${highlight.sessionId === sessionId ? 'highlight' : 'tone'}) ${workHubIdentityHue(sessionId)})`,
     highlighted: highlight.sessionId === sessionId,
   }])), [workByTurn, highlight.sessionId]);
+  const promptTextByTurn = new Map(chat.messages?.flatMap((message) => message.type === 'user' ? [[message.turnId, message.text.slice(0, 80)] as const] : []));
   const turnDecorations = new Map([...worksByTurn].map(([turnId, works]) => [turnId, {
     accentColor: promptRailDecorations.get(turnId)?.accentColor,
     promptStatus: <>{works.map((work, index) => <span key={work.id}>
@@ -104,7 +105,6 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
         data-work-session-id={work.targetSessionId}
         data-work-highlighted={highlight.sessionId === work.targetSessionId}
         aria-label={`${work.workspaceName ? `${work.workspaceName} / ` : ''}${work.targetSessionName} · ${promptTextByTurn.get(turnId) ?? turnId}`}
-
         onMouseEnter={() => highlight.highlight(work.targetSessionId)}
         onMouseLeave={() => highlight.highlight(undefined)}
         onFocus={() => highlight.highlight(work.targetSessionId)}
