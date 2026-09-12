@@ -69,7 +69,10 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
   let interactionUpdate: Parameters<WorkHubServices['subscribeActiveInteractions']>[0] | undefined;
   let updateTranscript: ((snapshot: WorkHubTranscriptSnapshot) => void) | undefined;
   let updateSessions: (() => void) | undefined;
-  const publish = () => updateTranscript?.({ messages, hasOlder: false, hasNewer: false, ready: true });
+  let updateExecution: Parameters<WorkHubServices['observe']>[4];
+  let questionPending = question;
+  const publishExecution = () => updateExecution?.({ type: 'host_execution', available: true, rootTurn: questionPending ? { sessionId, turnId: 'question-turn', runId: 'question-run', status: 'waiting_for_user' } : null });
+  const publish = () => { publishExecution(); updateTranscript?.({ messages, hasOlder: false, hasNewer: false, ready: true }); };
   return {
     retractQueueEntry: async () => {}, promoteQueueEntry: async () => {},
     updateQueueEntry: async () => {}, reorderQueueEntries: async () => {},
@@ -88,11 +91,12 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
     attachments: { pickFiles: async () => ({ ok: true, files: [{ approvalId: 'file-1', name: 'requirements.txt', size: 12, mimeType: 'text/plain' }] }), previewApproval: async () => ({ ok: false, reason: 'not-image' }) },
     readAttachmentBytes: async () => { throw new Error('Not an image'); },
     prepareAttachments: async (id, items) => { writes.upload(id, items); return [{ name: 'requirements.txt', kind: 'other', mimeType: 'text/plain', bytes: 12, ref: { kind: 'session_file', sessionId: 'maka_workhub_coordination', relativePath: 'artifact-1' } }]; },
-    listActiveInteractions: async () => question ? [questionRequest] : [],
+    listActiveInteractions: async () => questionPending ? [questionRequest] : [],
     subscribeActiveInteractions: (handler) => { interactionUpdate = handler; return () => { interactionUpdate = undefined; }; },
     respondToUserQuestion: async (id, response) => {
       writes.question(id, response);
       if (failures-- > 0) throw new Error('Temporary Host failure');
+      questionPending = false;
       session = { ...session, runningTurnIds: [] }; updateSessions?.();
       interactionUpdate?.({ sessionId, interactions: [] });
       messages = [...messages, { type: 'assistant', id: 'question-answer', turnId: 'question-turn', ts: 3, modelId: 'model-a', text: '按公开测试安排发布。' }, { type: 'turn_state', id: 'question-complete', turnId: 'question-turn', ts: 4, status: 'completed' }];
@@ -112,9 +116,10 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
       writes.model(id, input); session = { ...session, revision: session.revision + 1, model: input.modelTarget.model }; updateSessions?.();
       return { kind: 'committed', session: { ...session, workspace: { target: { kind: 'host_path', path: '/projects/maka' }, hostCwd: '/projects/maka' }, createdAt: 0, activityAt: 0, labelsTruncated: false, llmConnectionId: 'connection-test', collaborationMode: 'agent', orchestrationMode: 'default' } };
     },
-    observe: () => () => {},
+    observe: (_id, _event, _error, _phase, execution) => { updateExecution = execution; publishExecution(); return () => { updateExecution = undefined; }; },
     openTranscript: async (_id, handler) => { updateTranscript = handler; publish(); return { observationChanged: () => {}, prefetchHistory: async () => false, retain: () => {}, loadLatest: async () => {}, close: async () => { updateTranscript = undefined; } }; },
     stop: async () => {
+      questionPending = false;
       session = { ...session, runningTurnIds: [] }; updateSessions?.();
       interactionUpdate?.({ sessionId, interactions: [] });
       messages = [...messages, { type: 'turn_state', id: 'question-abort', turnId: 'question-turn', ts: 4, status: 'aborted' }];
