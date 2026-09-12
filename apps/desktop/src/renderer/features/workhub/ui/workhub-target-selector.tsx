@@ -18,9 +18,10 @@
  */
 
 import { useId, useState } from 'react';
-import { Button } from '@astryxdesign/core';
+import { Button, Text } from '@astryxdesign/core';
 import { ChoicePanel, presentSessionStatus, useUiLocale } from '@maka/ui';
 import type { WorkHubTargetSelection, WorkHubTargetSelectionRequest } from '@maka/runtime-host/protocol';
+import { workspaceNameFromCwd } from '../model/workspace-name.js';
 import { workHubIdentityHue } from './workhub-work-identity.js';
 import { workHubSelectionCopy } from '../locales/workhub-selection-copy.js';
 
@@ -39,14 +40,14 @@ export function WorkHubTargetSelector(props: {
     <div className="maka-composer-interaction-inner">
       <header className="maka-interaction-header">
         <h2 className="maka-interaction-title" id={titleId}>{copy.title}</h2>
-        <p className="workhub-selection-hint">{props.request.candidates.length ? copy.hint : copy.empty}</p>
+        <Text as="p" type="supporting" color="secondary" className="workhub-selection-hint">{props.request.candidates.length ? copy.hint : copy.empty}</Text>
       </header>
       <ChoicePanel label={copy.title} value={value} onChange={setValue} disabled={props.submitting} onConfirm={confirm} onEscape={props.onDismiss}
         options={props.request.candidates.map((candidate) => ({
           value: candidate.candidateRef,
           label: candidate.sessionName,
-          accentColor: `oklch(var(--workhub-selection-label) ${workHubIdentityHue(candidate.sessionId)})`,
-          description: `${candidate.workspace.hostCwd.replace(/[/\\]+$/, '').split(/[/\\]/).at(-1) ?? ''} · ${presentSessionStatus(candidate.state, locale).label}`,
+          accentColor: `oklch(var(--workhub-identity-label-tone) ${workHubIdentityHue(candidate.sessionId)})`,
+          description: `${workspaceNameFromCwd(candidate.workspace.hostCwd) ?? ''} · ${presentSessionStatus(candidate.state, locale).label}`,
         }))}>
         <footer className="maka-interaction-actions workhub-selection-actions">
           <Button variant="ghost" label={copy.explain} isDisabled={props.submitting} onClick={props.onDismiss} />

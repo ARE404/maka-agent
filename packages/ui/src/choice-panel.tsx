@@ -20,7 +20,7 @@
 import { useEffect, useRef, type ReactNode, type CSSProperties, type KeyboardEvent } from 'react';
 import { useUiLocale } from './locale-context.js';
 import { getConversationCopy } from './conversation-copy.js';
-import { RadioList, RadioListItem } from '@astryxdesign/core';
+import { RadioList, RadioListItem, Kbd, Text } from '@astryxdesign/core';
 
 export interface ChoicePanelOption {
   readonly value: string;
@@ -69,9 +69,9 @@ export function ChoicePanel(props: {
       {props.options.map((option, index) => <RadioListItem key={option.value} value={option.value}
         label={option.label} description={option.description}
         style={option.accentColor ? { '--_item-label-color': option.accentColor } as CSSProperties : undefined}
-        endContent={index < 9 ? <kbd className="maka-choice-shortcut" aria-hidden="true">{index + 1}</kbd> : undefined} />)}
+        endContent={index < 9 ? <Kbd keys={String(index + 1)} aria-hidden="true" /> : undefined} />)}
     </RadioList>
-    <p className="maka-choice-hint">{hint}</p>
+    <Text as="p" type="supporting" color="secondary" className="maka-choice-hint">{hint}</Text>
     {props.children}
   </div>;
 }

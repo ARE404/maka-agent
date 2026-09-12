@@ -20,7 +20,7 @@
 import { useContext, useMemo, useState, type ComponentProps, type CSSProperties } from 'react';
 import { ChatView, useUiLocale } from '@maka/ui';
 import type { UiLocale } from '@maka/core/ui-locale';
-import { Button } from '@astryxdesign/core';
+import { Button, Link, Text } from '@astryxdesign/core';
 import { WorkHubHighlightContext, workHubIdentityHue } from './workhub-work-identity.js';
 import type { WorkHubDelegationState, WorkHubLinkedWork } from '../model/linked-work.js';
 import { workHubLiveCopy } from '../locales/workhub-live-copy.js';
@@ -42,9 +42,9 @@ export function WorkHubDelegationStatus(props: {
     aborted: copy.delegationAborted,
     recovering: copy.delegationRecovering,
   }[state];
-  return <span className="workhub-delegation-status" role="status" data-work-state={state}>
+  return <Text type="supporting" color="secondary" className="workhub-delegation-status" role="status" data-work-state={state}>
     {props.showName ? `${work.targetSessionName}: ` : ''}{stateLabel}
-  </span>;
+  </Text>;
 }
 
 export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { workLinks: readonly WorkHubLinkedWork[]; onOpenWork(sessionId: string): void; promptStates?: ReadonlyMap<string, WorkHubDelegationState> }) {
@@ -96,20 +96,21 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
       onClick={() => highlight.toggleWork({ sessionId: works[0]!.targetSessionId, name: works[0]!.targetSessionName })}
     /> : undefined,
     header: <div className="workhub-turn-heading">
-      {works.map((work) => <Button
+      {works.map((work) => <Link
         key={work.targetSessionId}
-        variant="ghost"
+        type="supporting" color="inherit"
         className="workhub-work-identity workhub-turn-label"
         style={{ '--workhub-work-hue': workHubIdentityHue(work.targetSessionId) } as CSSProperties}
         data-work-session-id={work.targetSessionId}
         data-work-highlighted={highlight.sessionId === work.targetSessionId}
-        label={work.workspaceName ? `${work.workspaceName} / ${work.targetSessionName}` : work.targetSessionName}
+        aria-label={`${work.workspaceName ? `${work.workspaceName} / ` : ''}${work.targetSessionName} · ${promptTextByTurn.get(turnId) ?? turnId}`}
+
         onMouseEnter={() => highlight.highlight(work.targetSessionId)}
         onMouseLeave={() => highlight.highlight(undefined)}
         onFocus={() => highlight.highlight(work.targetSessionId)}
         onBlur={() => highlight.highlight(undefined)}
         onClick={() => onOpenWork(work.targetSessionId)}
-      />)}
+      >{work.workspaceName ? `${work.workspaceName} / ${work.targetSessionName}` : work.targetSessionName}</Link>)}
     </div>,
   }]));
   for (const [turnId, state] of promptStates ?? []) {
@@ -124,13 +125,13 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
   const liveTurn = selected && chat.liveTurn && !matchingTurns.has(chat.liveTurn.turnId) ? undefined : chat.liveTurn;
   return <>
     {selected && <div className="workhub-conversation-filter" role="region" aria-label={copy.filterConversation}>
-      <span>{selected.name}</span>
+      <Text type="supporting">{selected.name}</Text>
       <Button variant="ghost" label={copy.clearConversationFilter} onClick={() => highlight.selectWork(undefined)} />
       {chat.hasOlderHistory && <Button variant="ghost" label={copy.olderConversations} isDisabled={loadingHistory} onClick={() => void loadHistory('older')} />}
       {chat.hasNewerHistory && <Button variant="ghost" label={copy.newerConversations} isDisabled={loadingHistory} onClick={() => void loadHistory('newer')} />}
       {historyError && <span role="alert">{copy.controlFailed}</span>}
     </div>}
-    <ChatView key={selected?.sessionId ?? "all"} {...chat}
+    <ChatView {...chat}
     messages={messages}
     liveTurn={liveTurn}
     transientMessages={selected ? chat.transientMessages?.filter((message) => message.hostTurnId && matchingTurns.has(message.hostTurnId)) : chat.transientMessages}

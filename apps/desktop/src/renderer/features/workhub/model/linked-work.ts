@@ -18,6 +18,8 @@
  */
 
 
+import { workspaceNameFromCwd } from './workspace-name.js';
+
 import type { StoredMessage } from '@maka/core/session';
 
 export type WorkHubDelegationState =
@@ -61,7 +63,7 @@ export function workHubLinkedWork(
   fallbackName: string,
 ): WorkHubLinkedWork[] {
   const sessionById = new Map(sessions.map((session) => [session.id, session]));
-  const workspaceName = (id: string) => sessionById.get(id)?.cwd?.replace(/[/\\]+$/, '').split(/[/\\]/).at(-1) || undefined;
+  const workspaceName = (id: string) => workspaceNameFromCwd(sessionById.get(id)?.cwd);
   const taskCalls = new Set(messages.flatMap((message) =>
     message.type === 'tool_call' && message.toolName === 'mcp__desktop_workhub__tasks' ? [message.id] : [],
   ));

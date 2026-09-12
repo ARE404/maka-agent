@@ -42,6 +42,8 @@ import {
 import type { SessionAuthorityStore, SessionHeaderSnapshot } from '@maka/storage/session-store';
 import type { WorkHubRoutingDecision } from '@maka/core/workhub-routing';
 import type {
+  WorkHubTargetSelectionRequest,
+  WorkHubCoordinationCandidatesResult,
   OperationOutcome,
   WorkHubCoordinationActResult,
   WorkHubCoordinationActFromTurnInput,
@@ -79,8 +81,6 @@ const CREATE_FINGERPRINT = `sha256:${createHash('sha256')
 const COORDINATION_CWD_DIRECTORY = 'workhub-coordination';
 const COORDINATION_TOOL_PROFILE = 'workhub-coordination-v2' as const;
 const COORDINATION_PERMISSION_MODE = 'bypass' as const;
-type TargetSelectionRequest =
-  import('../protocol/workhub-coordination.js').WorkHubTargetSelectionRequest;
 
 const COORDINATION_COLLABORATION_MODE = 'agent' as const;
 const COORDINATION_ORCHESTRATION_MODE = 'default' as const;
@@ -170,7 +170,7 @@ export class HostWorkHubCoordinationCoordinator {
   // admitted retries replay their durable routing decision before this cache is read.
   readonly #targetSelections = new Map<
     string,
-    { digest: string; request: TargetSelectionRequest; expiresAt: number }
+    { digest: string; request: WorkHubTargetSelectionRequest; expiresAt: number }
   >();
   readonly handlers: WorkHubCoordinationOperationHandlerMap = {
     'workhub.coordination.resolve': () => this.#resolve(),
@@ -812,9 +812,7 @@ export class HostWorkHubCoordinationCoordinator {
       pending.expiresAt > Date.now()
     )
       return { kind: 'target_selection', request: pending.request };
-    let candidates:
-      | import('../protocol/workhub-coordination.js').WorkHubCoordinationCandidatesResult
-      | undefined;
+    let candidates: WorkHubCoordinationCandidatesResult | undefined;
     let decision: WorkHubRoutingDecision;
     try {
       if (!this.#routingModel) throw new Error('WorkHub routing model is unavailable');
@@ -885,7 +883,7 @@ export class HostWorkHubCoordinationCoordinator {
   #requireTargetSelection(
     turnId: string,
     contentDigest: string,
-    candidates: import('../protocol/workhub-coordination.js').WorkHubCoordinationCandidatesResult,
+    candidates: WorkHubCoordinationCandidatesResult,
   ): HostWorkHubTargetSelection {
     for (const [id, entry] of this.#targetSelections)
       if (entry.expiresAt <= Date.now()) this.#targetSelections.delete(id);

@@ -101,13 +101,13 @@ export const KeyboardChoices: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.keyboard('2');
-    expect(canvas.getByRole('radio', { name: '公开测试' })).toBeChecked();
+    await waitFor(() => expect(canvas.getByRole('radio', { name: '公开测试' })).toBeChecked());
     await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(canvas.getByRole('heading', { name: '上线时间怎么安排？' })).toBeInTheDocument());
     await userEvent.keyboard('{Escape}');
     const input = canvas.getByRole('textbox');
     await userEvent.type(input, '123');
     expect(input).toHaveValue('123');
-    expect(canvas.getByRole('radio', { name: '其他' })).toBeChecked();
+    await waitFor(() => expect(canvas.getByRole('radio', { name: '其他' })).toBeChecked());
   },
 };

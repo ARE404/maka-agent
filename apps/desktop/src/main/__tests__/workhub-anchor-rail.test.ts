@@ -201,3 +201,12 @@ test('a shared coordination turn keeps every Work label without assigning one Wo
   assert.match(markup, /Workspace \/ Beta/);
   assert.doesNotMatch(markup, /data-turn-accent/);
 });
+
+
+test('WorkHub workspace display names handle Host paths independently of renderer platform', async () => {
+  const { workspaceNameFromCwd } = await import('../../renderer/features/workhub/testing.js');
+  assert.equal(workspaceNameFromCwd('/projects/maka/'), 'maka');
+  assert.equal(workspaceNameFromCwd('C:\\projects\\maka\\'), 'maka');
+  assert.equal(workspaceNameFromCwd(undefined), undefined);
+  assert.equal(workspaceNameFromCwd('/'), undefined);
+});

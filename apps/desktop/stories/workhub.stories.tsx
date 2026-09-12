@@ -18,11 +18,12 @@
  */
 
 import { useState } from 'react';
-import { ToastProvider, LocaleProvider, AstryxLocaleProvider } from '@maka/ui';
+import { ToastProvider, LocaleProvider, AstryxLocaleProvider, ChatSurfaceLayout } from '@maka/ui';
 import type { StoredMessage, SessionSummary } from '@maka/core/session';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fn, userEvent, within, waitFor } from 'storybook/test';
 import { WorkHubRoot, WorkHubServicesProvider, type WorkHubServices, type WorkHubTranscriptSnapshot } from '../src/renderer/features/workhub/index.js';
+import { WorkHubConversation, WorkHubHighlightContext } from '../src/renderer/features/workhub/testing.js';
 import { desktopSessionKey } from '../src/shared/runtime-host-identity.js';
 
 // Real host: a persistent WebContentsView mounts WorkHubRoot once and moves between windows.
@@ -33,7 +34,7 @@ const choices = ['model-a', 'model-b'].map((model, index) => ({
   connectionId: 'connection-test', connectionSlug: 'test', connectionName: 'Test', providerType: 'openai' as const,
   providerLabel: 'OpenAI', model, label: model, isDefault: index === 0, thinkingLevels: [],
 }));
-function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: boolean, selectTarget = false, question = false, paged = false): WorkHubServices {
+function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: boolean, selectTarget = false, question = false): WorkHubServices {
   let failures = failFirst ? 1 : 0;
   let session: SessionSummary & { revision: number } = {
     id: sessionId, name: 'WorkHub', revision: 1, isFlagged: false, isArchived: false, labels: [], hasUnread: false,
@@ -59,9 +60,6 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
     });
     messages.push({ type: 'user', id: 'unlinked', turnId: 'unlinked-turn', ts: 20, text: '先讨论一下整体计划。' });
   }
-  const olderMessages = paged ? messages.slice(0, 6) : [];
-  if (paged) messages = messages.slice(6);
-  let hasOlder = paged;
   const questionRequest: import('@maka/core/events').UserQuestionRequestEvent = {
     type: 'user_question_request', id: 'question-event', ts: 1, turnId: 'question-turn', requestId: 'question-request', toolUseId: 'question-tool',
     questions: [{ question: '首批发布范围选哪个？', options: [{ label: '仅邀请用户' }, { label: '公开测试' }] }],
@@ -71,7 +69,7 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
   let interactionUpdate: Parameters<WorkHubServices['subscribeActiveInteractions']>[0] | undefined;
   let updateTranscript: ((snapshot: WorkHubTranscriptSnapshot) => void) | undefined;
   let updateSessions: (() => void) | undefined;
-  const publish = () => updateTranscript?.({ messages, hasOlder, hasNewer: false, ready: true });
+  const publish = () => updateTranscript?.({ messages, hasOlder: false, hasNewer: false, ready: true });
   return {
     retractQueueEntry: async () => {}, promoteQueueEntry: async () => {},
     updateQueueEntry: async () => {}, reorderQueueEntries: async () => {},
@@ -115,10 +113,7 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
       return { kind: 'committed', session: { ...session, workspace: { target: { kind: 'host_path', path: '/projects/maka' }, hostCwd: '/projects/maka' }, createdAt: 0, activityAt: 0, labelsTruncated: false, llmConnectionId: 'connection-test', collaborationMode: 'agent', orchestrationMode: 'default' } };
     },
     observe: () => () => {},
-    openTranscript: async (_id, handler) => { updateTranscript = handler; publish(); return { observationChanged: () => {}, prefetchHistory: async () => {
-      if (!hasOlder) return false;
-      messages = [...olderMessages, ...messages]; hasOlder = false; publish(); return true;
-    }, retain: () => {}, loadLatest: async () => {}, close: async () => { updateTranscript = undefined; } }; },
+    openTranscript: async (_id, handler) => { updateTranscript = handler; publish(); return { observationChanged: () => {}, prefetchHistory: async () => false, retain: () => {}, loadLatest: async () => {}, close: async () => { updateTranscript = undefined; } }; },
     stop: async () => {
       session = { ...session, runningTurnIds: [] }; updateSessions?.();
       interactionUpdate?.({ sessionId, interactions: [] });
@@ -128,8 +123,8 @@ function makeServices(failFirst: boolean, withHistory: boolean, coloredHistory: 
 
   };
 }
-function Surface({ failFirst = false, history = false, colors = false, selectTarget = false, question = false, paged = false }: { failFirst?: boolean; history?: boolean; colors?: boolean; selectTarget?: boolean; question?: boolean; paged?: boolean }) {
-  const [services] = useState(() => makeServices(failFirst, history, colors, selectTarget, question, paged));
+function Surface({ failFirst = false, history = false, colors = false, selectTarget = false, question = false }: { failFirst?: boolean; history?: boolean; colors?: boolean; selectTarget?: boolean; question?: boolean }) {
+  const [services] = useState(() => makeServices(failFirst, history, colors, selectTarget, question));
   return <LocaleProvider locale="zh-CN"><AstryxLocaleProvider><ToastProvider><WorkHubServicesProvider services={services}><div style={{ height: '100dvh' }}><WorkHubRoot /></div></WorkHubServicesProvider></ToastProvider></AstryxLocaleProvider></LocaleProvider>;
 }
 const meta = { title: 'Product/WorkHub', parameters: { layout: 'fullscreen' } } satisfies Meta;
@@ -210,7 +205,7 @@ export const ColoredWorkHistory: Story = {
       expect(status).toHaveTextContent(['已完成', '等待用户', '进行中'][index]!);
       expect(turn.querySelector('.maka-assistant-answer .workhub-delegation-status')).toBeNull();
       expect(canvasElement.querySelector('.workhub-result-card')).toBeNull();
-      expect(getComputedStyle(turn.querySelector('.workhub-turn-label')!).fontSize).toBe('11px');
+      expect(getComputedStyle(turn.querySelector('.workhub-turn-label span')!).fontSize).toBe('11px');
       const prompt = getComputedStyle(turn.querySelector('.maka-user-message')!);
       const answer = getComputedStyle(turn.querySelector('.maka-assistant-answer')!);
       expect(prompt.borderRightWidth).toBe('3px');
@@ -252,7 +247,7 @@ export const KeyboardTargetSelection: Story = {
     const canvas = within(context.canvasElement);
     expect(canvas.getByRole('button', { name: '确认目标' })).toBeDisabled();
     await userEvent.keyboard('2');
-    expect(canvas.getAllByRole('radio')[1]).toBeChecked();
+    await waitFor(() => expect(canvas.getAllByRole('radio')[1]).toBeChecked());
     expect(writes.answer).toHaveBeenCalledTimes(1);
     await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(context.canvasElement.querySelector('.workhub-target-selector')).toBeNull());
@@ -262,9 +257,9 @@ export const KeyboardTargetSelection: Story = {
     await userEvent.click(editor); await userEvent.type(editor, '需要进一步说明'); await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(context.canvasElement.querySelector('.workhub-target-selector')).toBeInTheDocument());
     await userEvent.keyboard('{ArrowDown}');
-    expect(canvas.getAllByRole('radio')[0]).toBeChecked();
+    await waitFor(() => expect(canvas.getAllByRole('radio')[0]).toBeChecked());
     await userEvent.keyboard('{ArrowDown}');
-    expect(canvas.getAllByRole('radio')[1]).toBeChecked();
+    await waitFor(() => expect(canvas.getAllByRole('radio')[1]).toBeChecked());
     await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(context.canvasElement.querySelector('.workhub-target-selector')).toBeNull());
     expect(editor).toHaveTextContent('需要进一步说明');
@@ -294,7 +289,7 @@ export const QuestionLifecycle: Story = {
     expect(canvasElement.querySelector('.maka-turn-processing')).toBeNull();
     await userEvent.keyboard('2{Enter}');
     await waitFor(() => expect(canvas.getByRole('alert')).toHaveTextContent('Temporary Host failure'));
-    expect(canvas.getAllByRole('radio')[1]).toBeChecked();
+    await waitFor(() => expect(canvas.getAllByRole('radio')[1]).toBeChecked());
     await userEvent.keyboard('{Enter}');
     await waitFor(() => expect(canvasElement.querySelector('.maka-user-question-prompt')).toBeNull());
     expect(canvasElement.querySelector('.workhub-delegation-status')).toHaveTextContent('已完成');
@@ -346,28 +341,46 @@ export const FilterWorkConversations: Story = {
   },
 };
 
+function PagedWorkConversation() {
+  const [loaded, setLoaded] = useState(false);
+  const [selectedWork, selectWork] = useState<{ sessionId: string; name: string } | undefined>({ sessionId: targetId, name: '支付回调幂等性' });
+  const messages: StoredMessage[] = [
+    ...(loaded ? [{ type: 'user' as const, id: 'older', turnId: 'older-turn', ts: 1, text: '请检查支付回调幂等性。' }] : []),
+    { type: 'user', id: 'latest', turnId: 'latest-turn', ts: 2, text: '继续补充异常场景。' },
+    { type: 'user', id: 'discussion', turnId: 'discussion-turn', ts: 3, text: '先讨论一下整体计划。' },
+  ];
+  return <LocaleProvider locale="zh-CN"><AstryxLocaleProvider><ToastProvider>
+    <WorkHubHighlightContext.Provider value={{ sessionId: undefined, highlight: () => {}, selectedWork, selectWork, toggleWork: (work) => selectWork((current) => current?.sessionId === work.sessionId ? undefined : work) }}>
+      <ChatSurfaceLayout composer={null}><div className="workhub-surface"><WorkHubConversation messages={messages} onOpenWork={() => {}} onNew={() => {}} scrollBehavior="auto"
+        activeSession={{ id: sessionId, name: 'WorkHub', isFlagged: false, isArchived: false, labels: [], hasUnread: false, status: 'active', runningTurnIds: [], backend: 'ai-sdk', llmConnectionId: 'connection-test', llmConnectionSlug: 'test', connectionLocked: false, model: 'model-a', permissionMode: 'ask' }}
+        hasOlderHistory={!loaded} onPrefetchHistory={async () => { setLoaded(true); return true; }}
+        workLinks={['older-turn', 'latest-turn'].map((coordinationTurnId) => ({ id: coordinationTurnId, coordinationTurnId, targetSessionId: targetId, targetSessionName: '支付回调幂等性' }))} />
+      </div></ChatSurfaceLayout>
+    </WorkHubHighlightContext.Provider>
+  </ToastProvider></AstryxLocaleProvider></LocaleProvider>;
+}
 export const FilterWorkHistoryPages: Story = {
-  render: () => <Surface history colors paged />,
+  render: () => <PagedWorkConversation />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitFor(() => expect(canvas.getByText('继续补充异常场景。')).toBeInTheDocument());
-    await userEvent.click(canvasElement.querySelector('.maka-user-message .workhub-message-rail') as HTMLElement);
-    const older = canvas.queryByRole('button', { name: '更早的历史' });
-    if (older) await userEvent.click(older);
-    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(2));
-    expect(canvas.getByText('请检查支付回调幂等性。')).toBeInTheDocument();
-    expect(canvas.queryByText('请检查发布检查清单。')).toBeNull();
+    expect(canvas.queryByText('请检查支付回调幂等性。')).toBeNull();
+    await userEvent.click(canvas.getByRole('button', { name: '更早的历史' }));
+    await waitFor(() => expect(canvas.getByText('请检查支付回调幂等性。')).toBeInTheDocument());
+    expect(canvas.queryByText('先讨论一下整体计划。')).toBeNull();
+    expect(canvas.queryByRole('button', { name: '更早的历史' })).toBeNull();
     await userEvent.click(canvas.getByRole('button', { name: '显示全部对话' }));
-    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4));
+    await waitFor(() => expect(canvas.getByText('先讨论一下整体计划。')).toBeInTheDocument());
   },
 };
-export const FilterWorkConversationsNarrow: Story = { ...FilterWorkConversations };
+export const FilterWorkConversationsNarrow: Story = { ...FilterWorkConversations, parameters: { viewport: { defaultViewport: 'tablet' } } };
 
 export const WorkFilterHoverAndToggle: Story = {
   render: () => <Surface history colors />,
   play: async ({ canvasElement }) => {
     await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4));
     writes.open.mockClear();
+    const transcriptElement = canvasElement.querySelector('[data-turn-source-count]');
     const stripe = () => canvasElement.querySelector('.maka-user-message .workhub-message-rail') as HTMLElement;
     const color = () => getComputedStyle(canvasElement.querySelector('.maka-user-message')!).borderRightColor;
     const original = color();
@@ -390,6 +403,7 @@ export const WorkFilterHoverAndToggle: Story = {
     await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4));
     await new Promise((resolve) => setTimeout(resolve, 550));
     expect(writes.open).not.toHaveBeenCalled();
+    expect(canvasElement.querySelector('[data-turn-source-count]')).toBe(transcriptElement);
   },
 };
 
