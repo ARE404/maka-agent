@@ -87,6 +87,12 @@ describe('Host WorkHub Coordination coordinator', () => {
               content: prepared.content,
               allowTargetSelection: true,
             }));
+          if (decision.kind === 'target_selection')
+            return {
+              ok: false,
+              error: { code: 'operation_conflict', message: 'WorkHub target selection required' },
+              targetSelection: decision.request,
+            };
           decisions.push(decision);
           return {
             ok: true,
@@ -131,28 +137,34 @@ describe('Host WorkHub Coordination coordinator', () => {
       assert.equal(decisions.length, 0);
       assert.equal(request.candidates.length, 1);
       const selected = request.candidates.find((candidate) => candidate.sessionId === target.id)!;
-      await assert.rejects(
-        workhub.handlers['workhub.coordination.answer'](
-          {
-            ...input,
-            text: 'Different request',
-            selection: {
-              requestId: request.requestId,
-              kind: 'existing',
-              candidateRef: selected.candidateRef,
+      assert.equal(
+        (
+          await workhub.handlers['workhub.coordination.answer'](
+            {
+              ...input,
+              text: 'Different request',
+              selection: {
+                requestId: request.requestId,
+                kind: 'existing',
+                candidateRef: selected.candidateRef,
+              },
             },
-          },
-          CONTEXT,
-        ),
+            CONTEXT,
+          )
+        ).ok,
+        false,
       );
-      await assert.rejects(
-        workhub.handlers['workhub.coordination.answer'](
-          {
-            ...input,
-            selection: { requestId: request.requestId, kind: 'existing', candidateRef: 'forged' },
-          },
-          CONTEXT,
-        ),
+      assert.equal(
+        (
+          await workhub.handlers['workhub.coordination.answer'](
+            {
+              ...input,
+              selection: { requestId: request.requestId, kind: 'existing', candidateRef: 'forged' },
+            },
+            CONTEXT,
+          )
+        ).ok,
+        false,
       );
       const resumed = await workhub.handlers['workhub.coordination.answer'](
         {
@@ -219,8 +231,8 @@ describe('Host WorkHub Coordination coordinator', () => {
         { turnId: 'unclear-intent', text: 'Unclear intent' },
         CONTEXT,
       );
-      assert(unclear.ok && unclear.result.targetSelection);
-      assert.equal(decisions.length, 2, 'intent clarification also waits before admission');
+      assert(unclear.ok && !unclear.result.targetSelection);
+      assert.equal(decisions.length, 3, 'intent clarification must reach the assistant');
     } finally {
       await store.close?.();
       await rm(root, { recursive: true, force: true });

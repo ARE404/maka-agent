@@ -192,10 +192,20 @@ export interface RootHandoffPreparation {
   cancel(): void;
 }
 
+import type { WorkHubTargetSelectionRequest } from '../protocol/workhub-coordination.js';
+
+export type HostWorkHubTargetSelection = {
+  readonly kind: 'target_selection';
+  readonly request: WorkHubTargetSelectionRequest;
+};
+export type HostWorkHubRoutingPreparation = WorkHubRoutingDecision | HostWorkHubTargetSelection;
+
 export type TurnStartOutcome = OperationOutcome<'turn.start'>;
 type RootMessageStartOutcome =
   | { ok: true; result: TurnSnapshot }
-  | Extract<TurnStartOutcome, { ok: false }>;
+  | (Extract<TurnStartOutcome, { ok: false }> & {
+      readonly targetSelection?: WorkHubTargetSelectionRequest;
+    });
 
 export type RootMessageExecution = Extract<
   RootExecutionDescriptor,
@@ -381,7 +391,7 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
     private readonly directoryHostId?: string,
     private readonly prepareWorkHubRoutingDecision?: (
       input: HostWorkHubRoutingDecisionPreparation,
-    ) => Promise<WorkHubRoutingDecision>,
+    ) => Promise<HostWorkHubRoutingPreparation>,
   ) {
     this.stores = authenticateExecutionStoresWriter(stores, 'interactive');
     this.executionProjection = new HostedExecutionProjectionReader(this.stores);
@@ -1560,6 +1570,22 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
     });
   }
 
+  private prepareFreshWorkHubExecution(
+    header: SessionHeader,
+    turnId: string,
+    content: MessageContent,
+    execution: RootExecutionDescriptor,
+    inputClosedSignal?: AbortSignal,
+    allowTargetSelection?: false,
+  ): Promise<RootExecutionDescriptor>;
+  private prepareFreshWorkHubExecution(
+    header: SessionHeader,
+    turnId: string,
+    content: MessageContent,
+    execution: RootExecutionDescriptor,
+    inputClosedSignal: AbortSignal | undefined,
+    allowTargetSelection: true,
+  ): Promise<RootExecutionDescriptor | HostWorkHubTargetSelection>;
   private async prepareFreshWorkHubExecution(
     header: SessionHeader,
     turnId: string,
@@ -1567,7 +1593,7 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
     execution: RootExecutionDescriptor,
     inputClosedSignal?: AbortSignal,
     allowTargetSelection = false,
-  ): Promise<RootExecutionDescriptor> {
+  ): Promise<RootExecutionDescriptor | HostWorkHubTargetSelection> {
     if (
       execution.kind !== 'workhub_coordination' ||
       execution.routingDecision ||
@@ -1575,15 +1601,20 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
     ) {
       return execution;
     }
+    const prepared = await this.prepareWorkHubRoutingDecision({
+      header,
+      allowTargetSelection,
+      turnId,
+      content,
+      ...(inputClosedSignal ? { inputClosedSignal } : {}),
+    });
+    if (prepared.kind === 'target_selection' && allowTargetSelection) return prepared;
     return {
       ...execution,
-      routingDecision: await this.prepareWorkHubRoutingDecision({
-        header,
-        allowTargetSelection,
-        turnId,
-        content,
-        ...(inputClosedSignal ? { inputClosedSignal } : {}),
-      }),
+      routingDecision:
+        prepared.kind === 'target_selection'
+          ? { kind: 'routing', disposition: 'clarify' }
+          : prepared,
     };
   }
 
@@ -2095,6 +2126,12 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
           context.inputClosedSignal,
           true,
         );
+        if (freshExecution.kind === 'target_selection') {
+          return completedStart({
+            ...operationConflict('WorkHub target selection required'),
+            targetSelection: freshExecution.request,
+          });
+        }
         if (!this.beginRootAdmission(reservation)) {
           return completedStart(sessionBusy('Root Turn reservation is no longer current'));
         }

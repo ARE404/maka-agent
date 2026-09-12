@@ -55,6 +55,8 @@ import type {
 } from './operation-dispatcher.js';
 import type {
   HostWorkHubRoutingDecisionPreparation,
+  HostWorkHubRoutingPreparation,
+  HostWorkHubTargetSelection,
   RootTurnCoordinator,
 } from './root-turn-coordinator.js';
 import type { HostWorkHubRoutingModel } from './execution-model-authority.js';
@@ -79,11 +81,6 @@ const COORDINATION_TOOL_PROFILE = 'workhub-coordination-v2' as const;
 const COORDINATION_PERMISSION_MODE = 'bypass' as const;
 type TargetSelectionRequest =
   import('../protocol/workhub-coordination.js').WorkHubTargetSelectionRequest;
-class TargetSelectionRequired extends Error {
-  constructor(readonly request: TargetSelectionRequest) {
-    super('WorkHub target selection required');
-  }
-}
 
 const COORDINATION_COLLABORATION_MODE = 'agent' as const;
 const COORDINATION_ORCHESTRATION_MODE = 'default' as const;
@@ -749,54 +746,63 @@ export class HostWorkHubCoordinationCoordinator {
         ...(input.selection ? { selection: input.selection } : {}),
       }),
     };
-    try {
-      const outcome = await this.#executions.startWorkHubCoordinationMessage(
-        {
-          sessionId: WORKHUB_COORDINATION_SESSION_ID,
-          turnId: input.turnId,
-          execution,
-          archivedMessage: 'WorkHub Coordination Session is unavailable',
-          // Historical v1 summaries still own their Turn identities. Reject a
-          // fresh answer that would reuse one, even though new summaries are no longer written.
-          prepareFreshContent: async () => {
-            let recorded: readonly StoredMessage[];
-            try {
-              recorded = await this.#readSummaryMessages(input.turnId);
-            } catch {
+    const outcome = await this.#executions.startWorkHubCoordinationMessage(
+      {
+        sessionId: WORKHUB_COORDINATION_SESSION_ID,
+        turnId: input.turnId,
+        execution,
+        archivedMessage: 'WorkHub Coordination Session is unavailable',
+        // Historical v1 summaries still own their Turn identities. Reject a
+        // fresh answer that would reuse one, even though new summaries are no longer written.
+        prepareFreshContent: async () => {
+          let recorded: readonly StoredMessage[];
+          try {
+            recorded = await this.#readSummaryMessages(input.turnId);
+          } catch {
+            return {
+              kind: 'rejected',
+              outcome: operationUnavailable(
+                'WorkHub Coordination Turn identity could not be verified',
+              ),
+            };
+          }
+          if (recorded.length === 0 && input.selection) {
+            const selected = await this.#selectedRoutingDecision(input);
+            if (selected.kind === 'rejected') return selected;
+            if (selected.kind === 'target_selection')
               return {
                 kind: 'rejected',
-                outcome: operationUnavailable(
-                  'WorkHub Coordination Turn identity could not be verified',
-                ),
+                outcome: {
+                  ...turnFailure('operation_conflict', 'WorkHub target selection required'),
+                  targetSelection: selected.request,
+                },
               };
-            }
-            if (recorded.length === 0 && input.selection) {
-              execution.routingDecision = await this.#selectedRoutingDecision(input);
-            }
-            return recorded.length > 0
-              ? { kind: 'rejected', outcome: turnIdentityConflict() }
-              : {
-                  kind: 'ready',
-                  content: normalizeMessageContent({
-                    text: input.text,
-                    ...(input.attachments ? { attachments: input.attachments } : {}),
-                  }),
-                };
-          },
+            execution.routingDecision = selected;
+          }
+          return recorded.length > 0
+            ? { kind: 'rejected', outcome: turnIdentityConflict() }
+            : {
+                kind: 'ready',
+                content: normalizeMessageContent({
+                  text: input.text,
+                  ...(input.attachments ? { attachments: input.attachments } : {}),
+                }),
+              };
         },
-        context,
-      );
-      return outcome.ok ? { ok: true, result: { turnId: input.turnId } } : outcome;
-    } catch (error) {
-      if (error instanceof TargetSelectionRequired)
-        return { ok: true, result: { turnId: input.turnId, targetSelection: error.request } };
-      throw error;
-    }
+      },
+      context,
+    );
+    if (!outcome.ok && outcome.targetSelection)
+      return {
+        ok: true,
+        result: { turnId: input.turnId, targetSelection: outcome.targetSelection },
+      };
+    return outcome.ok ? { ok: true, result: { turnId: input.turnId } } : outcome;
   }
 
   async prepareRoutingDecision(
     input: HostWorkHubRoutingDecisionPreparation,
-  ): Promise<WorkHubRoutingDecision> {
+  ): Promise<HostWorkHubRoutingPreparation> {
     const contentDigest = digest(input.content);
     const pending = this.#targetSelections.get(input.turnId);
     if (
@@ -805,7 +811,7 @@ export class HostWorkHubCoordinationCoordinator {
       pending.digest === contentDigest &&
       pending.expiresAt > Date.now()
     )
-      throw new TargetSelectionRequired(pending.request);
+      return { kind: 'target_selection', request: pending.request };
     let candidates:
       | import('../protocol/workhub-coordination.js').WorkHubCoordinationCandidatesResult
       | undefined;
@@ -866,14 +872,12 @@ export class HostWorkHubCoordinationCoordinator {
     if (
       input.allowTargetSelection &&
       decision.kind === 'routing' &&
-      decision.disposition === 'clarify'
+      decision.disposition === 'clarify' &&
+      candidates !== undefined
     ) {
-      if (!candidates) {
-        const outcome = await this.#candidates();
-        if (!outcome.ok) return decision;
-        candidates = outcome.result;
-      }
-      this.#requireTargetSelection(input.turnId, contentDigest, candidates);
+      // The production model resolves candidates only for execute/continue.
+      // Intent-only clarification must be admitted so the assistant can ask.
+      return this.#requireTargetSelection(input.turnId, contentDigest, candidates);
     }
     return decision;
   }
@@ -882,7 +886,7 @@ export class HostWorkHubCoordinationCoordinator {
     turnId: string,
     contentDigest: string,
     candidates: import('../protocol/workhub-coordination.js').WorkHubCoordinationCandidatesResult,
-  ): never {
+  ): HostWorkHubTargetSelection {
     for (const [id, entry] of this.#targetSelections)
       if (entry.expiresAt <= Date.now()) this.#targetSelections.delete(id);
     if (this.#targetSelections.size >= 64)
@@ -893,12 +897,19 @@ export class HostWorkHubCoordinationCoordinator {
       request,
       expiresAt: Date.now() + 10 * 60_000,
     });
-    throw new TargetSelectionRequired(request);
+    return { kind: 'target_selection', request };
   }
 
   async #selectedRoutingDecision(
     input: WorkHubCoordinationAnswerInput,
-  ): Promise<WorkHubRoutingDecision> {
+  ): Promise<
+    | HostWorkHubRoutingPreparation
+    | { kind: 'rejected'; outcome: Extract<OperationOutcome<'turn.start'>, { ok: false }> }
+  > {
+    const reject = (message: string) => ({
+      kind: 'rejected' as const,
+      outcome: turnFailure('operation_conflict', message),
+    });
     const contentDigest = digest(
       normalizeMessageContent({
         text: input.text,
@@ -907,7 +918,8 @@ export class HostWorkHubCoordinationCoordinator {
     );
     const pending = this.#targetSelections.get(input.turnId);
     const current = await this.#candidates();
-    if (!current.ok) throw new Error(current.error.message);
+    if (!current.ok)
+      return { kind: 'rejected', outcome: operationUnavailable(current.error.message) };
     if (
       !pending ||
       pending.expiresAt <= Date.now() ||
@@ -916,15 +928,15 @@ export class HostWorkHubCoordinationCoordinator {
       return this.#requireTargetSelection(input.turnId, contentDigest, current.result);
     }
     if (pending.digest !== contentDigest)
-      throw new Error('WorkHub selection belongs to a different request');
+      return reject('WorkHub selection belongs to a different request');
     if (input.selection!.kind === 'create_new')
       return { kind: 'routing', disposition: 'create_new' };
     const choice = input.selection!;
-    if (choice.kind !== 'existing') throw new Error('Invalid WorkHub target selection');
+    if (choice.kind !== 'existing') return reject('Invalid WorkHub target selection');
     const selected = pending.request.candidates.find(
       (candidate) => candidate.candidateRef === choice.candidateRef,
     );
-    if (!selected) throw new Error('WorkHub target is not in the offered candidates');
+    if (!selected) return reject('WorkHub target is not in the offered candidates');
     // Rebind the same Session to the fresh candidate snapshot. Never substitute
     // another Session when the selected one was removed, archived, or moved.
     const candidate = current.result.candidates.find(
@@ -1142,12 +1154,11 @@ function operationUnavailable(message: string) {
   return { ok: false, error: { code: 'operation_unavailable', message } } as const;
 }
 
-function turnFailure(
-  code: Extract<
+function turnFailure<
+  Code extends Extract<
     OperationOutcome<'workhub.coordination.answer'>,
     { readonly ok: false }
   >['error']['code'],
-  message: string,
-): OperationOutcome<'workhub.coordination.answer'> {
+>(code: Code, message: string): { ok: false; error: { code: Code; message: string } } {
   return { ok: false, error: { code, message } };
 }

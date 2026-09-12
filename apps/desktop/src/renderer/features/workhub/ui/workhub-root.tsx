@@ -17,7 +17,7 @@
  * under the License.
  */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChatSurfaceLayout, UserQuestionPrompt, MakaWordmark, useUiLocale, type ComposerHandle } from '@maka/ui';
 import { Button, IconButton } from '@astryxdesign/core';
 import { ChevronDown, PictureInPicture2, Undo2, X } from '@maka/ui/icons';
@@ -26,7 +26,7 @@ import { WorkHubComposer } from './workhub-composer.js';
 import { WorkHubTargetSelector } from './workhub-target-selector.js';
 import { WorkHubConversation } from './workhub-conversation.js';
 import { WorkHubNavigationRail } from './workhub-navigation-rail.js';
-import { WorkHubHighlightProvider } from './workhub-work-identity.js';
+import { WorkHubHighlightProvider, WorkHubHighlightContext } from './workhub-work-identity.js';
 import { getWorkHubRailCopy } from '../../../locales/workhub-copy.js';
 import { useWorkHubController } from '../controller/use-workhub-controller.js';
 import type { WorkHubControlSnapshot } from '../../../../shared/workhub-control.js';
@@ -67,6 +67,11 @@ function revealWordmark(element: HTMLDivElement | null, content: HTMLDivElement 
 }
 
 export function WorkHubRoot() {
+  return <WorkHubHighlightProvider><WorkHubContents /></WorkHubHighlightProvider>;
+}
+
+function WorkHubContents() {
+  const { selectWork } = useContext(WorkHubHighlightContext);
   const controller = useWorkHubController();
   const { services, session, transcript, busy } = controller;
   const locale = useUiLocale();
@@ -248,7 +253,6 @@ export function WorkHubRoot() {
     void task.catch(controller.report);
   };
   return (
-    <WorkHubHighlightProvider>
     <section ref={surface} data-progress={progress} data-progress-editing={editingProgress} className="workHubLive workhub-surface" data-placement={presentation?.placement ?? 'docked'} data-conversation-expanded={showConversation} aria-label={t.title}>
       {progress && <WorkHubProgressCard ref={progressHeader} request={presentation.progressRequest!} control={control} liveTurn={controller.liveTurn} messages={transcript.messages} busy={Boolean(controller.activeTurn) || controller.sending} onOpen={() => {
         setConversationExpanded(true);
@@ -300,6 +304,7 @@ export function WorkHubRoot() {
               allowAttachmentImportWhileStreaming
               stopPending={controller.stopPending}
               onSend={async (text, attachments, followUpMode) => {
+                selectWork(undefined);
                 const accepted = await controller.send(text, attachments, followUpMode);
                 if (accepted) {
                   setConversationExpanded(true);
@@ -364,6 +369,6 @@ export function WorkHubRoot() {
         </div></div>
         </div>
       </ChatSurfaceLayout>
-    </section></WorkHubHighlightProvider>
+    </section>
   );
 }

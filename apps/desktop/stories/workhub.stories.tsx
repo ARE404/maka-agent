@@ -392,3 +392,18 @@ export const WorkFilterHoverAndToggle: Story = {
     expect(writes.open).not.toHaveBeenCalled();
   },
 };
+
+export const SendWhileWorkFiltered: Story = {
+  render: () => <Surface history colors />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => expect(canvasElement.querySelector('.workhub-message-rail')).not.toBeNull());
+    await userEvent.click(canvasElement.querySelector('.workhub-message-rail') as HTMLElement);
+    const editor = canvasElement.querySelector('[contenteditable="true"]') as HTMLElement;
+    await userEvent.click(editor);
+    await userEvent.keyboard('FILTERED_SEND_PROBE{Enter}');
+    await waitFor(() => expect(canvas.getByText('FILTERED_SEND_PROBE')).toBeInTheDocument());
+    await waitFor(() => expect(canvas.getByText('已收到。')).toBeInTheDocument());
+    expect(canvas.queryByRole('button', { name: '显示全部对话' })).toBeNull();
+  },
+};
