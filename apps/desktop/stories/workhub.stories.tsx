@@ -221,6 +221,8 @@ export const ColoredWorkHistory: Story = {
     const label = turns[0]!.querySelector<HTMLElement>('.workhub-turn-label')!;
     await userEvent.hover(label);
     await waitFor(() => expect(turns[2]!.querySelector('.workhub-turn-label')).toHaveAttribute('data-work-highlighted', 'true'));
+    const dark = canvasElement.ownerDocument.documentElement.classList.contains('dark');
+    await waitFor(() => expect(getComputedStyle(label).color).toMatch(dark ? /^okl(?:ch|ab)\(0\.85 / : /^okl(?:ch|ab)\(0\.48 /));
     await userEvent.click(label);
     expect(writes.open).toHaveBeenCalledWith(targetId);
     await userEvent.unhover(label);
@@ -428,6 +430,26 @@ export const SendWhileWorkFiltered: Story = {
     await userEvent.keyboard('FILTERED_SEND_PROBE{Enter}');
     await waitFor(() => expect(canvas.getByText('FILTERED_SEND_PROBE')).toBeInTheDocument());
     await waitFor(() => expect(canvas.getByText('已收到。')).toBeInTheDocument());
+    expect(canvas.queryByRole('button', { name: '显示全部对话' })).toBeNull();
+  },
+};
+
+export const RetryWhileWorkFiltered: Story = {
+  render: () => <Surface history colors failFirst />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    writes.answer.mockClear();
+    await waitFor(() => expect(canvasElement.querySelector('.workhub-message-rail')).not.toBeNull());
+    const editor = canvasElement.querySelector('[contenteditable="true"]') as HTMLElement;
+    await userEvent.click(editor);
+    await userEvent.keyboard('FILTERED_RETRY_PROBE{Enter}');
+    await waitFor(() => expect(canvas.getByRole('alert')).toHaveTextContent('Temporary Host failure'));
+    await userEvent.click(canvasElement.querySelector('.workhub-message-rail') as HTMLElement);
+    await waitFor(() => expect(canvas.getByRole('button', { name: '显示全部对话' })).toBeInTheDocument());
+    await userEvent.click(canvas.getByRole('button', { name: '重试', exact: true }));
+    await waitFor(() => expect(writes.answer).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(canvas.getByText('已收到。')).toBeInTheDocument());
+    expect(canvas.getByText('FILTERED_RETRY_PROBE', { selector: '.maka-user-message *' })).toBeInTheDocument();
     expect(canvas.queryByRole('button', { name: '显示全部对话' })).toBeNull();
   },
 };

@@ -276,7 +276,7 @@ function WorkHubContents() {
               <div className="workHubLiveError" role="alert">
                 {controller.error ?? t.controlFailed}
                 {controller.canRetry && (
-                  <Button label={t.retry} variant="ghost" onClick={controller.retry} />
+                  <Button label={t.retry} variant="ghost" onClick={() => { selectWork(undefined); controller.retry(); }} />
                 )}
               </div>
             )}

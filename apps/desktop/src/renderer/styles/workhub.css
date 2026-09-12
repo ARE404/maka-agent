@@ -106,10 +106,7 @@
   --workhub-work-highlight: oklch(0.48 0.18 var(--workhub-work-hue));
 }
 
-.dark .workhub-surface { --workhub-identity-label-tone: 0.42 0.075; }
-.dark .workhub-surface { --workhub-identity-label-tone: 0.8 0.09; }
-
-.workhub-work-identity {
+.dark .workhub-work-identity {
   --workhub-work-color: oklch(0.76 0.105 var(--workhub-work-hue));
   --workhub-work-highlight: oklch(0.85 0.15 var(--workhub-work-hue));
 }
