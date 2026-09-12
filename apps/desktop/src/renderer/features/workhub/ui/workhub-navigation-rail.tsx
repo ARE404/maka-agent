@@ -41,6 +41,7 @@ export function WorkHubNavigationRail(props: {
   readonly onOpenSession: (sessionId: string) => void;
 }) {
   const highlight = useContext(WorkHubHighlightContext);
+  const clearedByClick = useRef(false);
   const openTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(openTimer.current), []);
   const drag = useRef<{ pointerId: number; startX: number; scrollLeft: number; list: HTMLElement; moved: boolean } | undefined>(undefined);
@@ -135,6 +136,15 @@ export function WorkHubNavigationRail(props: {
                   aria-current={anchor.target.sessionId === props.focusSessionId ? 'page' : undefined}
                   onClick={(event) => {
                     clearTimeout(openTimer.current);
+                    // A selected Work clears on the first click. Ignore the
+                    // remainder of that double-click instead of selecting it again.
+                    if (event.detail <= 1) clearedByClick.current = false;
+                    if (event.detail >= 2 && clearedByClick.current) return;
+                    if (highlight.selectedWork?.sessionId === anchor.target.sessionId) {
+                      clearedByClick.current = true;
+                      highlight.selectWork(undefined);
+                      return;
+                    }
                     if (event.shiftKey) highlight.selectWork({ sessionId: anchor.target.sessionId, name: anchor.sessionName });
                     else if (event.detail === 0) props.onOpenSession(anchor.target.sessionId);
                     else if (event.detail >= 2) highlight.selectWork({ sessionId: anchor.target.sessionId, name: anchor.sessionName });

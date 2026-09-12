@@ -362,3 +362,33 @@ export const FilterWorkHistoryPages: Story = {
   },
 };
 export const FilterWorkConversationsNarrow: Story = { ...FilterWorkConversations };
+
+export const WorkFilterHoverAndToggle: Story = {
+  render: () => <Surface history colors />,
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4));
+    writes.open.mockClear();
+    const stripe = () => canvasElement.querySelector('.maka-user-message .workhub-message-rail') as HTMLElement;
+    const color = () => getComputedStyle(canvasElement.querySelector('.maka-user-message')!).borderRightColor;
+    const original = color();
+    await userEvent.hover(stripe());
+    await waitFor(() => expect(color()).not.toBe(original));
+    expect(canvasElement.querySelector('.workhub-navigation-item')).toHaveAttribute('data-work-highlighted', 'true');
+    await userEvent.unhover(stripe());
+    await waitFor(() => expect(color()).toBe(original));
+    await userEvent.click(stripe());
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(2));
+    await userEvent.click(canvasElement.querySelector('.maka-assistant-answer .workhub-message-rail') as HTMLElement);
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4));
+    await userEvent.click(stripe());
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(2));
+    await userEvent.click(canvasElement.querySelector('.workhub-navigation-item') as HTMLElement);
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4));
+    await userEvent.dblClick(canvasElement.querySelector('.workhub-navigation-item') as HTMLElement);
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(2));
+    await userEvent.dblClick(canvasElement.querySelector('.workhub-navigation-item') as HTMLElement);
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4));
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    expect(writes.open).not.toHaveBeenCalled();
+  },
+};

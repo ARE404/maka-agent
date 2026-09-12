@@ -88,7 +88,12 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
       type="button" className="workhub-message-rail"
       aria-label={`${copy.filterConversation}: ${works[0]!.targetSessionName} · ${promptTextByTurn.get(turnId) ?? turnId}`}
       title={`${copy.filterConversation}: ${works[0]!.targetSessionName}`}
-      onClick={() => highlight.selectWork({ sessionId: works[0]!.targetSessionId, name: works[0]!.targetSessionName })}
+      aria-pressed={highlight.selectedWork?.sessionId === works[0]!.targetSessionId}
+      onMouseEnter={() => highlight.highlight(works[0]!.targetSessionId)}
+      onMouseLeave={() => highlight.highlight(undefined)}
+      onFocus={() => highlight.highlight(works[0]!.targetSessionId)}
+      onBlur={() => highlight.highlight(undefined)}
+      onClick={() => highlight.toggleWork({ sessionId: works[0]!.targetSessionId, name: works[0]!.targetSessionName })}
     /> : undefined,
     header: <div className="workhub-turn-heading">
       {works.map((work) => <Button

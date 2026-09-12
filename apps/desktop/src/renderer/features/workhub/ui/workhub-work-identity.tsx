@@ -23,8 +23,9 @@ export const WorkHubHighlightContext = createContext<{
   sessionId: string | undefined;
   highlight(sessionId: string | undefined): void;
   selectedWork?: { sessionId: string; name: string };
+  toggleWork(work: { sessionId: string; name: string }): void;
   selectWork(work: { sessionId: string; name: string } | undefined): void;
-}>({ sessionId: undefined, highlight: () => {}, selectWork: () => {} });
+}>({ sessionId: undefined, highlight: () => {}, selectWork: () => {}, toggleWork: () => {} });
 
 /** Stable across refreshes and reordering; color supplements the visible work name. */
 export function workHubIdentityHue(sessionId: string): number {
@@ -39,7 +40,7 @@ export function workHubIdentityHue(sessionId: string): number {
 export function WorkHubHighlightProvider({ children }: { children: ReactNode }) {
   const [sessionId, highlight] = useState<string>();
   const [selectedWork, selectWork] = useState<{ sessionId: string; name: string }>();
-  return <WorkHubHighlightContext.Provider value={{ sessionId, highlight, selectedWork, selectWork }}>
+  return <WorkHubHighlightContext.Provider value={{ sessionId, highlight, selectedWork, selectWork, toggleWork: (work) => selectWork((current) => current?.sessionId === work.sessionId ? undefined : work) }}>
     {children}
   </WorkHubHighlightContext.Provider>;
 }
