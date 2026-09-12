@@ -195,7 +195,7 @@ export function useWorkHubController() {
     try {
       let result = await services.answer(attempt.sessionId, attempt.input);
       while (result.kind === 'selection_required' && currentSessionId.current === attempt.sessionId) {
-        setLiveTurn(undefined);
+        setLiveTurns((previous) => previous?.filter((turn) => turn.turnId !== attempt.input.turnId || !turn.unconfirmed));
         setTargetSelection(result.request);
         setSelectionSubmitting(false);
         const selection = await new Promise<TargetSelection | undefined>((resolve) => { resolveSelection.current = resolve; });
@@ -529,7 +529,6 @@ export function useWorkHubController() {
           setStopPending(false);
         }
         if (failedTurnId && attempt?.admission === 'rejected') setTurnStates((states) => ({ ...states, [failedTurnId]: 'failed' }));
-        setTransientMessages((previous) => previous.filter((message) => message.hostTurnId !== failedTurnId));
         setLiveTurns((previous) => previous?.filter((turn) => turn.turnId !== failedTurnId || !turn.unconfirmed));
         report(reason);
       }

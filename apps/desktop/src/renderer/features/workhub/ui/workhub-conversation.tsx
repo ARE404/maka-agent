@@ -122,7 +122,8 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
   const selected = highlight.selectedWork;
   const matchingTurns = new Set([...worksByTurn].filter(([, works]) => works.some((work) => work.targetSessionId === selected?.sessionId)).map(([turnId]) => turnId));
   const messages = selected ? chat.messages.filter((message) => message.turnId !== undefined && matchingTurns.has(message.turnId)) : chat.messages;
-  const liveTurn = selected && chat.liveTurn && !matchingTurns.has(chat.liveTurn.turnId) ? undefined : chat.liveTurn;
+  const liveTurns = selected ? chat.liveTurns?.filter((turn) => matchingTurns.has(turn.turnId)) : chat.liveTurns;
+  const activeTurn = selected && chat.activeTurn && !matchingTurns.has(chat.activeTurn.turnId) ? undefined : chat.activeTurn;
   const navigationTurn = [...chat.messages].reverse().find((message) =>
     message.turnId && worksByTurn.get(message.turnId)?.some((work) => work.targetSessionId === highlight.navigationWork?.sessionId))?.turnId;
   return <>
@@ -136,9 +137,9 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
     <ChatView {...chat}
     scrollTargetTurn={navigationTurn && highlight.navigationWork ? { turnId: navigationTurn, nonce: highlight.navigationWork.nonce, preserveFocus: true } : chat.scrollTargetTurn}
     messages={messages}
-    liveTurn={liveTurn}
+    liveTurns={liveTurns}
     transientMessages={selected ? chat.transientMessages?.filter((message) => message.hostTurnId && matchingTurns.has(message.hostTurnId)) : chat.transientMessages}
-    runningStatus={selected ? Boolean(liveTurn) && chat.runningStatus : chat.runningStatus}
+    activeTurn={activeTurn}
     emptyOverride={selected ? <p>{copy.noWorkConversation}</p> : chat.emptyOverride}
     onRetainWindow={selected ? undefined : chat.onRetainWindow}
     onPrefetchHistory={selected ? undefined : chat.onPrefetchHistory}
