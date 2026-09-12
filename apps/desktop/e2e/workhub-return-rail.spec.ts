@@ -90,7 +90,12 @@ test('Session keeps a return to WorkHub control when the sidebar is collapsed', 
   await page.evaluate(() => window.maka.settings.updateClient({ workHub: { enabled: true } }));
   const workhub = await getWorkHubPage(app);
   await workhub.locator(COMPOSER_INPUT).fill('Keep my WorkHub draft');
+  const sessionName = await workhub.locator('.workhub-navigation-label').first().innerText();
   await workhub.locator('.workhub-navigation-item').first().click();
+  await expect(page.locator('.workHubDock')).toBeVisible();
+  const expand = page.getByRole('button', { name: '展开侧边栏', exact: true });
+  if (await expand.isVisible()) await expand.click();
+  await page.getByRole('button').filter({ has: page.getByText(sessionName, { exact: true }) }).click();
   await expect(page.locator('.workHubDock')).toBeHidden();
   const collapse = page.getByRole('button', { name: '收起侧边栏', exact: true });
   if (await collapse.isVisible()) await collapse.click();
