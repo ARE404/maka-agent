@@ -72,7 +72,7 @@ export function WorkHubRoot() {
 
 function WorkHubContents() {
   const { selectWork } = useContext(WorkHubHighlightContext);
-  const controller = useWorkHubController();
+  const controller = useWorkHubController(() => selectWork(undefined));
   const { services, session, transcript, busy } = controller;
   const locale = useUiLocale();
   const t = workHubLiveCopy[locale];
@@ -105,9 +105,9 @@ function WorkHubContents() {
   useEffect(() => {
     if (controller.targetSelection || controller.activeQuestion) {
       setConversationExpanded(true);
-      void services.presentation.showConversation(presentation?.progressRequest).catch(controller.report);
+      if (presentation?.progressRequest !== undefined) void services.presentation.expandProgress(presentation.progressRequest).catch(controller.report);
     }
-  }, [controller.targetSelection, controller.activeQuestion]);
+  }, [controller.targetSelection, controller.activeQuestion, presentation?.progressRequest]);
   const showConversation = !progress && (!floating || conversationExpanded);
   useLayoutEffect(() => {
     const element = surface.current;
@@ -197,7 +197,10 @@ function WorkHubContents() {
     void services.control.getSnapshot().then(acceptControl).catch(controller.report);
     const focus = services.presentation.onFocusComposer((expand) => {
       if (expand) setConversationExpanded(true);
-      composer.current?.focus();
+      const choice = surface.current?.querySelector<HTMLElement>('.maka-choice-panel');
+      if (choice) {
+        if (!choice.contains(document.activeElement)) choice.focus();
+      } else composer.current?.focus();
       // A warm summon must not fade the last painted frame back out.
       if (hasPresented.current) return;
       hasPresented.current = true;
@@ -256,7 +259,7 @@ function WorkHubContents() {
     <section ref={surface} data-progress={progress} data-progress-editing={editingProgress} className="workHubLive workhub-surface" data-placement={presentation?.placement ?? 'docked'} data-conversation-expanded={showConversation} aria-label={t.title}>
       {progress && <WorkHubProgressCard ref={progressHeader} request={presentation.progressRequest!} control={control} liveTurn={controller.liveTurn} messages={transcript.messages} busy={Boolean(controller.activeTurn) || controller.sending} onOpen={() => {
         setConversationExpanded(true);
-        call(services.presentation.showConversation(presentation.progressRequest));
+        if (presentation.progressRequest !== undefined) call(services.presentation.expandProgress(presentation.progressRequest));
       }} />}
       {!progress && floating && conversationExpanded && <div className="workHubWindowControls">
         <IconButton className="workHubCloseButton" type="button" size="sm" variant="ghost" icon={<X size={12} />} label={t.hide} onClick={() => call(services.presentation.hide())} />
@@ -276,7 +279,7 @@ function WorkHubContents() {
               <div className="workHubLiveError" role="alert">
                 {controller.error ?? t.controlFailed}
                 {controller.canRetry && (
-                  <Button label={t.retry} variant="ghost" onClick={() => { selectWork(undefined); controller.retry(); }} />
+                  <Button label={t.retry} variant="ghost" onClick={controller.retry} />
                 )}
               </div>
             )}
@@ -304,11 +307,10 @@ function WorkHubContents() {
               allowAttachmentImportWhileStreaming
               stopPending={controller.stopPending}
               onSend={async (text, attachments, followUpMode) => {
-                selectWork(undefined);
                 const accepted = await controller.send(text, attachments, followUpMode);
                 if (accepted) {
                   setConversationExpanded(true);
-                  if (progress) call(services.presentation.showConversation(presentation.progressRequest));
+                  if (progress) call(services.presentation.expandProgress(presentation.progressRequest));
                 }
                 return accepted;
               }}

@@ -56,7 +56,7 @@ interface SendAttempt {
   selectionDismissed?: boolean;
   stop?: 'requested' | 'sending' | 'resend';
 }
-export function useWorkHubController() {
+export function useWorkHubController(onSubmit?: () => void) {
   const services = useWorkHubServices();
   const locale = useUiLocale();
   const localeRef = useRef(locale);
@@ -466,6 +466,7 @@ export function useWorkHubController() {
       return false;
     }
     const queuedTurnId = sameQueued?.turnId ?? runningTurnId;
+    onSubmit?.();
     sendingRef.current = true;
     setSending(true);
     setError(undefined);

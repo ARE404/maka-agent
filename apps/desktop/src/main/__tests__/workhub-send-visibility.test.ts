@@ -126,7 +126,8 @@ async function mountController(failFirstRead = false, overrides: Partial<WorkHub
     },
     ...overrides,
   } as unknown as WorkHubServices;
-  function Probe() { controller = useWorkHubController(); return null; }
+  let submissions = 0;
+  function Probe() { controller = useWorkHubController(() => { submissions++; }); return null; }
   await act(async () => {
     root.render(createElement(LocaleProvider, { locale: 'en', children:
       createElement(WorkHubServicesProvider, { services }, createElement(Probe)),
@@ -134,6 +135,7 @@ async function mountController(failFirstRead = false, overrides: Partial<WorkHub
   });
   assert.equal(controller.sessionId, sessionId);
   return {
+    get submissions() { return submissions; },
     get controller() { return controller; }, get openCount() { return openCount; },
     reconnect(epoch = hostEpoch) { hostEpoch = epoch; onPhase('pending'); onPhase('ready'); },
     complete(turnId: string) { rootTurn = { turnId, runId: `run:${turnId}`, status: 'completed' }; projectExecution(); },
@@ -406,6 +408,7 @@ test('an unknown WorkHub submission converges through the original Host admissio
     assert.equal(h.controller.stopPending, true);
     assert.equal(h.controller.canRetry, true);
     const submitted = h.requests.length;
+    const submissions = h.submissions;
     if (outcome === 'running') h.admit(original.turnId);
     if (outcome === 'completed') h.complete(original.turnId);
     if (outcome === 'replay') h.resetAdmission();
@@ -418,6 +421,7 @@ test('an unknown WorkHub submission converges through the original Host admissio
         h.admission.resolve({ turnId: original.turnId });
       });
     } else assert.equal(h.requests.length, submitted, 'admission lookup must not send a new request after Host replacement');
+    assert.equal(h.submissions, submissions, 'unknown-admission recovery is not a new submission');
     assert.equal(h.controller.stopPending, false);
     if (outcome === 'not_admitted' || outcome === 'completed') {
       assert.equal(h.controller.busy, false);
@@ -428,6 +432,7 @@ test('an unknown WorkHub submission converges through the original Host admissio
     if (outcome === 'not_admitted') {
       h.resetAdmission();
       await act(async () => h.controller.retry());
+      assert.equal(h.submissions, submissions + 1, 'explicit rejected Retry crosses the shared submission boundary');
       assert.deepEqual(h.requests.at(-1), original, 'explicit Retry retains the text, attachments and unadmitted Turn identity');
       await act(async () => {
         h.admit(original.turnId);
@@ -458,6 +463,7 @@ test('Retry reopens a failed initial WorkHub read after Session resolution', asy
   const turnId = h.requests[0]!.turnId;
   await act(async () => h.controller.retry());
   assert.equal(h.openCount, 2);
+  assert.equal(h.submissions, 1, 'read recovery does not resubmit');
   assert.equal(h.controller.liveTurn?.turnId, turnId);
   assert.equal(h.controller.transientMessages[0]?.text, 'retain this in-flight message');
   assert.equal(h.controller.transcript.ready, true);

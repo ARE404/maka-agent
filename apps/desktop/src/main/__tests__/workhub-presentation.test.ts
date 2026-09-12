@@ -462,7 +462,7 @@ test('control shows a passive card only after it is painted and preserves manual
   assert.equal(h.main.visible, false, 'control does not reveal a hidden main window');
   assert.equal(view.webContents.sent.some(([channel]) => channel.endsWith('focus-composer')), false);
   await h.command(view.webContents, 'ready');
-  await h.command(view.webContents, 'show-conversation');
+  await h.command(view.webContents, 'show-conversation', request);
   assert.equal(h.controller.getSnapshot().progressRequest, undefined);
   assert.equal(floating.bounds.width, 520);
   assert.equal(floating.bounds.height, 720);
@@ -912,5 +912,18 @@ test('the progress card stays hidden in a hidden run and inactive everywhere els
     await h.command(h.views[0]!.webContents, 'progress-ready', h.controller.getSnapshot().progressRequest);
     assert.deepEqual(reveals(h.windows[1]!), mode === 'hidden' ? REVEALS.hidden : REVEALS.inactive, mode);
     h.controller.dispose();
+  }
+});
+
+
+test('revealing an interaction cannot detach a docked WorkHub without a current progress request', async () => {
+  const h = await harness();
+  await h.command(h.main.webContents, 'host', { visible: true, rect: { x: 0, y: 0, width: 1000, height: 800 } });
+  const view = h.views[0]!;
+  for (const request of [undefined, 1, NaN]) {
+    if (request === undefined || Number.isNaN(request)) await assert.rejects(h.command(view.webContents, 'show-conversation', request), /Invalid progress request/);
+    else await h.command(view.webContents, 'show-conversation', request);
+    assert.equal(h.controller.getSnapshot().placement, 'docked');
+    assert.equal(h.controller.getSnapshot().floatingVisible, false);
   }
 });
