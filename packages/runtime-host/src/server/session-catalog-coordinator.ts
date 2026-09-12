@@ -773,6 +773,7 @@ export class HostSessionCatalogCoordinator {
         await this.#manager.transitionSessionConfiguration(input.sessionId, {
           expectedRevision: input.expectedRevision,
           clearConnectionBlock: input.patch.modelTarget !== undefined,
+          permissionModeOnly: isPermissionModeOnlyPatch(input.patch),
           configuration,
         });
         return configurationSuccess(
@@ -1281,6 +1282,16 @@ function sessionConfigurationMatches(
     header.permissionMode === configuration.permissionMode &&
     (header.collaborationMode ?? 'agent') === configuration.collaborationMode &&
     (header.orchestrationMode ?? 'default') === configuration.orchestrationMode
+  );
+}
+
+function isPermissionModeOnlyPatch(patch: SessionConfigurationUpdateInput['patch']): boolean {
+  return (
+    patch.permissionMode !== undefined &&
+    patch.modelTarget === undefined &&
+    patch.thinkingLevel === undefined &&
+    patch.collaborationMode === undefined &&
+    patch.orchestrationMode === undefined
   );
 }
 
