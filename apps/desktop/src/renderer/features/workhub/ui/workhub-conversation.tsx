@@ -84,10 +84,10 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
     promptStatus: <>{works.map((work, index) => <span key={work.id}>
       {index > 0 ? ' / ' : ''}<WorkHubDelegationStatus work={work} locale={locale} showName={works.length > 1} />
     </span>)}</>,
-    messageRail: works.length === 1 ? <button
-      type="button" className="workhub-message-rail"
-      aria-label={`${copy.filterConversation}: ${works[0]!.targetSessionName} · ${promptTextByTurn.get(turnId) ?? turnId}`}
-      title={`${copy.filterConversation}: ${works[0]!.targetSessionName}`}
+    messageRail: works.length === 1 ? <Button
+      variant="ghost" isIconOnly icon={<span aria-hidden="true" />} className="workhub-message-rail"
+      label={`${copy.filterConversation}: ${works[0]!.targetSessionName} · ${promptTextByTurn.get(turnId) ?? turnId}`}
+      tooltip={`${copy.filterConversation}: ${works[0]!.targetSessionName}`}
       aria-pressed={highlight.selectedWork?.sessionId === works[0]!.targetSessionId}
       onMouseEnter={() => highlight.highlight(works[0]!.targetSessionId)}
       onMouseLeave={() => highlight.highlight(undefined)}
