@@ -551,6 +551,8 @@ export function createWorkHubPresentation(deps: WorkHubPresentationDeps) {
               x: Math.max(area.x, Math.min(current.x + Math.round((current.width - width) / 2), area.x + area.width - width)),
               y: Math.max(area.y, Math.min(current.y + current.height - height, area.y + area.height - height)),
             }, true);
+            // Expansion may beat progress-ready and unmount its paint callback.
+            showWindowInactive(floating, deps.revealMode);
             // A send acknowledgement can arrive after the user has switched
             // apps. Growing the conversation must not steal focus back.
             if (floating.isFocused()) focusComposer();

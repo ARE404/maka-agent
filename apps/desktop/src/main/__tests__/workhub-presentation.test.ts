@@ -927,3 +927,29 @@ test('revealing an interaction cannot detach a docked WorkHub without a current 
     assert.equal(h.controller.getSnapshot().floatingVisible, false);
   }
 });
+
+
+test('expanding progress before its first paint reveals the conversation without taking focus', async () => {
+  for (const mode of ['active', 'hidden'] as const) {
+    const h = await harness(false, 60, mode);
+    await h.controller.prepareControl('turn-early');
+    const view = h.views[0]!;
+    const floating = h.windows[1]!;
+    floating.isFocused = () => false;
+    const request = h.controller.getSnapshot().progressRequest!;
+    await h.command(view.webContents, 'ready');
+    assert.equal(floating.visible, false);
+    const focusMessages = view.webContents.sent.filter(([channel]) => channel.endsWith('focus-composer')).length;
+    await h.command(view.webContents, 'show-conversation', request);
+    assert.equal(floating.visible, mode !== 'hidden', 'expansion must finish the native reveal without waiting for the unmounted progress card');
+    assert.equal(h.controller.getSnapshot().progressRequest, undefined);
+    assert.equal(floating.focused, 0);
+    assert.equal(view.webContents.sent.filter(([channel]) => channel.endsWith('focus-composer')).length, focusMessages);
+    assert.equal(view.webContents.backgroundThrottling, true);
+    await h.command(view.webContents, 'hide');
+    await h.command(view.webContents, 'progress-ready', request);
+    await h.command(view.webContents, 'show-conversation', request);
+    assert.equal(floating.visible, false, 'late acknowledgements and stale expansions cannot reopen a dismissed window');
+    h.controller.dispose();
+  }
+});
