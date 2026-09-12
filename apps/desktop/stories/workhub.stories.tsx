@@ -194,8 +194,9 @@ export const ColoredWorkHistory: Story = {
   play: async ({ canvasElement }) => {
     await waitFor(() => expect(canvasElement.querySelectorAll('[data-turn-accent="true"]')).toHaveLength(3));
     const turns = canvasElement.querySelectorAll<HTMLElement>('[data-turn-accent="true"]');
-    expect(turns[0]!.style.getPropertyValue('--maka-turn-accent')).toBe(turns[2]!.style.getPropertyValue('--maka-turn-accent'));
-    expect(turns[0]!.style.getPropertyValue('--maka-turn-accent')).not.toBe(turns[1]!.style.getPropertyValue('--maka-turn-accent'));
+    const stripeColor = (turn: HTMLElement) => getComputedStyle(turn.querySelector('.maka-user-message')!).borderRightColor;
+    expect(stripeColor(turns[0]!)).toBe(stripeColor(turns[2]!));
+    expect(stripeColor(turns[0]!)).not.toBe(stripeColor(turns[1]!));
     expect(turns[0]!.querySelector('.workhub-turn-label')).toHaveTextContent('maka / 支付回调幂等性');
     expect(turns[1]!.querySelector('.workhub-turn-label')).toHaveTextContent('desktop / 发布检查清单');
     expect(canvasElement.querySelector('[data-transcript-turn-id="unlinked-turn"]')).not.toHaveAttribute('data-turn-accent');
