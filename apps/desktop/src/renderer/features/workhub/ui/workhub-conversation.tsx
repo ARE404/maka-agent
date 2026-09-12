@@ -123,6 +123,8 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
   const matchingTurns = new Set([...worksByTurn].filter(([, works]) => works.some((work) => work.targetSessionId === selected?.sessionId)).map(([turnId]) => turnId));
   const messages = selected ? chat.messages.filter((message) => message.turnId !== undefined && matchingTurns.has(message.turnId)) : chat.messages;
   const liveTurn = selected && chat.liveTurn && !matchingTurns.has(chat.liveTurn.turnId) ? undefined : chat.liveTurn;
+  const navigationTurn = [...chat.messages].reverse().find((message) =>
+    message.turnId && worksByTurn.get(message.turnId)?.some((work) => work.targetSessionId === highlight.navigationWork?.sessionId))?.turnId;
   return <>
     {selected && <div className="workhub-conversation-filter" role="region" aria-label={copy.filterConversation}>
       <Text type="supporting">{selected.name}</Text>
@@ -132,6 +134,7 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
       {historyError && <span role="alert">{copy.controlFailed}</span>}
     </div>}
     <ChatView {...chat}
+    scrollTargetTurn={navigationTurn && highlight.navigationWork ? { turnId: navigationTurn, nonce: highlight.navigationWork.nonce, preserveFocus: true } : chat.scrollTargetTurn}
     messages={messages}
     liveTurn={liveTurn}
     transientMessages={selected ? chat.transientMessages?.filter((message) => message.hostTurnId && matchingTurns.has(message.hostTurnId)) : chat.transientMessages}

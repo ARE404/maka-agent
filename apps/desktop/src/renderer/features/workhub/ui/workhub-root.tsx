@@ -337,7 +337,7 @@ function WorkHubContents() {
       >
         <div ref={history} className="workHubHistory" aria-hidden={!showConversation} inert={!showConversation}>
         <div className="workhub-body">
-        <WorkHubNavigationRail locale={locale} sessions={tasks} delegatedSessionIds={delegatedSessionIds} copy={getWorkHubRailCopy(locale)} onOpenSession={(id) => call(services.presentation.openSession(id))} />
+        <WorkHubNavigationRail locale={locale} sessions={tasks} delegatedSessionIds={delegatedSessionIds} copy={getWorkHubRailCopy(locale)} />
         <div className="workhub-conversation-shell">
         <WorkHubConversation
           promptStates={promptStates}

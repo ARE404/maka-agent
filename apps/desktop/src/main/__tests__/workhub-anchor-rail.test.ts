@@ -170,7 +170,6 @@ test("rail copy distinguishes bounded anchors from all matching work", () => {
     sessions: many,
     delegatedSessionIds: [],
     copy: getWorkHubRailCopy("en"),
-    onOpenSession: () => undefined,
   }));
 
   assert.match(markup, /8\/20 anchors · 20 total/u);
@@ -181,7 +180,7 @@ test("rail copy distinguishes bounded anchors from all matching work", () => {
 test("focus display is derived from the selected Session ID, not delegation priority", () => {
   const markup = renderToStaticMarkup(createElement(WorkHubNavigationRail, {
     locale: "en", sessions, focusSessionId: "focus", delegatedSessionIds: ["delegated"],
-    copy: getWorkHubRailCopy("en"), onOpenSession: () => undefined,
+    copy: getWorkHubRailCopy("en"),
   }));
   assert.equal(markup.match(/aria-current="page"/gu)?.length, 1);
   assert.equal(markup.match(/Focused · Running/gu)?.length, 1);

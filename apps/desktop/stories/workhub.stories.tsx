@@ -324,11 +324,13 @@ export const FilterWorkConversations: Story = {
     await userEvent.click(canvas.getByRole('button', { name: '显示全部对话' }));
     await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4));
     const rail = canvasElement.querySelectorAll('.workhub-navigation-item')[1] as HTMLElement;
-    await userEvent.dblClick(rail);
+    await userEvent.click(rail);
+    await waitFor(() => expect(canvasElement.querySelector('[data-search-highlight="true"]')).toHaveTextContent('请检查发布检查清单。'));
+    expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4);
+    expect(writes.open).not.toHaveBeenCalled();
+    await userEvent.click(rail);
     await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(1));
     expect(canvas.getByText('请检查发布检查清单。')).toBeInTheDocument();
-    // Wait beyond the delayed single-click action: double-click must never open a Session.
-    await new Promise((resolve) => setTimeout(resolve, 550));
     expect(writes.open).not.toHaveBeenCalled();
     await userEvent.click(canvas.getByRole('button', { name: '显示全部对话' }));
     const answerRail = canvasElement.querySelector('.maka-assistant-answer .workhub-message-rail') as HTMLElement;
@@ -337,7 +339,14 @@ export const FilterWorkConversations: Story = {
     await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(2));
     await userEvent.click(canvas.getByRole('button', { name: '显示全部对话' }));
     await userEvent.click(rail);
-    await waitFor(() => expect(writes.open).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(canvasElement.querySelector('[data-search-highlight="true"]')).toHaveTextContent('请检查发布检查清单。'));
+    expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4);
+    (rail.querySelector('button') as HTMLButtonElement).focus();
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(1));
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4));
+    expect(writes.open).not.toHaveBeenCalled();
   },
 };
 
@@ -350,7 +359,7 @@ function PagedWorkConversation() {
     { type: 'user', id: 'discussion', turnId: 'discussion-turn', ts: 3, text: '先讨论一下整体计划。' },
   ];
   return <LocaleProvider locale="zh-CN"><AstryxLocaleProvider><ToastProvider>
-    <WorkHubHighlightContext.Provider value={{ sessionId: undefined, highlight: () => {}, selectedWork, selectWork, toggleWork: (work) => selectWork((current) => current?.sessionId === work.sessionId ? undefined : work) }}>
+    <WorkHubHighlightContext.Provider value={{ sessionId: undefined, highlight: () => {}, navigateWork: () => {}, selectedWork, selectWork, toggleWork: (work) => selectWork((current) => current?.sessionId === work.sessionId ? undefined : work) }}>
       <ChatSurfaceLayout composer={null}><div className="workhub-surface"><WorkHubConversation messages={messages} onOpenWork={() => {}} onNew={() => {}} scrollBehavior="auto"
         activeSession={{ id: sessionId, name: 'WorkHub', isFlagged: false, isArchived: false, labels: [], hasUnread: false, status: 'active', runningTurnIds: [], backend: 'ai-sdk', llmConnectionId: 'connection-test', llmConnectionSlug: 'test', connectionLocked: false, model: 'model-a', permissionMode: 'ask' }}
         hasOlderHistory={!loaded} onPrefetchHistory={async () => { setLoaded(true); return true; }}
@@ -397,11 +406,11 @@ export const WorkFilterHoverAndToggle: Story = {
     await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(2));
     await userEvent.click(canvasElement.querySelector('.workhub-navigation-item') as HTMLElement);
     await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4));
-    await userEvent.dblClick(canvasElement.querySelector('.workhub-navigation-item') as HTMLElement);
+    await userEvent.click(canvasElement.querySelector('.workhub-navigation-item') as HTMLElement);
+    await userEvent.click(canvasElement.querySelector('.workhub-navigation-item') as HTMLElement);
     await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(2));
-    await userEvent.dblClick(canvasElement.querySelector('.workhub-navigation-item') as HTMLElement);
+    await userEvent.click(canvasElement.querySelector('.workhub-navigation-item') as HTMLElement);
     await waitFor(() => expect(canvasElement.querySelectorAll('.maka-transcript-turn')).toHaveLength(4));
-    await new Promise((resolve) => setTimeout(resolve, 550));
     expect(writes.open).not.toHaveBeenCalled();
     expect(canvasElement.querySelector('[data-turn-source-count]')).toBe(transcriptElement);
   },

@@ -257,7 +257,7 @@ export function ChatView(props: {
    * switching and hands the matched turn id here after selection; the
    * chat view only scrolls/highlights the already-rendered turn.
    */
-  scrollTargetTurn?: { turnId: string; nonce: number };
+  scrollTargetTurn?: { turnId: string; nonce: number; preserveFocus?: boolean };
   onScrollTargetHandled?(nonce: number): void;
   /** Runtime-only reading position restored without search focus or highlight. */
   restoreTargetTurn?: { turnId: string; unavailable?: boolean };
