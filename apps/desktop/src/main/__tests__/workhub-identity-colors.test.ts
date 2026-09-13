@@ -21,36 +21,39 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { allocateWorkHubHues } from '../../renderer/features/workhub/model/identity-colors.js';
 
-function minimumGap(hues: readonly number[]) {
-  const sorted = [...hues].sort((a, b) => a - b);
-  return Math.min(...sorted.map((hue, index) => (sorted[(index + 1) % sorted.length]! + (index === sorted.length - 1 ? 360 : 0)) - hue));
-}
-
-test('two Works receive opposite hues, even when old hash buckets collide', () => {
-  const hues = allocateWorkHubHues(['a', 'g']);
-  assert.equal(minimumGap([...hues.values()]), 180);
-  assert.deepEqual(allocateWorkHubHues(['g', 'a', 'g']), hues);
+test('cycles through six retained bands in order, then starts the next cycle', () => {
+  const ids = Array.from({ length: 14 }, (_, index) => `work-${String(index).padStart(2, '0')}`);
+  const hues = allocateWorkHubHues(ids);
+  ids.forEach((id, index) => {
+    const hue = hues.get(id)!;
+    const start = (index % 6) * 60;
+    assert.ok(hue >= start && hue < start + 30, `${id}: ${hue} outside band ${start}`);
+  });
+  assert.deepEqual(allocateWorkHubHues([...ids].reverse()), hues);
 });
 
-test('four and eight Works spread out before consuming nearby hues', () => {
-  const four = allocateWorkHubHues(['a', 'b', 'c', 'd']);
-  assert.equal(minimumGap([...four.values()]), 90);
-  const eight = allocateWorkHubHues(['e', 'f', 'g', 'h'], four);
-  assert.equal(minimumGap([...eight.values()]), 45);
-  for (const [id, hue] of four) assert.equal(eight.get(id), hue);
+test('samples within each band instead of using six fixed hues', () => {
+  const hues = [...allocateWorkHubHues(Array.from({ length: 60 }, (_, i) => `work-${i}`)).values()];
+  for (let band = 0; band < 6; band++) {
+    const values = hues.filter((hue) => Math.floor(hue / 60) === band);
+    assert.equal(values.length, 10);
+    assert.ok(new Set(values).size > 1);
+    assert.ok(values.every((hue) => hue % 60 < 30));
+  }
 });
 
-test('filtering, reordering and adding Works never recolor known identities', () => {
-  const initial = allocateWorkHubHues(['b', 'c', 'd']);
+test('filtering, reordering and adding Works preserve colors and the band cursor', () => {
+  const initial = allocateWorkHubHues(['b', 'c', 'd', 'b']);
   assert.equal(allocateWorkHubHues(['d'], initial), initial);
   assert.equal(allocateWorkHubHues(['d', 'b', 'c'], initial), initial);
   const extended = allocateWorkHubHues(['a', 'd'], initial);
   for (const [id, hue] of initial) assert.equal(extended.get(id), hue);
   assert.equal(extended.size, 4);
+  assert.ok(extended.get('a')! >= 180 && extended.get('a')! < 210);
 });
 
-test('large collections avoid exact collisions and stay inside the hue wheel', () => {
-  const hues = allocateWorkHubHues(Array.from({length: 100}, (_, i) => String(i)));
-  assert.equal(new Set(hues.values()).size, 100);
-  for (const hue of hues.values()) assert.ok(hue >= 0 && hue < 360);
+test('empty input is a no-op and fresh renders sample deterministically', () => {
+  const empty = new Map<string, number>();
+  assert.equal(allocateWorkHubHues([], empty), empty);
+  assert.deepEqual(allocateWorkHubHues(['same-id']), allocateWorkHubHues(['same-id']));
 });

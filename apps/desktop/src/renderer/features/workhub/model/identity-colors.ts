@@ -18,32 +18,25 @@
  */
 
 /** Extend a presentation-local palette without recoloring known Works.
- * Insert each new hue into the largest empty arc of the OKLCH hue wheel.
- * Equal lightness/chroma make this maximize the minimum OKLab distance.
- * Sorting new IDs makes input ordering irrelevant; duplicate/hidden Works
- * retain their allocation for the lifetime of the WorkHub surface.
+ * Cycle through six 30-degree bands, leaving a 30-degree gap between them.
+ * An ID-seeded pseudo-random offset keeps sampling stable during React
+ * rendering, while different Works can use different hues in the same band.
  */
 export function allocateWorkHubHues(sessionIds: readonly string[], previous: ReadonlyMap<string, number> = new Map()): ReadonlyMap<string, number> {
   const pending = [...new Set(sessionIds)].filter((id) => !previous.has(id)).sort();
   if (pending.length === 0) return previous;
   const next = new Map(previous);
-  const hues = [...new Set(previous.values())].sort((a, b) => a - b);
   for (const id of pending) {
-    let hue = 250;
-    if (hues.length) {
-      let largestGap = -1;
-      for (let index = 0; index < hues.length; index++) {
-        const start = hues[index]!;
-        const end = index + 1 < hues.length ? hues[index + 1]! : hues[0]! + 360;
-        if (end - start > largestGap) {
-          largestGap = end - start;
-          hue = (start + largestGap / 2) % 360;
-        }
-      }
-    }
-    next.set(id, hue);
-    hues.push(hue);
-    hues.sort((a, b) => a - b);
+    let hash = 2166136261;
+    for (const char of id) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+    // Mix similar IDs before converting the unsigned hash to [0, 1).
+    hash ^= hash >>> 16;
+    hash = Math.imul(hash, 0x85ebca6b);
+    hash ^= hash >>> 13;
+    hash = Math.imul(hash, 0xc2b2ae35);
+    hash = (hash ^ (hash >>> 16)) >>> 0;
+    const band = next.size % 6;
+    next.set(id, band * 60 + (hash / 0x100000000) * 30);
   }
   return next;
 }
