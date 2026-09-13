@@ -232,9 +232,9 @@ export const ColoredWorkHistory: Story = {
       expect(getComputedStyle(turn.querySelector('.workhub-turn-label span')!).fontSize).toBe('11px');
       const prompt = getComputedStyle(turn.querySelector('.maka-user-message')!);
       const answer = getComputedStyle(turn.querySelector('.maka-assistant-answer')!);
-      expect(prompt.borderRightWidth).toBe('5px');
+      expect(prompt.borderRightWidth).toBe('4px');
       expect(prompt.borderLeftWidth).toBe('0px');
-      expect(answer.borderLeftWidth).toBe('5px');
+      expect(answer.borderLeftWidth).toBe('4px');
       expect(answer.borderRightWidth).toBe('0px');
       expect(getComputedStyle(turn).borderLeftWidth).toBe('0px');
       // The icon-button's square aspect must not shrink the full-height hit
@@ -425,12 +425,12 @@ export const WorkFilterHoverAndToggle: Story = {
     const original = color();
     const originalWidth = stripe().getBoundingClientRect().width;
     const paint = () => getComputedStyle(stripe(), '::before');
-    expect(paint().width).toBe('5px');
+    expect(paint().width).toBe('4px');
     expect(parseFloat(paint().borderTopLeftRadius)).toBeGreaterThan(0);
     await userEvent.hover(stripe());
     await waitFor(() => expect(color()).not.toBe(original));
-    await waitFor(() => expect(paint().transform).toBe('matrix(1.4, 0, 0, 1, 0, 0)'));
-    expect(getComputedStyle(stripe()).backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+    await waitFor(() => expect(paint().transform).toBe('matrix(1.5, 0, 0, 1, 0, 0)'));
+    expect(getComputedStyle(stripe()).backgroundColor).toBe('rgba(0, 0, 0, 0)');
     expect(stripe().getBoundingClientRect().width).toBe(originalWidth);
     expect(canvasElement.querySelector('.maka-assistant-answer .workhub-message-rail')).toHaveAttribute('data-work-highlighted', 'true');
     expect(canvasElement.querySelector('.workhub-navigation-item')).toHaveAttribute('data-work-highlighted', 'true');

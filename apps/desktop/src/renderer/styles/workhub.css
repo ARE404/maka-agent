@@ -257,12 +257,12 @@ body:has(.workHubLive[data-placement='floating'][data-progress='true'])::after {
 
 /* Each message carries Work identity on its sender's edge. */
 .workhub-surface .maka-user-message {
-  border-inline-end: 5px solid transparent;
+  border-inline-end: 4px solid transparent;
   padding-inline-end: 12px;
 }
 
 .workhub-surface .maka-transcript-turn[data-turn-accent='true'] > .maka-turn > .maka-assistant-answer {
-  border-inline-start: 5px solid transparent;
+  border-inline-start: 4px solid transparent;
   padding-inline-start: 12px;
 }
 
@@ -307,13 +307,12 @@ body:has(.workHubLive[data-placement='floating'][data-progress='true'])::after {
 /* The button owns the rounded stripe; transparent message borders reserve its
    gutter. Hover expands only the paint, so the conversation never shifts. */
 .workhub-surface .maka-transcript-turn[data-turn-accent='true'] > .maka-turn > :is(.maka-user-message, .maka-assistant-answer) { position: relative; }
-.workhub-surface .workhub-message-rail { --button-icon-only-aspect: auto; position: absolute; inset-block: 0; width: 16px; min-width: 0; height: auto; border: 0; border-radius: 5px; padding: 0; background: transparent; cursor: pointer; z-index: 1; transition: background-color 150ms ease-out; }
-.workhub-message-rail::before { content: ''; position: absolute; inset-block: 0; inset-inline-start: 0; width: 5px; border-radius: 999px; background: var(--maka-turn-accent); transform-origin: left center; transition: transform 150ms ease-out, background-color 150ms ease-out; pointer-events: none; }
-.maka-user-message .workhub-message-rail { inset-inline-end: -5px; }
+.workhub-surface .workhub-message-rail { --button-icon-only-aspect: auto; position: absolute; inset-block: 0; width: 16px; min-width: 0; height: auto; border: 0; border-radius: 5px; padding: 0; background: transparent; cursor: pointer; z-index: 1; }
+.workhub-message-rail::before { content: ''; position: absolute; inset-block: 0; inset-inline-start: 0; width: 4px; border-radius: 999px; background: var(--maka-turn-accent); transform-origin: left center; transition: transform 150ms ease-out, background-color 150ms ease-out; pointer-events: none; }
+.maka-user-message .workhub-message-rail { inset-inline-end: -4px; }
 .maka-user-message .workhub-message-rail::before { inset-inline-start: auto; inset-inline-end: 0; transform-origin: right center; }
-.maka-assistant-answer .workhub-message-rail { inset-inline-start: -5px; }
-.workhub-surface .workhub-message-rail:is(:hover, :focus-visible, [data-work-highlighted='true']) { background: color-mix(in oklch, var(--maka-turn-accent) 16%, transparent); }
-.workhub-message-rail:is(:hover, :focus-visible, [data-work-highlighted='true'])::before { transform: scaleX(1.4); }
+.maka-assistant-answer .workhub-message-rail { inset-inline-start: -4px; }
+.workhub-message-rail:is(:hover, :focus-visible, [data-work-highlighted='true'])::before { transform: scaleX(1.5); }
 .workhub-message-rail:focus-visible { outline: 2px solid var(--maka-turn-accent); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
   .workhub-surface .workhub-message-rail, .workhub-message-rail::before { transition: none; }
