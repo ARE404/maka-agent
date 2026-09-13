@@ -217,7 +217,7 @@ export const ColoredWorkHistory: Story = {
   play: async ({ canvasElement }) => {
     await waitFor(() => expect(canvasElement.querySelectorAll('[data-turn-accent="true"]')).toHaveLength(3));
     const turns = canvasElement.querySelectorAll<HTMLElement>('[data-turn-accent="true"]');
-    const stripeColor = (turn: HTMLElement) => getComputedStyle(turn.querySelector('.maka-user-message')!).borderRightColor;
+    const stripeColor = (turn: HTMLElement) => getComputedStyle(turn.querySelector('.maka-user-message .workhub-message-rail')!, '::before').backgroundColor;
     expect(stripeColor(turns[0]!)).toBe(stripeColor(turns[2]!));
     expect(stripeColor(turns[0]!)).not.toBe(stripeColor(turns[1]!));
     expect(turns[0]!.querySelector('.workhub-turn-label')).toHaveTextContent('maka / 支付回调幂等性');
@@ -232,11 +232,21 @@ export const ColoredWorkHistory: Story = {
       expect(getComputedStyle(turn.querySelector('.workhub-turn-label span')!).fontSize).toBe('11px');
       const prompt = getComputedStyle(turn.querySelector('.maka-user-message')!);
       const answer = getComputedStyle(turn.querySelector('.maka-assistant-answer')!);
-      expect(prompt.borderRightWidth).toBe('3px');
+      expect(prompt.borderRightWidth).toBe('5px');
       expect(prompt.borderLeftWidth).toBe('0px');
-      expect(answer.borderLeftWidth).toBe('3px');
+      expect(answer.borderLeftWidth).toBe('5px');
       expect(answer.borderRightWidth).toBe('0px');
       expect(getComputedStyle(turn).borderLeftWidth).toBe('0px');
+      // The icon-button's square aspect must not shrink the full-height hit
+      // target. The sender-side bar must also reach the message's outer edge.
+      for (const sender of ['user', 'assistant']) {
+        const message = turn.querySelector<HTMLElement>(`.maka-${sender === 'user' ? 'user-message' : 'assistant-answer'}`)!;
+        const rail = message.querySelector<HTMLElement>('.workhub-message-rail')!;
+        const bounds = message.getBoundingClientRect();
+        const hit = rail.getBoundingClientRect();
+        expect(Math.abs(hit.height - bounds.height)).toBeLessThan(1);
+        expect(Math.abs(sender === 'user' ? hit.right - bounds.right : hit.left - bounds.left)).toBeLessThan(1);
+      }
     }
     const metadataRights = [...canvasElement.querySelectorAll('.maka-user-message .maka-message-meta')].map((element) => element.getBoundingClientRect().right);
     expect(metadataRights).toHaveLength(4);
@@ -411,10 +421,18 @@ export const WorkFilterHoverAndToggle: Story = {
     writes.open.mockClear();
     const transcriptElement = canvasElement.querySelector('[data-turn-source-count]');
     const stripe = () => canvasElement.querySelector('.maka-user-message .workhub-message-rail') as HTMLElement;
-    const color = () => getComputedStyle(canvasElement.querySelector('.maka-user-message')!).borderRightColor;
+    const color = () => getComputedStyle(stripe(), '::before').backgroundColor;
     const original = color();
+    const originalWidth = stripe().getBoundingClientRect().width;
+    const paint = () => getComputedStyle(stripe(), '::before');
+    expect(paint().width).toBe('5px');
+    expect(parseFloat(paint().borderTopLeftRadius)).toBeGreaterThan(0);
     await userEvent.hover(stripe());
     await waitFor(() => expect(color()).not.toBe(original));
+    await waitFor(() => expect(paint().transform).toBe('matrix(1.4, 0, 0, 1, 0, 0)'));
+    expect(getComputedStyle(stripe()).backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+    expect(stripe().getBoundingClientRect().width).toBe(originalWidth);
+    expect(canvasElement.querySelector('.maka-assistant-answer .workhub-message-rail')).toHaveAttribute('data-work-highlighted', 'true');
     expect(canvasElement.querySelector('.workhub-navigation-item')).toHaveAttribute('data-work-highlighted', 'true');
     await userEvent.unhover(stripe());
     await waitFor(() => expect(color()).toBe(original));

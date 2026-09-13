@@ -90,6 +90,7 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
       label={`${copy.filterConversation}: ${works[0]!.targetSessionName} · ${promptTextByTurn.get(turnId) ?? turnId}`}
       tooltip={`${copy.filterConversation}: ${works[0]!.targetSessionName}`}
       aria-pressed={highlight.selectedWork?.sessionId === works[0]!.targetSessionId}
+      data-work-highlighted={highlight.sessionId === works[0]!.targetSessionId}
       onMouseEnter={() => highlight.highlight(works[0]!.targetSessionId)}
       onMouseLeave={() => highlight.highlight(undefined)}
       onFocus={() => highlight.highlight(works[0]!.targetSessionId)}
