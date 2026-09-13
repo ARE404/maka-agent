@@ -26,7 +26,7 @@ import { WorkHubComposer } from './workhub-composer.js';
 import { WorkHubConversation } from './workhub-conversation.js';
 import { FormInteractionPrompt } from '@maka/ui';
 import { WorkHubNavigationRail } from './workhub-navigation-rail.js';
-import { WorkHubHighlightProvider, WorkHubHighlightContext } from './workhub-work-identity.js';
+import { WorkHubHighlightProvider, WorkHubHighlightContext, WorkHubHueProvider } from './workhub-work-identity.js';
 import { getWorkHubRailCopy } from '../../../locales/workhub-copy.js';
 import { useWorkHubController } from '../controller/use-workhub-controller.js';
 import type { WorkHubControlSnapshot } from '../../../../shared/workhub-control.js';
@@ -265,6 +265,7 @@ function WorkHubContents() {
     void task.catch(controller.report);
   };
   return (
+    <WorkHubHueProvider sessionIds={[...tasks.map((task) => task.target.sessionId), ...delegatedSessionIds]}>
     <section ref={surface} data-progress={progress} data-progress-editing={editingProgress} className="workHubLive workhub-surface" data-placement={presentation?.placement ?? 'docked'} data-conversation-expanded={showConversation} aria-label={t.title}>
       {progress && <WorkHubProgressCard ref={progressHeader} request={presentation.progressRequest!} control={control} liveTurn={controller.liveTurn} messages={transcript.messages} busy={Boolean(controller.activeTurn) || controller.sending} onOpen={() => {
         setConversationExpanded(true);
@@ -378,5 +379,6 @@ function WorkHubContents() {
         </div>
       </ChatSurfaceLayout>
     </section>
+    </WorkHubHueProvider>
   );
 }
