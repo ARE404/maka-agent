@@ -13,3 +13,19 @@
 @import "./settings/permission.css";
 @import "./settings/memory.css";
 @import "./settings/web-search.css";
+
+.jevAdvancedSettings > summary {
+  cursor: default;
+  padding: var(--space-3) 0;
+}
+.jevAdvancedSettings > summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.jevAdvancedSettings {
+  min-width: 0;
+}
+.jevAdvancedSettings > .settingsRows {
+  grid-template-columns: minmax(0, 1fr);
+}

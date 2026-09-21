@@ -1,3 +1,4 @@
+import { SENSITIVE_PLACEHOLDER } from './settings/network-settings.js';
 import type { OnboardingMilestone } from './onboarding.js';
 import { sanitizeOnboardingMilestones } from './onboarding.js';
 import type { WebSearchSettingsPatch, WebSearchSettings } from './web-search.js';
@@ -228,6 +229,12 @@ export function isChatDefaultPermissionMode(value: unknown): value is ChatDefaul
   );
 }
 
+/** Opt-in structured decisions for Unified routing; never a chat model. */
+export interface JevSettings {
+  enabled: boolean;
+  apiKey: string;
+}
+
 /** Seeds new sessions' starting permission mode (Settings → 通用 → 默认权限模式). */
 export interface ChatDefaultsSettings {
   permissionMode: ChatDefaultPermissionMode;
@@ -281,6 +288,7 @@ export interface AppSettings {
   workspaceInstructions: WorkspaceInstructionsSettings;
   privacy: PrivacySettings;
   chatDefaults: ChatDefaultsSettings;
+  jev: JevSettings;
   notifications: NotificationSettings;
   system: SystemSettings;
   unifiedSession: UnifiedSessionSettings;
@@ -359,6 +367,7 @@ export type UpdateAppSettingsInput = Partial<{
   workspaceInstructions: Partial<WorkspaceInstructionsSettings>;
   privacy: Partial<PrivacySettings>;
   chatDefaults: Partial<ChatDefaultsSettings>;
+  jev: Partial<JevSettings>;
   notifications: Partial<NotificationSettings>;
   system: Partial<SystemSettings>;
   unifiedSession: Partial<UnifiedSessionSettings>;
@@ -435,6 +444,7 @@ export function createDefaultSettings(): AppSettings {
     },
     privacy: defaultPrivacySettings(),
     chatDefaults: defaultChatDefaultsSettings(),
+    jev: { enabled: false, apiKey: '' },
     notifications: {
       runComplete: true,
     },
@@ -495,6 +505,11 @@ export function mergeSettings(current: AppSettings, patch: UpdateAppSettingsInpu
     chatDefaults: patch.chatDefaults
       ? normalizeChatDefaultsSettings({ ...current.chatDefaults, ...patch.chatDefaults })
       : current.chatDefaults,
+    jev: normalizeJevSettings({
+      ...current.jev,
+      ...patch.jev,
+      ...(patch.jev?.apiKey === SENSITIVE_PLACEHOLDER ? { apiKey: current.jev.apiKey } : {}),
+    }),
     notifications: {
       ...current.notifications,
       ...(patch.notifications ?? {}),
@@ -538,6 +553,7 @@ export function normalizeSettings(input: unknown): AppSettings {
     workspaceInstructions: value.workspaceInstructions,
     privacy: value.privacy,
     chatDefaults: value.chatDefaults,
+    jev: value.jev,
     notifications: value.notifications,
     system: value.system,
     unifiedSession: value.unifiedSession,
@@ -664,4 +680,11 @@ function normalizeUnifiedSessionSettings(
   settings: UnifiedSessionSettings,
 ): UnifiedSessionSettings {
   return { enabled: settings.enabled === true };
+}
+
+function normalizeJevSettings(value: Partial<JevSettings>): JevSettings {
+  return {
+    enabled: value.enabled === true,
+    apiKey: typeof value.apiKey === 'string' ? value.apiKey.trim() : '',
+  };
 }

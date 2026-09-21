@@ -1,3 +1,4 @@
+import { createJevRouteClassifier } from '../unified-session/jev-route-classifier.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -320,6 +321,41 @@ describe('Work Orchestrator', () => {
     assert.equal(prompt.action?.kind === 'clarify' ? prompt.action.options.length > 0 : false, true);
     const block = (await fixture.orchestrator.snapshot()).items.find((item) => item.id === 'running-block');
     assert.equal(block?.kind === 'work' ? block.block.status : undefined, 'stopped');
+  });
+
+  test('Jev choices pass through bounded routing and uncertainty cannot start work', async () => {
+    for (const confident of [true, false]) {
+      const alpha = host('ws-a', 'Alpha');
+      alpha.candidates.push({
+        work: { workspaceId: 'ws-a', sessionId: 'alpha-work' }, workspaceName: 'Alpha',
+        workName: '登录修复', searchableText: '登录修复', permissionMode: 'ask', archived: false,
+        updatedAt: 1,
+      });
+      const classify = createJevRouteClassifier({
+        getSettings: async () => ({ enabled: true, apiKey: 'fixture-key' }),
+        fallback: async () => { assert.fail('valid Jev decisions do not fall back'); },
+        fetch: async (_url, init) => {
+          const body = JSON.parse(String(init?.body));
+          const keys = Object.keys(body.questions.route.criteria);
+          assert.ok(keys.includes('work-0'));
+          const probabilities = Object.fromEntries(keys.map((key) => [key,
+            key === 'work-0' ? 0.95 : 0.05 / (keys.length - 1),
+          ]));
+          return new Response(JSON.stringify({ answers: { route: {
+            type: 'choice', choice: 'work-0', confidence: confident ? 0.95 : 0.5, probabilities,
+          } } }));
+        },
+      });
+      const fixture = await createFixture([alpha], { resolveIntent: createBoundedModelIntentResolver(classify) });
+      const result = await fixture.orchestrator.send({ text: '帮我看看那个问题' });
+      assert.equal(result.kind, confident ? 'work' : 'clarify');
+      if (confident) {
+        assert.deepEqual(alpha.started.map((entry) => entry.work), [alpha.candidates[0]?.work]);
+        await waitForTerminal(fixture.orchestrator.snapshot);
+      } else {
+        assert.equal(alpha.started.length, 0);
+      }
+    }
   });
 
   test('accepts only opaque candidate ids returned by the bounded model router', async () => {

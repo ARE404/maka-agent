@@ -1,3 +1,4 @@
+import { JevSettingsSection } from './jev-settings-section';
 import { useMemo, useState } from 'react';
 import { Card, Item } from '@astryxdesign/core';
 import { PersonalizationSettingsPage } from './appearance-settings-page';
@@ -105,6 +106,7 @@ export function GeneralSettingsPage(props: {
       <Card padding={0} className="settingsRows">
         <NetworkProxySection settings={props.settings} onUpdate={props.onUpdate} />
       </Card>
+      <JevSettingsSection settings={props.settings.jev} onUpdate={props.onUpdate} />
     </div>
   );
 }

@@ -58,6 +58,7 @@ export function preserveSensitivePlaceholders(
 export function maskAppSettings(settings: AppSettings, revealPatch: UpdateAppSettingsInput = {}): AppSettings {
   return {
     ...settings,
+    jev: { ...settings.jev, apiKey: maskSensitive(settings.jev.apiKey) ?? '' },
     network: {
       ...settings.network,
       proxy: {
@@ -110,6 +111,8 @@ export function maskAppSettings(settings: AppSettings, revealPatch: UpdateAppSet
  * secret. Keep the field list in sync with `maskAppSettings`.
  */
 export function stripSettingsSecretsForExport(settings: AppSettings): Record<string, unknown> {
+  const jev = { ...settings.jev } as Record<string, unknown>;
+  delete jev.apiKey;
   const proxy = { ...settings.network.proxy } as Record<string, unknown>;
   delete proxy.password;
 
@@ -126,6 +129,7 @@ export function stripSettingsSecretsForExport(settings: AppSettings): Record<str
 
   return {
     ...settings,
+    jev,
     network: { ...settings.network, proxy },
     botChat: { ...settings.botChat, channels },
     webSearch: { ...settings.webSearch, providers: { ...settings.webSearch.providers, tavily } },

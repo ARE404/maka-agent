@@ -6,6 +6,7 @@ import {
   botTestErrorMessage,
   buildSettingsUpdateResult,
   maskAppSettings,
+  stripSettingsSecretsForExport,
   preserveSensitivePlaceholders,
   toSettingsTestResult,
 } from '../settings-ipc-helpers.js';
@@ -165,4 +166,14 @@ describe('settings IPC helpers', () => {
     ]);
     assert.equal(JSON.stringify(result.warnings).includes('sk-live-secret-token-value'), false);
   });
+});
+
+test('Jev keys stay masked on read and save and are omitted from non-credential exports', () => {
+  const settings = mergeSettings(createDefaultSettings(), { jev: { enabled: true, apiKey: 'jev-secret' } });
+  assert.equal(maskAppSettings(settings).jev.apiKey, SENSITIVE_PLACEHOLDER);
+  assert.equal(buildSettingsUpdateResult(settings, { jev: { apiKey: 'jev-secret' } }).settings.jev.apiKey, SENSITIVE_PLACEHOLDER);
+  const exported = stripSettingsSecretsForExport(settings);
+  assert.deepEqual(exported.jev, { enabled: true });
+  assert.equal(JSON.stringify(exported).includes('jev-secret'), false);
+  assert.equal(mergeSettings(settings, exported).jev.apiKey, 'jev-secret');
 });
