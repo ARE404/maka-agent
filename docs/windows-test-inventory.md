@@ -17,9 +17,9 @@ Locations intentionally omit line numbers so unrelated edits do not invalidate t
 |---|---:|
 | windows-backend-gap | 27 |
 | portable-candidate | 51 |
-| platform-contract | 38 |
+| platform-contract | 39 |
 
-Total Windows-excluded declarations: **116**
+Total Windows-excluded declarations: **117**
 
 ## Inventory
 
@@ -33,6 +33,7 @@ Total Windows-excluded declarations: **116**
 | portable-candidate | `apps/desktop/src/main/__tests__/opencli-chrome.test.ts` launchers run the entry in Node mode with the mode each caller needs | `process.platform === 'win32'` |
 | portable-candidate | `apps/desktop/src/main/__tests__/opencli-chrome.test.ts` Windows opens the store page in installed Chrome, not the default browser | `process.platform === 'win32'` |
 | platform-contract | `apps/desktop/src/main/__tests__/project-context-root.test.ts` rejects a session cwd without read and traversal access | `process.platform === 'win32' ? 'POSIX permissions are required to make the session cwd inaccessible' : process.getuid?.() === 0` |
+| platform-contract | `apps/desktop/src/main/__tests__/runtime-host-local-remote-access.test.ts` adopts a released handoff through its existing legacy operator | `process.platform === 'win32' && 'Legacy POSIX handoff requires POSIX deployment paths'` |
 | platform-contract | `apps/desktop/src/main/__tests__/runtime-host-skills-ipc-main.test.ts` reports create_failed without opening when a Skill directory parent is not writable | `process.platform === 'win32' ? 'POSIX permissions are required to make the Skill directory parent read-only' : process.getuid?.() === 0` |
 | portable-candidate | `apps/desktop/src/main/__tests__/settings-recovery-startup.test.ts` early-window presents recovery guidance despite ${nativeFailure} | `nativeFailure === 'commit-unknown' && process.platform === 'win32'` |
 | portable-candidate | `apps/desktop/src/main/__tests__/settings-recovery.test.ts` published reset failure is independently reported and consumers reread without replaying a mutation | `process.platform === 'win32'` |
