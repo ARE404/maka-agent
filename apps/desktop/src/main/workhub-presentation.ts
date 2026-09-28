@@ -73,6 +73,12 @@ export function createWorkHubPresentation(deps: WorkHubPresentationDeps) {
   let placement: 'docked' | 'floating' = 'docked';
   let shortcutRegistered = false;
   let disposed = false;
+  // The app is closing every window for an update install (#5783): the
+  // floating panel must not veto its close, and a closing Desktop must not
+  // re-parent the conversation into a fresh panel; the conversation goes down
+  // with its window. Cleared by what shows the app carried on instead: a
+  // Desktop window attaching or a summon.
+  let releasedForQuit = false;
   let ipcRegistered = false;
   let rendererReady = false;
   let rendererCrashed = false;
@@ -354,13 +360,18 @@ export function createWorkHubPresentation(deps: WorkHubPresentationDeps) {
     floating.on('minimize', () => deps.onVisibilityChanged?.());
     floating.on('show', () => deps.onVisibilityChanged?.());
     floating.on('restore', () => deps.onVisibilityChanged?.());
-    floating.on('close', (event) => {
+    const panel = floating;
+    panel.on('close', (event) => {
       if (disposed) return;
+      if (releasedForQuit) {
+        if (parent === panel) releaseConversationForQuit();
+        return;
+      }
       event.preventDefault();
       ++presentationRevision;
       hideFloating();
     });
-    return floating;
+    return panel;
   }
 
   function updateDockedBounds(): void {
@@ -403,6 +414,7 @@ export function createWorkHubPresentation(deps: WorkHubPresentationDeps) {
 
   function detach(positionAtDefault = false): void {
     if (!deps.isEnabled() || disposed) return;
+    releasedForQuit = false;
     cancelFloatingAnimation();
     ensureView();
     const target = ensureFloating();
@@ -523,9 +535,14 @@ export function createWorkHubPresentation(deps: WorkHubPresentationDeps) {
 
   function attachMainWindow(main: BrowserWindow): void {
     if (mainListeners.has(main)) return;
+    releasedForQuit = false;
     const contents = main.webContents;
     const onClose = () => {
       if (disposed || parent !== main || !view) return;
+      if (releasedForQuit) {
+        releaseConversationForQuit();
+        return;
+      }
       cancelFloatingAnimation();
       // BrowserWindow disposal must never own the conversation's lifetime.
       attach(ensureFloating());
@@ -761,6 +778,24 @@ export function createWorkHubPresentation(deps: WorkHubPresentationDeps) {
     if (previous && !previous.webContents.isDestroyed()) previous.webContents.close({ waitForBeforeUnload: false });
   }
 
+  function releaseForQuit(): void {
+    releasedForQuit = true;
+  }
+
+  /**
+   * The window carrying the conversation is closing for real. Let the view go
+   * with it and return to the docked resting state, so a Desktop window that
+   * appears afterwards starts a fresh conversation instead of touching a
+   * destroyed panel.
+   */
+  function releaseConversationForQuit(): void {
+    clearProgressRequest();
+    expandOnFocus = false;
+    placement = 'docked';
+    disposeView();
+    changed();
+  }
+
   function dispose(): void {
     if (disposed) return;
     disposed = true;
@@ -772,5 +807,5 @@ export function createWorkHubPresentation(deps: WorkHubPresentationDeps) {
     floating = undefined;
   }
 
-  return { registerIpc, refreshSettings, attachMainWindow, getSnapshot, ownsWebContents, send, prepareControl: (turnId?: string) => enqueue(() => prepareControl(turnId)), finishControl: () => { controlTurnId = undefined; }, show: async () => { if (disposed) throw new Error('WorkHub presentation is disposed'); ++presentationRevision; detach(); }, toggle, dispose };
+  return { registerIpc, refreshSettings, attachMainWindow, getSnapshot, ownsWebContents, send, prepareControl: (turnId?: string) => enqueue(() => prepareControl(turnId)), finishControl: () => { controlTurnId = undefined; }, show: async () => { if (disposed) throw new Error('WorkHub presentation is disposed'); ++presentationRevision; detach(); }, toggle, releaseForQuit, dispose };
 }
