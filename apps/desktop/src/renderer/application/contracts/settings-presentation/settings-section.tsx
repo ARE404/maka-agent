@@ -42,14 +42,14 @@
 //     rows are "edge-to-edge, dividers"). Cards remain for genuine callouts.
 //   'bare' — the body is a plain block, for groups whose content is not a row
 //     list (the 外观 option grids, a form layout, a chart). The section still
-//     contributes its header, anchor divider, and page rhythm.
+//     contributes its header, header divider, and page rhythm.
 import type { ReactNode } from 'react';
 import { Divider, Heading, HStack, Item, Text, VStack } from '@astryxdesign/core';
 import { cn } from '@maka/ui';
 
 /**
- * The ONE page-root container: a flat list of `SettingsSection`s at the open
- * idiom's 32px rhythm. Pages used to reach for the bare
+ * The ONE page-root container: a flat list of `SettingsSection`s at a 40px
+ * rhythm. Pages used to reach for the bare
  * `.settingsStructuredPage` class; the kit owns the container now, so a page
  * never references page-layout CSS directly.
  *
@@ -117,6 +117,9 @@ export function SettingsSection(props: {
           {props.action != null ? <div>{props.action}</div> : null}
         </HStack>
       ) : null}
+      {/* The header divider is the section's only rule: rows carry no
+          hairlines of their own (rows.css), so this line marks where a group
+          starts instead of reading as one more row break. */}
       {hasHeader ? <Divider /> : null}
       {props.variant === 'bare' ? (
         <div className={cn('settingsSectionBody', props.bodyClassName)}>{props.children}</div>
@@ -163,7 +166,10 @@ export function SettingsRow(props: {
     <Item
       density="balanced"
       align={props.align}
-      label={props.label}
+      /* The class carries the settings-name role (rows.css): Item's own label
+         span has no hook, and at body weight a name read no heavier than the
+         helper line under it. */
+      label={<span className="settingsRowLabel">{props.label}</span>}
       description={props.description == null ? undefined : <>{props.description}</>}
       endContent={props.end == null ? undefined : <span className="settingsRowEnd">{props.end}</span>}
     />
