@@ -50,12 +50,13 @@
 
 /* A setting's name, in one role wherever it appears: the Item row label
    (SettingsRow) and the field label of a form block (SettingsField) are the
-   same thing to the reader. Item rendered it at body weight and the field
-   label at 500 in muted ink, so two names on one page looked like two
-   different kinds of text, and neither stood above its 12px helper line. */
+   same thing to the reader, but the field label rendered at 500 in muted ink
+   beside body-weight Item labels. Body, primary ink: at semibold the names
+   matched the 16/600 section heading's weight and read as its peers rather
+   than its members; size and ink already set them above the helper line. */
 .settingsRowLabel,
 .settingsRows > .settingsFieldRow .astryx-field-label {
-  font: var(--maka-text-heading-4);
+  font: var(--maka-text-body);
   color: var(--foreground);
 }
 
