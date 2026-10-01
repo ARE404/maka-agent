@@ -395,6 +395,9 @@ function ShellSettingsSection(props: {
       await props.onUpdate({
         shell: { preference, executable: normalizedExecutable },
       });
+      // The save action disappears once the draft matches what was saved, so
+      // the confirmation has to come from somewhere else.
+      if (mountedRef.current) toast.success(copy.shellSaved);
     } catch (error) {
       if (mountedRef.current) {
         toast.error(

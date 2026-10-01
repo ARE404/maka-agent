@@ -35,7 +35,9 @@
 
 /* No hairline between rows. The section header's divider is the group's only
    rule; a line under every row repeated it, so a section's start read as one
-   more row break. Rows are separated by their own block padding instead. */
+   more row break. Rows are separated by their own block padding instead.
+   Record lists in a section (`List hasDividers`: connections, tasks,
+   projects) keep their dividers — see DESIGN.md §4, The Group Rule. */
 
 /* Astryx's Item ships `border-radius: 10px` and 8px inline padding for its
    standalone use — a rounded chip that highlights on hover. In a settings
@@ -46,6 +48,19 @@
 .settingsRows > .astryx-item {
   border-radius: 0;
   padding-inline: 0;
+}
+
+/* …except that a clickable row paints a hover wash, and with no inline
+   padding that wash ended flush against the logo and the chevron. A
+   clickable Item renders its click target as a direct <button> child (a
+   static row's controls sit inside the end slot), so those rows step out by
+   the padding they take back: the text keeps the heading's edge and the wash
+   gets breathing room past it. They are separate targets, so each rounds on
+   its own. */
+.settingsRows > .astryx-item:has(> button) {
+  margin-inline: calc(-1 * var(--space-2));
+  padding-inline: var(--space-2);
+  border-radius: var(--radius-surface);
 }
 
 /* A setting's name, in one role wherever it appears: the Item row label
