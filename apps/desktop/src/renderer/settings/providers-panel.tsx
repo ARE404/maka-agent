@@ -54,7 +54,6 @@ import { isRetiredProvider } from '@maka/core/provider-registry';
 import { ConnectionDetail } from './provider-connection-detail';
 import { useSettingsRouteFocus } from './settings-route-focus';
 import { SettingsRouteHeader } from './settings-route-header';
-import { SettingsEntryRow } from './settings-section';
 import { ProviderLogo, providerDisplay } from './provider-display';
 import { oauthPanelSubtitle } from './provider-oauth-section';
 import {
@@ -67,8 +66,9 @@ import {
 } from '../features/connection-settings';
 import {
   RuntimeHostSettingsGenerationBoundary,
+  SettingsEntryRow,
   useRuntimeHostSettingsErrorReporter,
-} from './runtime-host-settings-target.js';
+} from '../application/contracts/settings-presentation/index.js';
 
 export type { ConnectionsBridge } from '../features/connection-settings';
 

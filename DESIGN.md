@@ -130,8 +130,10 @@ Three strengths, each a job, spaced at ~1.6× like the ink ladder:
 
 **The Group Rule.** A settings section draws one line: the divider under its header. Rows are sorted by what a press does, not by what they list:
 
-- *Setting rows* (`SettingsRow`: a name, a helper line, one control) and *entry rows* (`SettingsEntryRow`: the whole row opens a detail or setup page, marked by a chevron — model connections, the provider catalog, external agents, remote-access channels) carry no row dividers. The header divider, the gap between sections and the rows' own padding group them; a line under every row made a section's start read as one more row break. An entry row leads with a 32px icon tile — a full-bleed app icon as is, a bare brand mark on the neutral `.providerLogo` plate — and states status inline after its name as `StatusDot` + text.
+- *Setting rows* (`SettingsRow`: a name, a helper line, one control) and *entry rows* (`SettingsEntryRow`: the whole row opens a detail or setup page, marked by a chevron — model connections, external agents, remote-access channels) carry no row dividers. The header divider, the gap between sections and the rows' own padding group them; a line under every row made a section's start read as one more row break. An entry row leads with a 32px icon tile — a full-bleed app icon as is, a bare brand mark on the neutral `.providerLogo` plate — and states status inline after its name as `StatusDot` + text.
 - *Record lists* — rows that carry their own actions or selection (archived tasks, projects, imported conversations, capability details) — keep `List hasDividers`. Several controls share each row, and the line is what bounds one record's actions from the next.
+
+The provider catalog (`provider-catalog-page.tsx`) is an entry list that still renders `List hasDividers`: it sits in the legacy app-shell closure, which the renderer architecture check closes to new dependencies, so it moves to `SettingsEntryRow` when it leaves that closure.
 
 (Maintainer decision, #5888.)
 
