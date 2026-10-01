@@ -22,13 +22,10 @@ import {
   Badge,
   Banner,
   Button,
-  Divider,
   EmptyState,
-  Heading,
   HStack,
   Skeleton,
   StatusDot,
-  Text,
   VStack,
 } from '@astryxdesign/core';
 import { ICON_SIZE, Cpu } from '@maka/ui/icons';
@@ -67,6 +64,7 @@ import {
 import {
   RuntimeHostSettingsGenerationBoundary,
   SettingsEntryRow,
+  SettingsSection,
   useRuntimeHostSettingsErrorReporter,
 } from '../application/contracts/settings-presentation/index.js';
 
@@ -547,30 +545,20 @@ function ProvidersPanelContent({ bridge, apiKeyOnboardingBridge, initialPage = '
               endContent={<Button variant="ghost" label={copy.retry} onClick={() => void reload()} />}
             />
           ) : null}
-          {/* The list is a labeled group like every other settings page: what
-              it holds, why it matters, and the one group-level action. This is
-              SettingsSection's header written out: the architecture ledger
-              freezes this file's dependency list, so the section kit cannot be
-              imported here until the panel moves to its feature owner. */}
-          <section className="settingsSection">
-            <HStack gap={3} align="start" justify="between" wrap="wrap">
-              <VStack gap={0.5}>
-                <Heading level={3}>{copy.connections}</Heading>
-                <Text type="supporting" size="sm" color="secondary">{copy.connectionsHelp}</Text>
-              </VStack>
-              <div>
-                <Button
-                  ref={addButtonRef}
-                  variant="primary"
-                  label={copy.addConnection}
-                  onClick={openCatalog}
-                  isDisabled={addBlocked}
-                  data-maka-contract="add-connection"
-                />
-              </div>
-            </HStack>
-            <Divider />
-            <div className="settingsSectionBody">
+          <SettingsSection
+            title={copy.connections}
+            description={copy.connectionsHelp}
+            action={(
+              <Button
+                ref={addButtonRef}
+                variant="primary"
+                label={copy.addConnection}
+                onClick={openCatalog}
+                isDisabled={addBlocked}
+                data-maka-contract="add-connection"
+              />
+            )}
+          >
             {connections.length === 0 && !loadError ? (
               <EmptyState
                 isCompact
@@ -580,7 +568,7 @@ function ProvidersPanelContent({ bridge, apiKeyOnboardingBridge, initialPage = '
                 actions={<Button variant="secondary" size="sm" label={copy.browseAll} onClick={openCatalog} isDisabled={addBlocked} />}
               />
             ) : (
-              <div className="settingsRows">
+              <>
                 {connections.map((connection) => {
                   const status = connectionChipStatus(connection, locale);
                   const isDefault = connection.slug === defaultSlug;
@@ -610,10 +598,9 @@ function ProvidersPanelContent({ bridge, apiKeyOnboardingBridge, initialPage = '
                     />
                   );
                 })}
-              </div>
+              </>
             )}
-            </div>
-          </section>
+          </SettingsSection>
           {connections.length === 0 && !loadError && (
             /* First run: the providers most people connect, one click from
                their form. The full catalog is one more click away above. */
