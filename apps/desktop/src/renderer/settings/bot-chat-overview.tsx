@@ -80,7 +80,7 @@ export function BotChatOverview(props: {
   // pre-#1972 dialect — bespoke page container, section-header dialect,
   // hand-rolled list grids, a decorative readiness Badge. It is a kit page
   // now: SettingsPage → SettingsSection (whose headings keep the ids the
-  // remote-access e2e names sections by) → hairline rows; readiness reads
+  // remote-access e2e names sections by) → open rows; readiness reads
   // as the shared StatusDot + text idiom.
   return (
     <SettingsPage>

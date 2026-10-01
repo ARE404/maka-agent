@@ -36,10 +36,13 @@
 //
 // `variant`:
 //   'rows' (default) — the body is the shared `.settingsRows` open row group:
-//     edge-to-edge rows split by hairlines, no card chrome. This is the Astryx
-//     settings idiom (see the CLI's settings/settings-dialog templates and
-//     `astryx docs layout`: "no stacked full-width Cards as page structure";
-//     rows are "edge-to-edge, dividers"). Cards remain for genuine callouts.
+//     edge-to-edge rows with no card chrome and no per-row hairlines. The
+//     header divider is the group's only rule (DESIGN.md §4, The Group Rule).
+//     No card chrome follows the Astryx settings idiom ("no stacked
+//     full-width Cards as page structure"); dropping the row dividers that
+//     the Astryx templates draw is Maka's own decision (#5888). Record lists
+//     inside a section (connections, tasks, projects) keep `List hasDividers`.
+//     Cards remain for genuine callouts.
 //   'bare' — the body is a plain block, for groups whose content is not a row
 //     list (the 外观 option grids, a form layout, a chart). The section still
 //     contributes its header, header divider, and page rhythm.
@@ -167,8 +170,8 @@ export function SettingsRow(props: {
       density="balanced"
       align={props.align}
       /* The class carries the settings-name role (rows.css): Item's own label
-         span has no hook, and at body weight a name read no heavier than the
-         helper line under it. */
+         span has no hook, and the same role has to reach SettingsField's
+         field labels, which otherwise rendered at 500 in muted ink. */
       label={<span className="settingsRowLabel">{props.label}</span>}
       description={props.description == null ? undefined : <>{props.description}</>}
       endContent={props.end == null ? undefined : <span className="settingsRowEnd">{props.end}</span>}

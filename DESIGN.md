@@ -121,12 +121,14 @@ Prose uses exactly two tiers — `--foreground` and `--muted-foreground` — whi
 
 Three strengths, each a job, spaced at ~1.6× like the ink ladder:
 
-- `--border-soft` (6% ink): quiet separation inside a plate — rails, row dividers that fills can't carry.
+- `--border-soft` (6% ink): quiet separation inside a plate — rails, and the dividers between records in a record list that fills can't carry.
 - `--border` (10% ink): structural boundaries between regions.
 - `--border-strong` (16% ink): emphasis chrome — selected and active outlines, emphasized region boundaries, and the scrollbar thumb (§9). It is not "the border for when you're unsure," and it is not the general-purpose strong neutral: anything wanting a neutral *tint* at that weight takes `--foreground-alpha-16`. A hairline drawn with `background` is still a border and keeps it.
 - `--ring-soft` is a 1px ring drawn with box-shadow (`0 0 0 1px`) at the soft tier's own 6% alpha. It belongs to this chapter, not §5: a token is filed by the job it does, not by the CSS property it happens to use, and a shadow-shaped name on a border attracts call sites that wanted lift.
 
 **The One Means Rule.** Each boundary picks one separator: a fill step, a line, or a shadow — never stacked on the same edge.
+
+**The Group Rule.** A settings section draws one line: the divider under its header. Setting rows — a name, a helper line, one control — carry no row dividers; the header divider, the gap between sections and the rows' own padding group them, and a line under every row made a section's start read as one more row break. Record lists inside settings (connections, archived tasks, projects, imported conversations, capability details) keep `List hasDividers`: each row is one of many like records that the reader scans and compares, often with several actions, and the line is what bounds one record from the next. (Maintainer decision, #5888.)
 
 ## 5. Elevation
 
