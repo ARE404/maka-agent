@@ -117,7 +117,7 @@ export function MemorySettingsPage(props: {
 
   return (
     <SettingsPage>
-      <SettingsSection description={sharedCopy.groups.memorySourcesHelp}>
+      <SettingsSection title={sharedCopy.groups.memorySources} description={sharedCopy.groups.memorySourcesHelp}>
         <SettingsRow
           label={hasLocalMemoryPaths ? copy.text.localFile : 'MEMORY.md'}
           description={hasLocalMemoryPaths ? copy.text.localFileHelp : copy.text.fileContent}

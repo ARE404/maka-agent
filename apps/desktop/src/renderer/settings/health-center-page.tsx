@@ -178,7 +178,7 @@ export function HealthCenterPage() {
         />
       )}
 
-      <SettingsSection>
+      <SettingsSection title={copy.checksTitle}>
         {HEALTH_SIGNAL_LAYERS.flatMap((layer) => {
           const signals = signalsByLayer[layer];
           if (!signals || signals.length === 0) return [];
