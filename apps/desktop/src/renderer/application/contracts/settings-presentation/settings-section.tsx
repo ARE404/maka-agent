@@ -40,8 +40,9 @@
 //     header divider is the group's only rule (DESIGN.md §4, The Group Rule).
 //     No card chrome follows the Astryx settings idiom ("no stacked
 //     full-width Cards as page structure"); dropping the row dividers that
-//     the Astryx templates draw is Maka's own decision (#5888). Record lists
-//     inside a section (connections, tasks, projects) keep `List hasDividers`.
+//     the Astryx templates draw is Maka's own decision (#5888). Entry rows
+//     (SettingsEntryRow) share the open group; record lists whose rows carry
+//     their own actions (tasks, projects) keep `List hasDividers`.
 //     Cards remain for genuine callouts.
 //   'bare' — the body is a plain block, for groups whose content is not a row
 //     list (the 外观 option grids, a form layout, a chart). The section still
@@ -49,6 +50,7 @@
 import type { ReactNode } from 'react';
 import { Divider, Heading, HStack, Item, Text, VStack } from '@astryxdesign/core';
 import { cn } from '@maka/ui';
+import { ChevronRight, ICON_SIZE } from '@maka/ui/icons';
 
 /**
  * The ONE page-root container: a flat list of `SettingsSection`s at a 40px
@@ -175,6 +177,52 @@ export function SettingsRow(props: {
       label={<span className="settingsRowLabel">{props.label}</span>}
       description={props.description == null ? undefined : <>{props.description}</>}
       endContent={props.end == null ? undefined : <span className="settingsRowEnd">{props.end}</span>}
+    />
+  );
+}
+
+/**
+ * An entry row: the whole row opens something (a detail page, a setup flow),
+ * marked by a trailing chevron — 外部 Agent, 远程接入's channels. One row
+ * shape for every such list so a page cannot grow its own: a 32px icon tile,
+ * the name with an optional inline status (StatusDot + text, not a Badge),
+ * a wrapping helper line, no row divider (DESIGN.md §4). Lists whose rows
+ * carry their own actions are record lists and keep `List hasDividers`.
+ *
+ * `icon` is the 32px tile itself: a full-bleed app icon goes in as is, a
+ * bare brand mark goes on `.providerLogo[data-compact]`'s neutral plate.
+ */
+export function SettingsEntryRow(props: {
+  icon: ReactNode;
+  label: ReactNode;
+  /** Inline after the name: the shared StatusDot + text idiom. */
+  status?: ReactNode;
+  description?: ReactNode;
+  onClick(): void;
+  className?: string;
+  /** Names the row's click target. Astryx's Item renders that target as a
+   *  separate invisible <button> named from its content, so an aria-label on
+   *  the Item never reaches it; this one sits on the title the button reads. */
+  labelAriaLabel?: string;
+  /** Row state hooks for page CSS (e.g. data-attention, data-support). */
+  [dataAttribute: `data-${string}`]: string | undefined;
+}) {
+  const { icon, label, status, description, onClick, className, labelAriaLabel, ...data } = props;
+  return (
+    <Item
+      {...data}
+      className={cn('settingsEntryRow', className)}
+      startContent={icon}
+      label={(
+        // a11y-allow: this label names the ROW's click target, not the span (see labelAriaLabel).
+        <span className="settingsEntryTitle" aria-label={labelAriaLabel}>
+          <span className="settingsRowLabel">{label}</span>
+          {status}
+        </span>
+      )}
+      description={description == null ? undefined : <>{description}</>}
+      endContent={<span className="settingsEntryChevron"><ChevronRight size={ICON_SIZE.chrome} aria-hidden="true" /></span>}
+      onClick={onClick}
     />
   );
 }

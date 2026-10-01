@@ -36,8 +36,9 @@
 /* No hairline between rows. The section header's divider is the group's only
    rule; a line under every row repeated it, so a section's start read as one
    more row break. Rows are separated by their own block padding instead.
-   Record lists in a section (`List hasDividers`: connections, tasks,
-   projects) keep their dividers — see DESIGN.md §4, The Group Rule. */
+   Record lists whose rows carry their own actions (`List hasDividers`:
+   archived tasks, projects) keep their dividers — see DESIGN.md §4, The
+   Group Rule. */
 
 /* Astryx's Item ships `border-radius: 10px` and 8px inline padding for its
    standalone use — a rounded chip that highlights on hover. In a settings
@@ -129,6 +130,41 @@
    more air above than below so it binds to the rows it introduces. */
 .settingsRows > .settingsRowsSubheading {
   padding-block: var(--space-3) var(--space-1);
+}
+
+/* SettingsEntryRow: a row that opens something. Taller than a setting row
+   because it leads with a 32px icon tile; the chevron is the only end
+   content, and the inline status rides the title's baseline. */
+.settingsRows > .settingsEntryRow {
+  min-height: 64px;
+  gap: var(--space-3);
+  padding-block: var(--space-2);
+}
+
+.settingsEntryTitle {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.settingsEntryChevron {
+  display: flex;
+  color: var(--muted-foreground);
+}
+
+/* The whole row stays the named button; at the narrow floor the chevron is
+   redundant and its width goes to the name and helper line. */
+@container settings-rows (max-width: 460px) {
+  .settingsRows > .settingsEntryRow {
+    gap: var(--space-2);
+  }
+
+  .settingsEntryChevron {
+    display: none;
+  }
 }
 
 /* A RelativeTime inside a line of text (健康 / 权限与能力's 最近读取). The

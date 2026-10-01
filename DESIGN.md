@@ -128,7 +128,12 @@ Three strengths, each a job, spaced at ~1.6× like the ink ladder:
 
 **The One Means Rule.** Each boundary picks one separator: a fill step, a line, or a shadow — never stacked on the same edge.
 
-**The Group Rule.** A settings section draws one line: the divider under its header. Setting rows — a name, a helper line, one control — carry no row dividers; the header divider, the gap between sections and the rows' own padding group them, and a line under every row made a section's start read as one more row break. Record lists inside settings (connections, archived tasks, projects, imported conversations, capability details) keep `List hasDividers`: each row is one of many like records that the reader scans and compares, often with several actions, and the line is what bounds one record from the next. (Maintainer decision, #5888.)
+**The Group Rule.** A settings section draws one line: the divider under its header. Rows are sorted by what a press does, not by what they list:
+
+- *Setting rows* (`SettingsRow`: a name, a helper line, one control) and *entry rows* (`SettingsEntryRow`: the whole row opens a detail or setup page, marked by a chevron — model connections, the provider catalog, external agents, remote-access channels) carry no row dividers. The header divider, the gap between sections and the rows' own padding group them; a line under every row made a section's start read as one more row break. An entry row leads with a 32px icon tile — a full-bleed app icon as is, a bare brand mark on the neutral `.providerLogo` plate — and states status inline after its name as `StatusDot` + text.
+- *Record lists* — rows that carry their own actions or selection (archived tasks, projects, imported conversations, capability details) — keep `List hasDividers`. Several controls share each row, and the line is what bounds one record's actions from the next.
+
+(Maintainer decision, #5888.)
 
 ## 5. Elevation
 
