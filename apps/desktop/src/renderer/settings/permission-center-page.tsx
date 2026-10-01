@@ -254,11 +254,10 @@ export function PermissionCenterPage() {
         action={(
           <div className="settingsFormRowControlCluster">
             <Text type="supporting" size="sm" color="secondary">
-              {copy.lastRead}<RelativeTime ts={checkedAtMs} />
+              {copy.lastRead}<RelativeTime ts={checkedAtMs} className="settingsInlineTime" />
             </Text>
             <Button
               variant="secondary"
-              size="sm"
               onClick={() => setRefreshTick((tick) => tick + 1)}
               label={copy.detectAgain}
             />

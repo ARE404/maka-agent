@@ -278,7 +278,6 @@ export function ProjectsSettingsPage(props: {
             <Button
               ref={directoryPickerTriggerRef}
               variant="secondary"
-              size="sm"
               label={copy.addProject}
               clickAction={capabilities.chooseHostDirectory
                 ? () => {

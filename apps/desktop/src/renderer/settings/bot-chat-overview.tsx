@@ -153,7 +153,7 @@ function botOverviewDetail(
     return (
       <>
         {copy.listening}{identity ? ` · ${identity}` : ''}
-        {status?.lastEventAt ? <> · <RelativeTime ts={status.lastEventAt} /></> : ''}
+        {status?.lastEventAt ? <> · <RelativeTime ts={status.lastEventAt} className="settingsInlineTime" /></> : ''}
       </>
     );
   }

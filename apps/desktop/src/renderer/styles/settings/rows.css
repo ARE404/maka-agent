@@ -131,6 +131,15 @@
   padding-block: var(--space-3) var(--space-1);
 }
 
+/* A RelativeTime inside a line of text (健康 / 权限与能力's 最近读取). The
+   component renders its own <small>, and the UA's `font-size: smaller` on a
+   small nested in a 12px line produced 9.6px, below the 11px floor. The time
+   takes the line's own role and ink. */
+.settingsInlineTime {
+  font: inherit;
+  color: inherit;
+}
+
 /* StatusDot + text, the quiet status idiom shared by health / permission /
    memory / web-search rows. */
 .settingsStatus {

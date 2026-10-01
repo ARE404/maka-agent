@@ -141,11 +141,10 @@ export function HealthCenterPage() {
         action={(
           <div className="settingsFormRowControlCluster">
             <small className="settingsHealthMetaLabel">
-              {copy.lastRead}<RelativeTime ts={healthCheckedAtMs} />
+              {copy.lastRead}<RelativeTime ts={healthCheckedAtMs} className="settingsInlineTime" />
             </small>
             <Button
               variant="secondary"
-              size="sm"
               onClick={() => setRefreshTick((tick) => tick + 1)}
               label={copy.refresh}
             />
