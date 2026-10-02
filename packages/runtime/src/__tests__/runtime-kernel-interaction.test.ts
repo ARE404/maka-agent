@@ -24,6 +24,7 @@ import { describe, test } from 'node:test';
 import type { SessionEvent } from '@maka/core/events';
 
 import type { SessionHeader, StoredMessage } from '@maka/core/session';
+import { createGenesisExecutionBoundary } from '@maka/core/sandbox-boundary';
 import type { SandboxBoundaryResponse } from '@maka/core/sandbox-boundary';
 import type { AgentBackend, BackendSendInput, BackendStopMode } from '@maka/core/backend-types';
 
@@ -39,6 +40,56 @@ import {
 } from '../runtime-kernel.js';
 import { BackendRegistry, type SessionStore } from '../session-manager.js';
 import { waitFor as pollFor } from '@maka/core/test-only/async-primitives';
+
+test('delegated execution policy is scoped to the run and ordinary execution restores the saved policy', async () => {
+  const store = memoryStore();
+  await store.updateHeader(SESSION_ID, { permissionMode: 'ask' });
+  store.readExecutionBoundary = async () => createGenesisExecutionBoundary('ask');
+  const backends = new BackendRegistry();
+  const observed: Array<{
+    permission: string;
+    savedPermission: string;
+    boundary: string;
+    questions?: string;
+  }> = [];
+  const instances: BlockingBackend[] = [];
+  backends.register('ai-sdk', async (context) => {
+    observed.push({
+      permission: (await context.store.readHeader(SESSION_ID)).permissionMode,
+      savedPermission: (await store.readHeader(SESSION_ID)).permissionMode,
+      boundary: (await context.store.readExecutionBoundary(SESSION_ID)).kind,
+      questions: context.executionPolicy?.questions,
+    });
+    const backend = new BlockingBackend(SESSION_ID, {});
+    backend.releaseBlockedSend();
+    instances.push(backend);
+    return backend;
+  });
+  let id = 0;
+  const kernel = new RuntimeKernel({
+    store,
+    backends,
+    newId: () => `policy-${++id}`,
+    now: () => id,
+  });
+  for await (const _ of kernel.startTurn(
+    SESSION_ID,
+    { turnId: 'delegated', text: 'work' },
+    {
+      executionPolicy: { permissionMode: 'bypass', questions: 'return' },
+    },
+  )) {
+  }
+  for await (const _ of kernel.startTurn(SESSION_ID, { turnId: 'ordinary', text: 'followup' })) {
+  }
+  assert.deepEqual(observed, [
+    { permission: 'bypass', savedPermission: 'ask', boundary: 'bypass', questions: 'return' },
+    { permission: 'ask', savedPermission: 'ask', boundary: 'managed', questions: undefined },
+  ]);
+  assert.equal(instances[0]!.disposeCalls, 1);
+  assert.equal((await store.readHeader(SESSION_ID)).permissionMode, 'ask');
+  await kernel.disposeBackend(SESSION_ID);
+});
 
 describe('RuntimeKernel Interaction close cleanup', () => {
   test('reserve followed by begin failure settles a concurrent stop claim', async () => {

@@ -84,16 +84,9 @@ export function WorkHubRoot() {
   const coordinationModelChoice = controller.choices.find((choice) =>
     choice.connectionId === session?.llmConnectionId && choice.connectionSlug === session?.llmConnectionSlug && choice.model === session?.model,
   );
-  const newWorkNativeModel = controller.newWorkDefaults.executorId
-    ? undefined
-    : controller.newWorkDefaults.model ??
-      (session?.llmConnectionId && session.llmConnectionSlug && session.model
-        ? {
-            llmConnectionId: session.llmConnectionId,
-            llmConnectionSlug: session.llmConnectionSlug,
-            model: session.model,
-          }
-        : undefined);
+  const newWorkNativeModel = session?.llmConnectionId && session.llmConnectionSlug && session.model
+    ? { llmConnectionId: session.llmConnectionId, llmConnectionSlug: session.llmConnectionSlug, model: session.model }
+    : undefined;
   const newWorkModelChoice = controller.choices.find((choice) =>
     choice.connectionId === newWorkNativeModel?.llmConnectionId &&
     choice.connectionSlug === newWorkNativeModel.llmConnectionSlug &&
@@ -101,9 +94,9 @@ export function WorkHubRoot() {
   );
   const thinkingLevels = newWorkModelChoice?.thinkingLevels ?? [];
   const liveContextUsage = useLiveContextUsage({ inspector: services.inspector, sessionId: controller.sessionId, model: session?.model, providerType: coordinationModelChoice?.providerType });
-  const thinkingLevel = controller.newWorkDefaults.thinkingLevel &&
-    thinkingLevels.includes(controller.newWorkDefaults.thinkingLevel)
-    ? controller.newWorkDefaults.thinkingLevel
+  const thinkingLevel = session?.thinkingLevel &&
+    thinkingLevels.includes(session?.thinkingLevel)
+    ? session?.thinkingLevel
     : undefined;
   const locale = useUiLocale();
   const t = workHubLiveCopy[locale];
@@ -338,18 +331,6 @@ export function WorkHubRoot() {
               }}
               onStop={controller.stop}
               activeSession={session}
-              executorTarget={controller.newWorkDefaults.executorId
-                ? {
-                    executorId: controller.newWorkDefaults.executorId,
-                    ...(controller.newWorkDefaults.executorModel
-                      ? { model: controller.newWorkDefaults.executorModel }
-                      : {}),
-                    ...(controller.newWorkDefaults.thinkingLevel
-                      ? { thinkingLevel: controller.newWorkDefaults.thinkingLevel }
-                      : {}),
-                  }
-                : undefined}
-              onExecutorTargetChange={controller.changeExecutor}
               activeModel={newWorkNativeModel?.model}
               activeModelLabel={newWorkModelChoice?.label}
               activeProviderType={newWorkModelChoice?.providerType}
@@ -357,7 +338,7 @@ export function WorkHubRoot() {
               activeModelConnectionSlug={newWorkNativeModel?.llmConnectionSlug}
               modelChoices={controller.choices}
               pickerPresentation={showConversation ? 'popover' : 'wheel'}
-              modelSelectionPurpose="new-work-default"
+              modelSelectionPurpose="session"
               pickersReadOnly={Boolean(controller.activeQuestion || controller.activeForm || controller.configuringModel)}
               maxInputRows={progress && !editingProgress ? 1 : showConversation ? undefined : 6}
               onModelChange={controller.changeModel}

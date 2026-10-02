@@ -143,20 +143,6 @@ export const workHubControlSchema = z.discriminatedUnion("operation", [
     ),
 ]);
 
-const delegationTarget = z.discriminatedUnion("disposition", [
-  z
-    .object({
-      disposition: z.literal("delegate_existing"),
-      candidateRef: z.string().min(1),
-    })
-    .strict(),
-  z
-    .object({
-      disposition: z.literal("create_new"),
-      title: z.string().min(1).max(512),
-    })
-    .strict(),
-]);
 export const workHubTasksSchema = z.discriminatedUnion("operation", [
   z.object({
     operation: z.literal("status"),
@@ -177,18 +163,18 @@ export const workHubTasksSchema = z.discriminatedUnion("operation", [
     .object({ operation: z.literal("candidates") })
     .strict()
     .describe(
-      "Discover current Host tasks and their identities. Use returned candidateSetId/candidateRef pairs for delegation, and exact Session/delegation action identities for stop, resume or correction; never invent identities.",
+      "Discover current Host tasks and their identities. Use returned candidateRef for delegation, and exact Session/delegation action identities for stop or resume; never invent identities.",
     ),
   z
     .object({
       operation: z.literal("delegate_existing"),
-      candidateSetId: z.string().min(1),
+      candidateSetId: z.string().min(1).optional(),
       candidateRef: z.string().min(1),
       text: z.string().min(1).max(48000),
     })
     .strict()
     .describe(
-      "Delegate text to an existing task using a candidateRef and candidateSetId from the same fresh candidates result. Text is the actual task instruction, not proof of user authorization. A returned target turn confirms admission, not task completion.",
+      "Send instructions to the exact Session identified by candidateRef from discovery. A running Session receives steering; an idle Session starts its next Turn. Text is the actual task instruction, not proof of user authorization. A returned target turn confirms admission, not task completion.",
     ),
   z
     .object({
@@ -198,19 +184,7 @@ export const workHubTasksSchema = z.discriminatedUnion("operation", [
     })
     .strict()
     .describe(
-      "Create a task in the selected workspace and delegate text as its instruction. Title names the task. A returned target turn confirms admission, not task completion.",
-    ),
-  z
-    .object({
-      operation: z.literal("correct"),
-      replacesActionId: z.string().min(1),
-      candidateSetId: z.string().min(1).optional(),
-      target: delegationTarget,
-      text: z.string().min(1).max(48000),
-    })
-    .strict()
-    .describe(
-      "Correct an existing delegation: replacesActionId must identify the exact prior delegation being corrected. Discover fresh candidate references when choosing an existing replacement. The Host checks the original user request for correction authorization. Admission of the replacement does not mean it has completed.",
+      "Create a task for an independent request in the selected workspace and delegate text as its instruction. No explicit user request to create a Session is required. Title names the task. A returned target turn confirms admission, not task completion.",
     ),
   z
     .object({

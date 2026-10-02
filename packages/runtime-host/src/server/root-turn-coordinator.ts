@@ -69,6 +69,7 @@ import {
   normalizeStopSessionSource,
   type SessionManager,
   type StopSessionInput,
+  type TurnExecutionPolicy,
 } from '@maka/runtime/session-manager';
 import { RuntimeOwnerCleanupError } from '@maka/runtime/runtime-kernel';
 import {
@@ -3038,19 +3039,58 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
     };
   }
 
+  private async readWorkHubExecutionPolicy(
+    sessionId: string,
+    turnId: string,
+  ): Promise<TurnExecutionPolicy | undefined> {
+    let admission = await this.stores.agentRunStore.readRootTurnAdmission(sessionId, turnId);
+    if (!admission?.sourceMessages.length) {
+      // Only continuations need an invocation walk to their original Message owner.
+      const runs = await this.stores.runtimeEventStore.listSessionInvocations(sessionId);
+      const visited = new Set<string>();
+      while (!visited.has(turnId)) {
+        visited.add(turnId);
+        const run = runs.find((candidate) => candidate.turnId === turnId);
+        if (run?.opening.source.kind !== 'continuation') break;
+        turnId = run.opening.source.sourceTurnId;
+      }
+      admission = await this.stores.agentRunStore.readRootTurnAdmission(sessionId, turnId);
+    }
+    const sources = new Set(admission?.sourceMessages.map((source) => source.messageId));
+    const assignments =
+      sources.size > 0
+        ? await this.stores.sessionStore.readActiveWorkHubAssignmentsByTarget(
+            [sessionId],
+            undefined,
+            true,
+          )
+        : [];
+    const delegated = assignments.filter(
+      (assignment) =>
+        sources.has(assignment.targetMessageId) && assignment.executionPermissionMode !== undefined,
+    );
+    const modes = new Set(delegated.map((assignment) => assignment.executionPermissionMode));
+    if (modes.size > 1)
+      throw new Error('Queued WorkHub messages have conflicting execution permissions');
+    return delegated.length > 0
+      ? { permissionMode: delegated[0]!.executionPermissionMode!, questions: 'return' as const }
+      : undefined;
+  }
+
   /**
    * The one root path that carries a user Message. Session naming hangs here
    * rather than on the shared run-started hook: a compaction or a continuation
    * opens a Run without new words, and neither should name a Session.
    */
-  private startRootMessageTurn(
+  private async *startRootMessageTurn(
     input: RootTurnActivationInput,
     active: ActiveRootTurn,
     content: MessageContent,
     messageOrigin: ReturnType<typeof hostedExecutionMessageOrigin>,
     onRunStarted: () => Promise<void>,
+    executionPolicy?: TurnExecutionPolicy,
   ): AsyncIterable<SessionEvent> {
-    return this.manager.sendMessage(
+    yield* this.manager.sendMessage(
       input.sessionId,
       {
         turnId: input.turnId,
@@ -3069,6 +3109,7 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
         ...(messageOrigin ? { origin: messageOrigin } : {}),
       },
       {
+        ...(executionPolicy ? { executionPolicy } : {}),
         runId: active.runId,
         userMessageId: active.userMessageId,
         durability: 'required',
@@ -3091,6 +3132,8 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
     let terminalTransitionStarted = false;
     let detached = false;
     try {
+      const policyTurnId = active.continuation?.sourceTurnId ?? input.turnId;
+      const executionPolicy = await this.readWorkHubExecutionPolicy(input.sessionId, policyTurnId);
       const messageOrigin = hostedExecutionMessageOrigin(active.descriptor);
       const onRunStarted = async (): Promise<void> => {
         await this.manager.commitRevisionVersion(input.sessionId);
@@ -3099,6 +3142,7 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
       };
       let stream = active.continuation
         ? this.manager.resumeSafeBoundaryContinuation(active.continuation, {
+            executionPolicy,
             onRunStarted,
             stopBeforeDispatch: () => active.stopRequested,
           })
@@ -3121,6 +3165,7 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
               })
             : active.continuation
               ? this.manager.resumeSafeBoundaryContinuation(active.continuation, {
+                  executionPolicy,
                   onRunStarted,
                 })
               : this.startRootMessageTurn(
@@ -3129,6 +3174,7 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
                   normalizeMessageContent(requireRootMessageContent(input)),
                   messageOrigin,
                   onRunStarted,
+                  executionPolicy,
                 );
       for (;;) {
         for await (const event of stream) {
@@ -3177,6 +3223,7 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
           active.continuation = plan.continuation;
         });
         stream = this.manager.resumeSafeBoundaryContinuation(active.continuation!, {
+          executionPolicy,
           onRunStarted,
           stopBeforeDispatch: () => active.stopRequested,
         });

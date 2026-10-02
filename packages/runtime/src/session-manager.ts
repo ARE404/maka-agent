@@ -668,10 +668,17 @@ export interface StrictRecoveryStores {
 // BackendRegistry — factory dispatch by the session header's durable backend
 // ============================================================================
 
+export interface TurnExecutionPolicy {
+  readonly permissionMode: PermissionMode;
+  /** Missing information is returned to the caller instead of suspending a worker. */
+  readonly questions?: 'return';
+}
+
 export interface BackendFactoryContext {
   sessionId: string;
   workspaceRoot: string;
   header: SessionHeader;
+  executionPolicy?: TurnExecutionPolicy;
   store: SessionStore;
   /** Process-local cancellation for the execution that owns this activation. */
   abortSignal?: AbortSignal;
