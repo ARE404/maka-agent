@@ -247,14 +247,18 @@
  * Grouping switch (session-list-panel.tsx): the last row of the sticky top
  * region, above the scrolling history it governs.
  *
- * Block padding only. The zone already insets its content to the same two
- * vertical lines the nav rows' boxes sit on, so the control spans exactly the
- * 新任务 row's width and the top region reads as one stack; an inline padding
- * here would inset it a second time. `layout="fill"` handles the rest — each
- * segment takes exactly half.
+ * A heading row: 任务 on the left, the content-width switch at the trailing
+ * edge. The zone already insets its content to the nav rows' box edges, so
+ * the switch's right edge meets the 新任务 row's; the heading takes the nav
+ * items' own text inset (spacing-2) so it sits on the list headings' x below.
  */
 .maka-session-grouping-switch {
-  padding-block: var(--spacing-1) var(--spacing-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  padding-block: var(--spacing-2) var(--spacing-1);
+  padding-inline-start: var(--spacing-2);
 }
 
 /*
