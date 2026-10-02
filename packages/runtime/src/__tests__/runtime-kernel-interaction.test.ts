@@ -38,7 +38,11 @@ import {
   type RuntimeKernelDeps,
   RuntimeOwnerCleanupError,
 } from '../runtime-kernel.js';
-import { BackendRegistry, type SessionStore } from '../session-manager.js';
+import {
+  BackendRegistry,
+  type BackendFactoryContext,
+  type SessionStore,
+} from '../session-manager.js';
 import { waitFor as pollFor } from '@maka/core/test-only/async-primitives';
 
 test('delegated execution policy is scoped to the run and ordinary execution restores the saved policy', async () => {
@@ -88,6 +92,51 @@ test('delegated execution policy is scoped to the run and ordinary execution res
   ]);
   assert.equal(instances[0]!.disposeCalls, 1);
   assert.equal((await store.readHeader(SESSION_ID)).permissionMode, 'ask');
+  await kernel.disposeBackend(SESSION_ID);
+});
+
+test('steering updates the question policy of a reused backend and the next ordinary turn restores it', async () => {
+  const store = memoryStore();
+  const backends = new BackendRegistry();
+  const contexts: BackendFactoryContext[] = [];
+  const released = deferred<void>();
+  backends.register('ai-sdk', (context) => {
+    contexts.push(context);
+    const backend = new BlockingBackend(SESSION_ID, {});
+    backend.releaseBlockedSend();
+    const send = backend.send.bind(backend);
+    backend.send = async function* (input) {
+      for await (const event of send(input)) {
+        if (input.turnId === 'steered' && event.type === 'complete') await released.promise;
+        yield event;
+      }
+    };
+    return backend;
+  });
+  let id = 0;
+  const kernel = new RuntimeKernel({
+    store,
+    backends,
+    newId: () => `steer-${++id}`,
+    now: () => id,
+  });
+  for await (const _ of kernel.startTurn(SESSION_ID, { turnId: 'before', text: 'ordinary' })) {
+  }
+  const turn = kernel
+    .startTurn(SESSION_ID, { turnId: 'steered', text: 'working' }, { runId: 'steered-run' })
+    [Symbol.asyncIterator]();
+  await turn.next();
+  assert.equal(contexts.length, 1);
+  assert.equal(contexts.map((context) => context.executionPolicy)[0], undefined);
+  kernel.returnExecutionQuestions(SESSION_ID, 'steered-run');
+  assert.equal(contexts[0]!.executionPolicy?.questions, 'return');
+  assert.equal(kernel.readExecutionPolicy(SESSION_ID, 'steered-run')?.questions, 'return');
+  released.resolve();
+  while (!(await turn.next()).done) {}
+  for await (const _ of kernel.startTurn(SESSION_ID, { turnId: 'after', text: 'ordinary again' })) {
+  }
+  assert.equal(contexts.length, 2);
+  assert.equal(contexts[1]!.executionPolicy, undefined);
   await kernel.disposeBackend(SESSION_ID);
 });
 

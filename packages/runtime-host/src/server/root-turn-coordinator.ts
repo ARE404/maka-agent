@@ -3039,6 +3039,38 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
     };
   }
 
+  async readExecutionPolicyForRun(
+    sessionId: string,
+    runId: string,
+    visited = new Set<string>(),
+  ): Promise<TurnExecutionPolicy | undefined> {
+    const identity = `${sessionId}:${runId}`;
+    if (visited.has(identity)) throw new Error('Cyclic execution policy lineage');
+    visited.add(identity);
+    const run = (await this.stores.runtimeEventStore.listSessionInvocations(sessionId)).find(
+      (candidate) => candidate.runId === runId,
+    );
+    if (!run) return undefined;
+    const policy = await this.readWorkHubExecutionPolicy(sessionId, run.turnId);
+    if (policy) return policy;
+    if (run.opening.source.kind === 'continuation')
+      return this.readExecutionPolicyForRun(sessionId, run.opening.source.sourceRunId, visited);
+    const [header, admission] = await Promise.all([
+      this.stores.sessionStore.readHeaderSnapshot(sessionId),
+      this.stores.agentRunStore.readRootTurnAdmission(sessionId, run.turnId),
+    ]);
+    const linkedExecution =
+      header.subagentSpawn?.initialTurnId === run.turnId ||
+      admission?.execution.kind === 'claimed_agent_graph_intent';
+    return header.subagentParent && linkedExecution
+      ? this.readExecutionPolicyForRun(
+          header.subagentParent.parentSessionId,
+          header.subagentParent.spawnedBy.parentRunId,
+          visited,
+        )
+      : undefined;
+  }
+
   private async readWorkHubExecutionPolicy(
     sessionId: string,
     turnId: string,
@@ -3067,7 +3099,9 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
         : [];
     const delegated = assignments.filter(
       (assignment) =>
-        sources.has(assignment.targetMessageId) && assignment.executionPermissionMode !== undefined,
+        (sources.has(assignment.targetMessageId) ||
+          (assignment.steered && assignment.targetTurnId === turnId)) &&
+        assignment.executionPermissionMode !== undefined,
     );
     const modes = new Set(delegated.map((assignment) => assignment.executionPermissionMode));
     if (modes.size > 1)
@@ -3133,7 +3167,16 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
     let detached = false;
     try {
       const policyTurnId = active.continuation?.sourceTurnId ?? input.turnId;
-      const executionPolicy = await this.readWorkHubExecutionPolicy(input.sessionId, policyTurnId);
+      const executionPolicy =
+        (await this.readWorkHubExecutionPolicy(input.sessionId, policyTurnId)) ??
+        (active.descriptor.kind === 'linked_child_initial' ||
+        active.descriptor.kind === 'claimed_agent_graph_intent' ||
+        active.continuation
+          ? await this.readExecutionPolicyForRun(
+              input.sessionId,
+              active.continuation?.sourceRunId ?? active.runId,
+            )
+          : undefined);
       const messageOrigin = hostedExecutionMessageOrigin(active.descriptor);
       const onRunStarted = async (): Promise<void> => {
         await this.manager.commitRevisionVersion(input.sessionId);

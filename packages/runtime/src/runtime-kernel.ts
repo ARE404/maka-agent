@@ -159,6 +159,8 @@ import type { AgentRunHandoffRequest } from './agent-run.js';
 
 export interface RuntimeKernelLike {
   claimExecution(sessionId: string): RuntimeExecutionClaim;
+  readExecutionPolicy?(sessionId: string, runId: string): TurnExecutionPolicy | undefined;
+  returnExecutionQuestions?(sessionId: string, runId: string): void;
   runSessionAdmissionMutation?<T>(
     sessionIds: readonly string[],
     operation: () => Promise<T> | T,
@@ -2428,6 +2430,33 @@ export class RuntimeKernel implements RuntimeKernelLike {
     );
   }
 
+  readExecutionPolicy(sessionId: string, runId: string): TurnExecutionPolicy | undefined {
+    for (const generation of this.backendGenerationsFor(sessionId)) {
+      if (generation.activeRuns.has(runId)) return generation.executionPolicy;
+    }
+    return [...(this.executionClaims.get(sessionId) ?? [])].find(
+      (execution) => execution.run?.runId === runId,
+    )?.executionPolicy;
+  }
+
+  returnExecutionQuestions(sessionId: string, runId: string): void {
+    for (const generation of this.backendGenerationsFor(sessionId)) {
+      const run = generation.activeRuns.get(runId);
+      if (!run) continue;
+      const policy: TurnExecutionPolicy = {
+        permissionMode: run.headerSnapshot().permissionMode,
+        questions: 'return',
+      };
+      generation.executionPolicy = policy;
+      for (const execution of this.executionClaims.get(sessionId) ?? []) {
+        if (execution.run?.runId === runId) execution.executionPolicy = policy;
+      }
+      return;
+    }
+    // A terminal backend can precede the Host's terminal admission. Its queued
+    // steering is recovered into a successor with the durable delegated policy.
+  }
+
   requestRunHandoff(
     sessionId: string,
     runId: string,
@@ -2803,6 +2832,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
         }));
       execution.run?.bindProviderStateIdentity(prepared.providerStateIdentity);
       const subagent = await this.resolveSubagentActivation(header);
+      const kernel = this;
       const backend = await prepared.build({
         sessionId,
         workspaceRoot: header.workspaceRoot,
@@ -2810,7 +2840,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
         store: execution.executionPolicy
           ? this.executionPolicyStore(sessionId, execution.executionPolicy)
           : this.deps.store,
-        ...(execution.executionPolicy ? { executionPolicy: execution.executionPolicy } : {}),
+        get executionPolicy() {
+          return kernel.active.get(sessionId)?.executionPolicy ?? execution.executionPolicy;
+        },
         abortSignal: execution.abortController.signal,
         ...(subagent
           ? {

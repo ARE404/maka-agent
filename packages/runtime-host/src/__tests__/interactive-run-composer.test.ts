@@ -250,13 +250,16 @@ function tool(name: string): MakaTool {
   };
 }
 test('delegated workers return missing information without opening a human interaction', async () => {
-  const composer = createFixtureComposer({ returnMissingInformation: true });
+  let delegated = false;
+  const composer = createFixtureComposer({ returnMissingInformation: () => delegated });
   const question = composer.tools.find((tool) => tool.name === 'AskUserQuestion')!;
   const questions = {
     questions: [
       { question: 'Which environment should I deploy to?', options: [{ label: 'Staging' }] },
     ],
   };
+  // The already resolved tool must observe steering received after backend creation.
+  delegated = true;
   const result = await question.impl(
     questions as never,
     {

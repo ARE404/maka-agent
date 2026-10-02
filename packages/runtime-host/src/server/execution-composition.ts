@@ -1560,6 +1560,8 @@ export async function createExecutionRuntimeHostComposition(
       runStore: stores.agentRunStore,
       runtimeEventStore: stores.runtimeEventStore,
       toolBoundaryProtocol: stores.runtimeEventStore.toolBoundaryProtocol,
+      resolveExecutionPolicy: (sessionId, runId) =>
+        requireRootCoordinator(rootCoordinator).readExecutionPolicyForRun(sessionId, runId),
       backends,
       subagentCatalog,
       assertChildExecutorAvailable: (parentSessionId, executorId) => {
@@ -2661,6 +2663,11 @@ export async function createExecutionRuntimeHostComposition(
                 // Keep the durable steering identity and its live queue owner
                 // under one Session admission. A terminal transition must not
                 // observe the committed Message before the queue does.
+                if (steered)
+                  requireSessionManager(manager).returnExecutionQuestions(
+                    input.targetSessionId,
+                    runId,
+                  );
                 await messages.consumePendingAdmissionsAdmitted(input.targetSessionId, lease);
                 try {
                   await continuityCoordinator.refreshCanonical(

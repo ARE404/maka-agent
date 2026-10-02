@@ -94,7 +94,7 @@ export interface InteractiveRunComposerInput {
   readonly pluginSkills?: PluginSkillService;
   readonly memory: HostMemoryCoordinator;
   readonly sessionTodo: SessionTodoToolStore;
-  readonly returnMissingInformation?: boolean;
+  readonly returnMissingInformation?: boolean | (() => boolean);
   readonly childInstruction?: string;
   readonly sideConversation?: boolean;
   readonly boundTools?: readonly MakaTool[];
@@ -164,6 +164,10 @@ export function createInteractiveRunComposer(input: InteractiveRunComposerInput)
     (input.toolProfile !== undefined && input.toolProfile !== 'workhub-coordination-v2')
       ? []
       : (input.clientCapabilities?.tools ?? []);
+  const returnMissingInformation = () =>
+    typeof input.returnMissingInformation === 'function'
+      ? input.returnMissingInformation()
+      : input.returnMissingInformation === true;
   const resolveTools = (): readonly MakaTool[] => {
     const stableHostTools = [...defaultTools, ...clientCapabilityTools];
     const additionalTools = hasToolCeiling
@@ -171,17 +175,21 @@ export function createInteractiveRunComposer(input: InteractiveRunComposerInput)
       : (input.resolveAdditionalTools?.(stableHostTools) ?? []);
     const candidateTools = projectHostedExecutionTools(
       [...stableHostTools, ...additionalTools].map((tool) =>
-        input.returnMissingInformation && tool.name === 'AskUserQuestion'
+        tool.name === 'AskUserQuestion'
           ? {
               ...tool,
-              description:
-                'Report missing information to the coordinating Agent. Returns immediately without asking or waiting for the user.',
-              impl: async (raw: unknown) => ({
-                status: 'missing_information',
-                questions: raw,
-                message:
-                  'The user has not been asked. Return these missing requirements in your reply to the coordinator. Continue independent work if possible, then end this Turn.',
-              }),
+              description: returnMissingInformation()
+                ? 'Report missing information to the coordinating Agent. Returns immediately without asking or waiting for the user.'
+                : tool.description,
+              impl: async (raw, context) =>
+                returnMissingInformation()
+                  ? {
+                      status: 'missing_information',
+                      questions: raw,
+                      message:
+                        'The user has not been asked. Return these missing requirements in your reply to the coordinator. Continue independent work if possible, then end this Turn.',
+                    }
+                  : tool.impl(raw, context),
             }
           : tool,
       ),
@@ -307,7 +315,7 @@ export function createInteractiveRunComposer(input: InteractiveRunComposerInput)
     context: HostModelPromptContext,
   ): Promise<ResolvedRunPrompt> => {
     const base = await resolveBaseSystemPrompt(context);
-    const effectiveBase = input.returnMissingInformation
+    const effectiveBase = returnMissingInformation()
       ? {
           ...base,
           text: [
@@ -469,7 +477,7 @@ export function createInteractiveRunComposerFactory(
         ...(input.pluginSkills ? { pluginSkills: input.pluginSkills } : {}),
         memory: input.memory,
         sessionTodo: input.sessionTodo,
-        returnMissingInformation: backendContext.executionPolicy?.questions === 'return',
+        returnMissingInformation: () => backendContext.executionPolicy?.questions === 'return',
         ...(backendContext.systemPrompt ? { childInstruction: backendContext.systemPrompt } : {}),
         ...(isSideConversationSession(backendContext.header.labels)
           ? { sideConversation: true }
