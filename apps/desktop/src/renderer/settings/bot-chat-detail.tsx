@@ -316,18 +316,21 @@ export function BotChatChannelDetail(props: {
         variant="bare"
         title={quickOnboarding && !qrOnlyOnboarding ? detailCopy.setupMethod : detailCopy.connectionSettings}
         description={quickOnboarding ? detailCopy.localCredentials : detailCopy.autosave}
+        // The setup mode is the section's group-level switch: it sits in the
+        // header's trailing slot at content width, like 导入/导出任务's 来源,
+        // instead of as a row of its own between the heading and the callout.
+        action={quickOnboarding && !qrOnlyOnboarding ? (
+          <SegmentedControl
+            value={setupMode}
+            label={detailCopy.setupAria(providerPresentation.label)}
+            size="sm"
+            onChange={(value) => setSetupMode(value as 'quick' | 'manual')}
+          >
+            <SegmentedControlItem value="quick" label={detailCopy.quickRecommended} />
+            <SegmentedControlItem value="manual" label={detailCopy.manual} />
+          </SegmentedControl>
+        ) : undefined}
       >
-      {quickOnboarding && !qrOnlyOnboarding && (
-        <SegmentedControl
-          className="settingsBotSetupModes"
-          value={setupMode}
-          label={detailCopy.setupAria(providerPresentation.label)}
-          onChange={(value) => setSetupMode(value as 'quick' | 'manual')}
-        >
-          <SegmentedControlItem value="quick" label={detailCopy.quickRecommended} />
-          <SegmentedControlItem value="manual" label={detailCopy.manual} />
-        </SegmentedControl>
-      )}
 
       {quickOnboarding && provider !== 'wechat' && setupMode === 'quick' && (
         /* Astryx convergence: the hand-tinted quick-setup plate is an
