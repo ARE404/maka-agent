@@ -106,8 +106,6 @@ export function useAppShellBootstrapSubscriptions(options: {
   openHelp: () => void;
   openSettings: () => void;
   clearPendingTurnActions: () => void;
-  projectPickerPendingRef: RefBox<boolean>;
-  projectPickerRequestRef: RefBox<number>;
   refreshConnections: () => Promise<void>;
   refreshMemoryActive: (failureContext?: 'load') => Promise<void>;
   refreshMessages: (sessionId: string) => Promise<boolean>;
@@ -159,8 +157,6 @@ export function useAppShellBootstrapSubscriptions(options: {
   });
   const cleanupPendingRefs = useEffectEvent(() => {
     options.rendererMountedRef.current = false;
-    options.projectPickerRequestRef.current += 1;
-    options.projectPickerPendingRef.current = false;
     options.clearPendingTurnActions();
   });
 

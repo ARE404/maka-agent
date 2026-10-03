@@ -283,7 +283,7 @@ or reason, which stays with review.
 | `AppShellContent` | `useAppShellHostEffects` | titlebar modal sync | titlebar | legacy `app-shell-effects.ts` | observe top-layer modals; the `data-os` platform tag is applied by `ShellLifecycleSources` | layout | — |
 | `AppShellContent` | `useAppShellNavRefSync` | `navSelectionRef` | ownership checks of async results | AppShell | mirror the navigation selection into a ref | navigation | — |
 | `AppShellContent` | `useAppShellPersistenceEffects` | theme and navigation persistence | `<html>` theme class and palette; stored navigation | legacy `app-shell-effects.ts` | apply the theme preference and palette; persist the navigation state | layout | — |
-| `AppShellContent` | `useAppShellProjectContext` | project context | titlebar project name; project picker and commands | legacy `use-project-context.ts` | read the owner Session's project and run project commands | — | M5 |
+| `AppShellContent` | `useAppShellProjectContext` | project context | titlebar project name and path; Workbar, Module Hub and palette project inputs; the default-Host project refresh | legacy `use-project-context.ts` | read the owner Session's and the default Host's project projection; project mutations and the open-folder commands belong to Task Entry | — | M5 |
 | `AppShellContent` | `useAppShellSessionUiReads` | displayed Session chrome | interaction, queue, live-turn and execution chrome; Composer props | Conversation (transitional reader) | fixed-purpose reads of the displayed and owner Session | — | M3 |
 | `AppShellContent` | `useAppShellSessionWorkspace` | Session workspace | every region's requested, published and owner Session | legacy `use-app-shell-session-workspace.ts` over the Session catalog and Conversation | Session selection and the catalog controller | navigation | — |
 | `AppShellContent` | `useAppShellTurnPresentation` | `deriveTurnPresentation` | `ChatView` turn footer | application contract `turn-presentation` | derive turn presentation from the transcript projection and pending turn actions | — | M3 |
@@ -318,6 +318,7 @@ following. Exports only tests or Storybook read live in each feature's
 | Feature | Export | Root consumer | Kind | Stays because / Removal |
 | --- | --- | --- | --- | --- |
 | overlays | `OverlaysConsumer` | `app-shell-overlays.tsx` (Settings modal, palette command list) | render-prop projection of overlay state | M5, with the legacy command actions |
+| diagnostics | `ManualDiagnosticReportConsumer` | command palette options in `app-shell.tsx` | render-prop manual report command | M5, with the legacy command actions |
 | task-entry | `TaskEntryWorkspacePickerConsumer` | Composer region in `app-shell.tsx` | render-prop workspace picker | M3 |
 | session-collaboration | `GuestTurnRequests` | Composer region in `app-shell.tsx` | render-prop guest composer projection over the Composer ref | M3 |
 | module-hub | `ModuleHubSkillCatalogRevisionBoundary` | Composer mentions provider | render-prop skill catalog revision | M3 |

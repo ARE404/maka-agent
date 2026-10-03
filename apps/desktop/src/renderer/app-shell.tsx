@@ -158,7 +158,6 @@ export function AppShell() {
   const [uiLocaleOverride, setUiLocaleOverride] = useState<UiLocale | null>(null);
   const systemUiLocale = useSystemUiLocale();
   const uiLocale = resolveUiLocale(uiLocalePreference, systemUiLocale, uiLocaleOverride);
-  const copy = getShellCopy(uiLocale);
 
   return (
     <LocaleProvider locale={uiLocale} override={uiLocaleOverride}>
@@ -167,13 +166,7 @@ export function AppShell() {
           `useUiLocale()` throws before anything renders. Still above every
           Astryx subtree. */}
       <AstryxLocaleProvider>
-        <Diagnostics.DiagnosticReportToastProvider
-          labels={{
-            label: copy.errorBoundary.copyReport,
-            failureTitle: copy.commandActions.copyFailedTitle,
-            failureDescription: copy.commandActions.clipboardDenied,
-          }}
-        >
+        <Diagnostics.DiagnosticReportToastProvider>
           <ErrorBoundary locale={uiLocale}>
             <AppUpdateProvider>
               <RuntimeHostHandoffOverlay />
@@ -189,9 +182,13 @@ export function AppShell() {
                               <Conversation.ConversationProvider>
                                 <OnboardingProjectionRoot>
                                   {(onboarding) => (
-                                    <AppShellContent
-                                      {...{ taskEntry, overlays, sharedSessionDialog, workbar, onboarding, uiLocale, uiLocaleOverride, setUiLocaleOverride, setUiLocalePreference }}
-                                    />
+                                    <Diagnostics.ManualDiagnosticReportConsumer>
+                                      {(copyManualDiagnosticReport) => (
+                                        <AppShellContent
+                                          {...{ taskEntry, overlays, sharedSessionDialog, workbar, onboarding, copyManualDiagnosticReport, uiLocale, uiLocaleOverride, setUiLocaleOverride, setUiLocalePreference }}
+                                        />
+                                      )}
+                                    </Diagnostics.ManualDiagnosticReportConsumer>
                                   )}
                                 </OnboardingProjectionRoot>
                               </Conversation.ConversationProvider>
@@ -228,6 +225,7 @@ function AppShellContent({
   sharedSessionDialog,
   workbar: { bridge, commands, selectors, LiveContextUsageProbe },
   onboarding,
+  copyManualDiagnosticReport,
   uiLocale,
   uiLocaleOverride,
   setUiLocaleOverride,
@@ -238,6 +236,7 @@ function AppShellContent({
   sharedSessionDialog: SessionCollaborationDialogProjection;
   workbar: WorkbarShellProjection;
   onboarding: OnboardingShellProjection;
+  copyManualDiagnosticReport: Diagnostics.CopyManualDiagnosticReport;
   uiLocale: UiLocale;
   uiLocaleOverride: UiLocale | null;
   setUiLocaleOverride: Dispatch<SetStateAction<UiLocale | null>>;
@@ -794,28 +793,18 @@ function AppShellContent({
     activeProjectCapabilities,
     currentProjectId,
     currentProject,
-    projectPickerPendingRef,
-    projectPickerRequestRef,
     refreshProjects,
-    relinkProject,
-    renameProject,
-    archiveProject,
-    restoreProject,
-    openProjectFolder,
-    openWorkspaceFolder,
   } = useAppShellProjectContext({
-    uiLocale,
     rendererMountedRef,
     sessionId: ownerActiveId,
     sessionCwd: sharedSessionActive ? undefined : activeSession?.cwd,
     sessionProjectId: sharedSessionActive ? undefined : activeSession?.projectId,
     sessionProfileKind: sharedSessionActive ? undefined : activeSession?.profileKind,
-    onProjectSelected: (ownerSessionId) => {
-      void moduleHubCommands.refreshProjectSkills();
-      if (ownerSessionId && activeIdRef.current === ownerSessionId) openNewTaskSurface();
-    },
-    toastApi,
   });
+  const openProjectFolder = useCallback(
+    () => taskEntry.commands.openProjectFolder(ownerActiveId),
+    [taskEntry.commands, ownerActiveId],
+  );
   const captureActiveComposerClaim = useCallback(() => {
     const sessionId = activeIdRef.current;
     const composer = composerRef.current;
@@ -995,8 +984,6 @@ function AppShellContent({
     openHelp,
     openSettings,
     clearPendingTurnActions: turnActionRegistry.clearAll,
-    projectPickerPendingRef,
-    projectPickerRequestRef,
     refreshConnections: refreshConnectionProjections,
     refreshMemoryActive,
     refreshMessages,
@@ -1180,6 +1167,8 @@ function AppShellContent({
     themePref,
     hiddenSessionIds: selectors.hiddenSessionIds,
     captureComposerImportOwner,
+    copyManualDiagnosticReport,
+    paletteActions: overlays.paletteActions,
     createSession,
     openHelp,
     openScheduledTaskCreate: () => {
@@ -1191,7 +1180,7 @@ function AppShellContent({
     openSideConversation: () => commands.openTool('side-chat'),
     openSettings,
     openSettingsSection,
-    openWorkspaceFolder,
+    openWorkspaceFolder: taskEntry.commands.openWorkspaceFolder,
     refreshConnections: defaultHostConnections.refreshConnections,
     copyTodayDailyReview: moduleHubCommands.copyTodayDailyReview,
     pasteTodayDailyReview: moduleHubCommands.pasteTodayDailyReview,
