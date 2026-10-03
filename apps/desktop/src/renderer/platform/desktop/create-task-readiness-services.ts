@@ -17,26 +17,19 @@
  * under the License.
  */
 
-import { strict as assert } from 'node:assert';
-import { describe, it } from 'node:test';
-import {
-  mergeWorkspaceReferences,
-} from '../../renderer/features/conversation/testing.js';
+import type { MakaBridge } from '../../../preload/bridge-contract.js';
+import type { TaskReadinessServices } from '../../features/conversation/index.js';
 
-describe('follow-up submit routing', () => {
-  it('restores workspace references after queued text returns to the draft', () => {
-    assert.deepEqual(
-      mergeWorkspaceReferences(
-        'preface\n\nreview @src/app.ts',
-        undefined,
-        [{
-          kind: 'workspace_file',
-          value: '@src/app.ts',
-          label: 'src/app.ts',
-          start: 7,
-        }],
-      ),
-      [{ value: '@src/app.ts', start: 16 }],
-    );
-  });
-});
+export type DesktopTaskReadinessBridge = {
+  readonly taskReadiness: Pick<MakaBridge['taskReadiness'], 'getSnapshot'>;
+  readonly newTasks: Pick<MakaBridge['newTasks'], 'getReadiness'>;
+};
+
+export function createDesktopTaskReadinessServices(
+  bridge: DesktopTaskReadinessBridge = window.maka,
+): TaskReadinessServices {
+  return {
+    readSession: (sessionId, request) => bridge.taskReadiness.getSnapshot(request, sessionId),
+    readNewTask: (target, request) => bridge.newTasks.getReadiness(target, request),
+  };
+}

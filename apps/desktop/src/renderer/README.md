@@ -278,22 +278,21 @@ or reason, which stays with review.
 | `AppShell` | `useState` | `uiLocalePreference` | `LocaleProvider`; appearance settings | AppShell | the persisted locale preference and its setter | locale | — |
 | `AppShell` | `useState` | `uiLocaleOverride` | `LocaleProvider`; E2E locale override | AppShell | a runtime locale override above every region | locale | — |
 | `AppShell` | `useSystemUiLocale` | `systemUiLocale` | `resolveUiLocale` for `LocaleProvider` | AppShell | read the OS locale and its changes | locale | — |
-| `AppShellContent` | `useActiveExecutionBoundary` | `activeExecutionBoundary` | Composer permission control; chat actions reload it | Conversation | read and reload the owner Session's execution boundary | — | M3 |
+| `AppShellContent` | `useActiveExecutionBoundary` | `activeExecutionBoundary` | Composer permission control; the Composer submission owner reloads it after a boundary answer | Conversation | read and reload the owner Session's execution boundary | — | M3 |
 | `AppShellContent` | `useAppShellBootstrapSubscriptions` | Main change subscriptions | Session, connection, Host-profile and settings refreshers; app-window commands | legacy `app-shell-effects.ts` | subscribe to Main change events and dispatch them to region refreshers | — | M5 |
 | `AppShellContent` | `useAppShellHostEffects` | platform tag and titlebar modal sync | `<html data-os>`; titlebar | legacy `app-shell-effects.ts` | read the platform once and observe top-layer modals; the `app.info` read moves behind an adapter in M5 | layout | — |
 | `AppShellContent` | `useAppShellNavRefSync` | `navSelectionRef` | ownership checks of async results | AppShell | mirror the navigation selection into a ref | navigation | — |
 | `AppShellContent` | `useAppShellPersistenceEffects` | theme and navigation persistence | `<html>` theme class and palette; stored navigation | legacy `app-shell-effects.ts` | apply the theme preference and palette; persist the navigation state | layout | — |
 | `AppShellContent` | `useAppShellProjectContext` | project context | titlebar project name; project picker and commands | legacy `use-project-context.ts` | read the owner Session's project and run project commands | — | M5 |
-| `AppShellContent` | `useAppShellSessionUiReads` | displayed Session chrome | stop, interaction, queue, live-turn and execution chrome; Composer props | Conversation (transitional reader) | fixed-purpose reads of the displayed and owner Session | — | M3 |
-| `AppShellContent` | `useAppShellSessionWorkspace` | Session workspace | every region's requested, published and owner Session | legacy `use-app-shell-session-workspace.ts` over the Session catalog and Conversation | Session selection and the catalog controller; its transient and interaction commands leave with M3 | navigation | — |
+| `AppShellContent` | `useAppShellSessionUiReads` | displayed Session chrome | interaction, queue, live-turn and execution chrome; Composer props | Conversation (transitional reader) | fixed-purpose reads of the displayed and owner Session | — | M3 |
+| `AppShellContent` | `useAppShellSessionWorkspace` | Session workspace | every region's requested, published and owner Session | legacy `use-app-shell-session-workspace.ts` over the Session catalog and Conversation | Session selection and the catalog controller | navigation | — |
 | `AppShellContent` | `useAppShellTurnPresentation` | `deriveTurnPresentation` | `ChatView` turn footer | application contract `turn-presentation` | derive turn presentation from the transcript projection and pending turn actions | — | M3 |
 | `AppShellContent` | `useEffect` | `setWorkHubEnabled`: WorkHub enablement subscription | `workHubEnabled`, `workHubActive` | AppShell | read the client WorkHub setting and follow its changes | — | M5 |
 | `AppShellContent` | `useEffect` | `defaultHostConnections`: onboarding connection seed | default-Host connection projection | AppShell | seed default-Host connections from the onboarding snapshot | — | M5 |
 | `AppShellContent` | `useLayoutEffect` | `openSessionInChatRef` publication | turn footer, Module Hub, titlebar parent link | AppShell | publish the current open-Session command into a ref | cross-region command | — |
-| `AppShellContent` | `useNewTaskChoice` | new-task permission choice | Composer permission control; chat actions | Conversation (transitional) | the per-draft permission choice | — | M3 |
 | `AppShellContent` | `useOnboardingSnapshot` | onboarding snapshot | hero, connection seed, readiness, send outcomes | legacy `use-onboarding-snapshot.ts` | read onboarding state from Main | — | M5 |
 | `AppShellContent` | `useSessionNavigationReads` | rail reads | command palette sessions, titlebar parent, `--maka-sidenav-width` | Session Navigation | revision navigation, the active parent Session and the rail layout | navigation | — |
-| `AppShellContent` | `useSessionSettingIntent` | selected-Session setting overlay | Composer model and mode controls | Session Settings | an equality-selected overlay read and setting commands | — | M3 |
+| `AppShellContent` | `useSessionSettingIntent` | selected-Session setting overlay | Composer model and mode controls; new-task settings for creation | Session Settings | an equality-selected overlay read, the new-task settings and setting commands | — | M3 |
 | `AppShellContent` | `useShellAppearance` | appearance settings | theme, palette, user label, Workbar toggle position, locale update gate | legacy `use-shell-appearance.ts` | read and write client appearance settings | layout | — |
 | `AppShellContent` | `useShellChatModel` | Composer model selection | model picker, health notice, new-chat model | Conversation (transitional) | derive model, thinking and executor selection | — | M3 |
 | `AppShellContent` | `useShellConnections` | `newTaskConnections` | new-task model choices | legacy `use-shell-connections.ts` | the new-task target's connection snapshot and refresh | application lifecycle | — |
@@ -301,22 +300,14 @@ or reason, which stays with review.
 | `AppShellContent` | `useShellConnections` | `sessionHostConnections` | owner Session model choices | legacy `use-shell-connections.ts` | the owner Session Host's connection snapshot and refresh | application lifecycle | — |
 | `AppShellContent` | `useShellLiveTurn` | live-turn flags | mode-change gating, model switch, pet activity | Conversation reads | derive streaming and settled flags from the owner Session snapshot | — | M3 |
 | `AppShellContent` | `useShellMemoryPill` | memory pill | titlebar memory pill | legacy `use-shell-memory-pill.ts` | read and refresh the owner Session's memory state | layout | — |
-| `AppShellContent` | `useShellResume` | resume offer | Composer send slot | Conversation | per-Session resume availability and stop notes | — | M3 |
+| `AppShellContent` | `useShellResume` | resume offer | Composer send slot | Conversation | per-Session resume availability | — | M3 |
 | `AppShellContent` | `useStableActions` | `createAppShellE2eFixtureActions` | E2E fixture command | AppShell | apply test fixtures across navigation, rail, Workbar and appearance | cross-region command | — |
-| `AppShellContent` | `useStableActions` | `createAppShellChatActions` | Composer send and interaction responses | legacy `app-shell-chat-actions.ts` | send, enqueue and interaction commands | — | M3 |
-| `AppShellContent` | `useStableActions` | `createAppShellTurnActions` | turn footer | legacy `app-shell-turn-actions.ts` | turn footer commands | — | M3 |
-| `AppShellContent` | `useStableActions` | `createAppShellRevisionActions` | edit and resend | legacy `app-shell-revision-actions.ts` | revision draft commands | — | M3 |
-| `AppShellContent` | `useState` | `newTaskSendPending` | Composer send slot | AppShell | the pending flag of a new-task send | — | M3 |
-| `AppShellContent` | `useState` | `newChatPlanModeActive` | Composer Plan toggle; mentions; chat actions | AppShell | the new chat's Plan choice | — | M3 |
-| `AppShellContent` | `useState` | `newChatOrchestrationMode` | Composer orchestration control; chat actions | AppShell | the new chat's orchestration choice | — | M3 |
 | `AppShellContent` | `useState` | `petCompletionNonce` | custom pet companion | AppShell | a counter the transcript bumps when the active Turn completes | cross-region command | — |
 | `AppShellContent` | `useState` | `navigationState` | navigation sections; stored navigation | AppShell | the selected section and each hub's module | navigation | — |
 | `AppShellContent` | `useState` | `workHubEnabled` | WorkHub dock; Workbar input | AppShell | the client WorkHub setting | — | M5 |
 | `AppShellContent` | `useState` | `workHubActive` | WorkHub or Session surface | AppShell | whether the WorkHub surface is shown | navigation | — |
-| `AppShellContent` | `useState` | `revisionDraft` | edit and resend; Composer | AppShell | the open revision draft | — | M3 |
-| `AppShellContent` | `useTaskSubmissionReadiness` | task readiness | Composer readiness notice | legacy `use-task-submission-readiness.ts` | read readiness for the Composer target | — | M3 |
 | `AppShellContent` | `useToast` | `toastApi` | toasts of every legacy action | Astryx toast provider | show toasts | cross-region command | — |
-| `AppShellContent` | `useTurnActionRegistry` | pending turn actions | turn footer disabled mask; bootstrap clears | legacy `use-turn-action-registry.ts` | pending action keys per Session | — | M3 |
+| `AppShellContent` | `useTurnActionRegistry` | pending turn actions | turn footer disabled mask; the Composer submission owner's Turn branch; bootstrap clears | legacy `use-turn-action-registry.ts` | pending action keys per Session | — | M3 |
 <!-- retained-root-hooks:end -->
 
 ### Transitional feature exports outside Conversation

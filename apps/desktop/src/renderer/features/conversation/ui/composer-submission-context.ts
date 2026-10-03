@@ -17,9 +17,14 @@
  * under the License.
  */
 
-export {
-  deriveTaskReadinessNotice,
-  isTaskSubmissionHardBlocked,
-  resolveTaskReadinessModelTarget,
-  type TaskReadinessNotice,
-} from './features/conversation/index.js';
+import { createContext, useContext } from 'react';
+import type { useComposerSubmission } from '../controller/use-composer-submission.js';
+
+export type ComposerSubmissionReader = ReturnType<typeof useComposerSubmission>['reader'];
+
+export const ComposerSubmissionContext = createContext<ComposerSubmissionReader | undefined>(undefined);
+export function useComposerSubmissionReader() {
+  const reader = useContext(ComposerSubmissionContext);
+  if (!reader) throw new Error('ComposerSubmissionProvider is required');
+  return reader;
+}
