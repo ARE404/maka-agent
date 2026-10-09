@@ -1266,6 +1266,8 @@ export async function createExecutionRuntimeHostComposition(
         executeHostedExecutionToSettlement(requireRootCoordinator(rootCoordinator), input),
       stopRoot: (identity, input) =>
         requireRootCoordinator(rootCoordinator).stopRoot(identity, input),
+      stopRootRun: (identity, input) =>
+        requireRootCoordinator(rootCoordinator).stopRootRun(identity, input),
       stopSession: (sessionId, input) =>
         requireRootCoordinator(rootCoordinator).stopSession(sessionId, input),
     };
