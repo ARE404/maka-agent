@@ -415,14 +415,17 @@ export const ColoredWorkHistory: Story = {
       expect(answer.borderLeftWidth).toBe('4px');
       expect(answer.borderRightWidth).toBe('0px');
       expect(getComputedStyle(turn).borderLeftWidth).toBe('0px');
-      // The icon-button's square aspect must not shrink the full-height hit
-      // target. The sender-side bar must also reach the message's outer edge.
+      // Rails follow the bubble with 4px clearance at each end, excluding
+      // headings and metadata. Their hit targets retain the full rail height.
       for (const sender of ['user', 'assistant']) {
         const message = turn.querySelector<HTMLElement>(`.maka-${sender === 'user' ? 'user-message' : 'assistant-answer'}`)!;
         const rail = message.querySelector<HTMLElement>('.workhub-message-rail')!;
         const bounds = message.getBoundingClientRect();
         const hit = rail.getBoundingClientRect();
-        expect(Math.abs(hit.height - bounds.height)).toBeLessThan(1);
+        const bubble = message.querySelector<HTMLElement>(`.maka-chat-message-bubble-${sender}`)!;
+        const bubbleBounds = bubble.getBoundingClientRect();
+        expect(Math.abs(hit.height - Math.max(24, bubbleBounds.height + 8))).toBeLessThan(1);
+        expect(Math.abs(hit.top - (bubbleBounds.top - 4))).toBeLessThan(1);
         expect(Math.abs(sender === 'user' ? hit.right - bounds.right : hit.left - bounds.left)).toBeLessThan(1);
       }
     }
