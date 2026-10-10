@@ -85,18 +85,16 @@ export function BotChatOverview(props: {
   // as the shared StatusDot + text idiom.
   return (
     <SettingsPage>
-      <SettingsSection title={locale === 'zh-CN' ? '消息处理' : 'Message handling'}>
+      <SettingsSection title={copy.messageHandlingTitle}>
         <SettingsRow
-          label={locale === 'zh-CN' ? '消息处理方式' : 'Handle messages with'}
-          description={locale === 'zh-CN'
-            ? 'WorkHub：所有聊天与桌面共用一个 WorkHub，会话上下文共享，使用 WorkHub 权限。切换从下一条消息生效。'
-            : 'WorkHub shares one conversation and its permissions across desktop and remote chats. Changes apply to the next message.'}
+          label={copy.messageHandlingLabel}
+          description={copy.messageHandlingDescription}
           end={<Selector
-            label={locale === 'zh-CN' ? '消息处理方式' : 'Handle messages with'}
+            label={copy.messageHandlingLabel}
             isLabelHidden
             value={props.messageHandling ?? 'task'}
             options={[
-              { value: 'task', label: locale === 'zh-CN' ? '独立任务' : 'Separate task' },
+              { value: 'task', label: copy.separateTask },
               { value: 'workhub', label: 'WorkHub' },
             ]}
             onChange={(value) => props.onMessageHandlingChange?.(value as BotMessageHandling)}
