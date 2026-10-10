@@ -24,6 +24,7 @@ import { ChevronDown, PictureInPicture2, Undo2, X } from '@maka/ui/icons';
 import { useLiveContextUsage } from '../../../application/contracts/session-inspector/use-live-context-usage.js';
 import { selectLatestRequestUsage } from '../../../application/contracts/session-inspector/latest-request-usage.js';
 import { WorkHubProgressCard } from './workhub-progress-card.js';
+import { completedWorkHubDraft } from '../model/wn-draft.js';
 import { WorkHubComposer } from './workhub-composer.js';
 import type { RestoredDraftContent } from '../../../application/contracts/transient-message-projection.js';
 import { WorkHubConversation } from './workhub-conversation.js';
@@ -77,6 +78,20 @@ export function WorkHubRoot() {
     (sessionId, draft) => draftRestore.current?.(sessionId, draft),
   );
   const { services, session, transcript, busy } = controller;
+  const pendingWn = useRef<{ sessionId: string; submittedAt: number; previousIds: Set<string> } | undefined>(undefined);
+  useEffect(() => {
+    const pending = pendingWn.current;
+    if (!pending) return;
+    if (pending.sessionId !== controller.sessionId) {
+      pendingWn.current = undefined;
+      return;
+    }
+    const draft = completedWorkHubDraft(transcript.messages, pending.previousIds, pending.submittedAt);
+    if (!draft || !composer.current) return;
+    pendingWn.current = undefined;
+    // Preserve anything typed while generation was in flight.
+    composer.current.appendText(draft);
+  }, [controller.sessionId, transcript.messages]);
   useEffect(() => {
     services.bindBrowserSession(controller.sessionId ?? null);
     return () => services.bindBrowserSession(null);
@@ -322,7 +337,12 @@ export function WorkHubRoot() {
               allowAttachmentImportWhileStreaming
               stopPending={controller.stopPending}
               onSend={async (text, attachments, followUpMode) => {
+                const pending = /^wn$/i.test(text.trim()) && controller.sessionId
+                  ? { sessionId: controller.sessionId, submittedAt: Date.now(), previousIds: new Set(transcript.messages.map((message) => message.id)) }
+                  : undefined;
+                pendingWn.current = pending;
                 const accepted = await controller.send(text, attachments, followUpMode);
+                if (!accepted && pendingWn.current === pending) pendingWn.current = undefined;
                 if (accepted) {
                   setConversationExpanded(true);
                   if (progress) call(services.presentation.expandProgress(presentation.progressRequest));
