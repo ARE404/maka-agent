@@ -17,13 +17,15 @@
  * under the License.
  */
 
-export { ProjectRegistrationBoundary } from './ui/project-registration-boundary.js';
-export type { ProjectRegistration } from './controller/use-project-registration.js';
-export { TaskEntryHost } from './ui/task-entry-host.js';
-export {
-  TaskEntryRoot,
-  TaskEntryWorkspacePickerConsumer,
-} from './ui/task-entry-provider.js';
-export type { TaskEntryShellProjection } from './ui/task-entry-provider.js';
-export { TaskEntryServicesProvider } from './services-context.js';
-export type { TaskEntryServices } from './ports.js';
+import type { ReactNode } from 'react';
+import type { TaskEntryHostRef } from '../ports.js';
+import { useProjectRegistration, type ProjectRegistration } from '../controller/use-project-registration.js';
+
+/** Adapts registration to legacy callers without adding hooks to their lifecycle. */
+export function ProjectRegistrationBoundary(props: {
+  host?: TaskEntryHostRef;
+  children(registration: ProjectRegistration): ReactNode;
+}) {
+  const registration = useProjectRegistration(props.host);
+  return props.children(registration);
+}
