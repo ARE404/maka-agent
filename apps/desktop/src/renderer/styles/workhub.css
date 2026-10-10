@@ -223,3 +223,14 @@ body:has(.workHubLive[data-placement='floating'][data-progress='true'])::after {
 }
 .workhub-conversation-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 16px; }
 .workhub-conversation-filter > span { overflow-wrap: anywhere; }
+
+/* Durable clarification and handoff context remains visible outside tool activity. */
+.workhub-turn-context { display: grid; gap: var(--space-2); min-width: 0; margin-block: var(--space-2); font-size: 12px; line-height: 1.6667; color: var(--foreground); overflow-wrap: anywhere; }
+.workhub-clarification-summary dl { display: grid; gap: var(--space-1); margin: var(--space-1) 0 0; }
+.workhub-clarification-summary dl > div { display: flex; flex-wrap: wrap; column-gap: var(--space-2); }
+.workhub-clarification-summary dt { color: var(--muted-foreground); }
+.workhub-clarification-summary dd { margin: 0; white-space: pre-wrap; }
+.workhub-handoff summary { cursor: pointer; width: fit-content; max-width: 100%; border-radius: var(--radius-sm); }
+.workhub-handoff summary:hover { text-decoration: underline; }
+.workhub-handoff summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.workhub-handoff-text { white-space: pre-wrap; max-width: 75ch; margin-block-start: var(--space-2); padding-inline-start: var(--space-3); border-inline-start: 1px solid var(--border); }

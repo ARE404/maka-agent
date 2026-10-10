@@ -155,7 +155,7 @@ export const workHubTasksSchema = z.discriminatedUnion("operation", [
     operation: z.literal("select_and_delegate"),
     candidateSetId: z.string().min(1),
     candidateRefs: z.array(z.string().min(1)).min(1).max(32),
-    text: z.string().min(1).max(48000),
+    text: z.string().min(1).max(48000).describe("Faithful handoff: preserve the original user request and actual clarification answers; add only established context. Leave detailed planning and environment choices to the execution Session; do not write a numbered execution plan. Label any brief optional suggestion separately. Do not invent deliverables or change the chosen approach."),
   }).strict().describe(
     "When an existing target is ambiguous or the user asks to choose, offer the relevant candidateRefs from one fresh candidates result. The Host asks the user and delegates this text directly to their exact selection; cancellation performs no delegation. Do not use AskUserQuestion to select task identities or reinterpret the answer into another delegate call.",
   ),
@@ -170,7 +170,7 @@ export const workHubTasksSchema = z.discriminatedUnion("operation", [
       operation: z.literal("delegate_existing"),
       candidateSetId: z.string().min(1).optional(),
       candidateRef: z.string().min(1),
-      text: z.string().min(1).max(48000),
+      text: z.string().min(1).max(48000).describe("Faithful handoff: preserve the original user request and actual clarification answers; add only established context. Leave detailed planning and environment choices to the execution Session; do not write a numbered execution plan. Label any brief optional suggestion separately. Do not invent deliverables or change the chosen approach."),
     })
     .strict()
     .describe(
@@ -180,7 +180,7 @@ export const workHubTasksSchema = z.discriminatedUnion("operation", [
     .object({
       operation: z.literal("create_new"),
       title: z.string().min(1).max(512),
-      text: z.string().min(1).max(48000),
+      text: z.string().min(1).max(48000).describe("Faithful handoff: preserve the original user request and actual clarification answers; add only established context. Leave detailed planning and environment choices to the execution Session; do not write a numbered execution plan. Label any brief optional suggestion separately. Do not invent deliverables or change the chosen approach."),
     })
     .strict()
     .describe(

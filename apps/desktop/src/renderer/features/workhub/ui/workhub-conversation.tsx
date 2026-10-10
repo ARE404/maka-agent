@@ -23,6 +23,7 @@ import { ChatView, useUiLocale } from '@maka/ui';
 import { Button, Link, Text } from '@astryxdesign/core';
 import { WorkHubHighlightContext, useWorkHubIdentityHue } from './workhub-work-identity.js';
 import type { WorkHubLinkedWork } from '../model/linked-work.js';
+import { workHubTurnContexts } from '../model/turn-context.js';
 import { workHubLiveCopy } from '../locales/workhub-live-copy.js';
 import { useAppShellTurnPresentation } from '../../../application/contracts/turn-presentation.js';
 
@@ -89,6 +90,24 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
       >{work.workspaceName ? `${work.workspaceName} / ${work.targetSessionName}` : work.targetSessionName}</Link>)}
     </div>,
   }]));
+  const turnContexts = useMemo(() => workHubTurnContexts(chat.messages), [chat.messages]);
+  for (const [turnId, context] of turnContexts) {
+    turnDecorations.set(turnId, {
+      ...turnDecorations.get(turnId),
+      context: <div className="workhub-turn-context">
+        {context.answers.length > 0 && <section aria-label={copy.clarifiedPreferences} className="workhub-clarification-summary">
+          <Text type="supporting" color="secondary">{copy.clarifiedPreferences}</Text>
+          <dl>{context.answers.map((answer) => <div key={answer.id}>
+            <dt>{answer.question}</dt><dd>{answer.answer}</dd>
+          </div>)}</dl>
+        </section>}
+        {context.handoffs.map((handoff) => <details key={handoff.id} className="workhub-handoff">
+          <summary>{copy.handoffContent} · {assignments.find((work) => work.targetSessionId === handoff.targetSessionId)?.targetSessionName ?? (handoff.targetSessionName || copy.work)}</summary>
+          <div className="workhub-handoff-text">{handoff.text}</div>
+        </details>)}
+      </div>,
+    });
+  }
   const selected = highlight.selectedWork;
   const matchingTurns = new Set([...worksByTurn].filter(([, works]) => works.some((work) => work.targetSessionId === selected?.sessionId)).map(([turnId]) => turnId));
   const messages = selected ? chat.messages.filter((message) => message.turnId !== undefined && matchingTurns.has(message.turnId)) : chat.messages;
