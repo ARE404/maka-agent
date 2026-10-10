@@ -173,3 +173,33 @@ test('WorkHub restores actual answers and accepted handoffs without displaying p
   assert.equal(details.querySelector('.workhub-handoff-text')!.textContent, assignment.delegationText);
   assert.match(details.querySelector('summary')!.textContent!, /交接内容 · CS336 学习/);
 });
+
+
+test('task result replies keep their source Work rail even without a new delegation or older history', async () => {
+  const target = JSON.stringify(['host-a', 'task-a']);
+  const coordination = JSON.stringify(['host-a', 'maka_workhub_coordination']);
+  const messages: StoredMessage[] = [
+    { type: 'user', id: 'notification', turnId: 'result-turn', ts: 1, text: 'Task result received',
+      origin: { kind: 'workhub_result', eventId: 'event', actionId: 'action', delegationId: 'delegation', targetSessionId: 'task-a', targetTurnId: 'task-turn' } },
+    { type: 'assistant', id: 'summary', turnId: 'result-turn', ts: 2, text: 'The first exercise is ready.', modelId: 'test' },
+  ];
+  const links = workHubLinkedWork(messages, [{ id: target, name: 'SQL practice', cwd: '/projects/sql' },
+    { id: JSON.stringify(['host-b', 'task-a']), name: 'Other host' }], 'Work', coordination);
+  assert.equal(links.length, 1);
+  assert.equal(links[0]?.targetSessionId, target);
+  assert.equal(links[0]?.coordinationTurnId, 'result-turn');
+  assert.equal(links[0]?.workspaceName, 'sql');
+  assert.equal(workHubLinkedWork(messages, [], 'Work', coordination)[0]?.targetSessionId, target);
+  assert.deepEqual(workHubLinkedWork(messages, [], 'Work'), []);
+  const markup = await renderTranscriptMarkup(createElement(LocaleProvider, { locale: 'en', children: null },
+    createElement(ChatSurfaceLayout, { composer: null, children: null }, createElement(WorkHubConversation, {
+      activeSession: { id: coordination, name: 'WorkHub', status: 'active', labels: [], isFlagged: false, isArchived: false, hasUnread: false, backend: 'ai-sdk', llmConnectionSlug: 'test', connectionLocked: false, model: 'test', permissionMode: 'ask' },
+      messages, workLinks: links, onNew: () => {}, onOpenWork: () => {}, scrollBehavior: 'auto',
+    })),
+  ));
+  const { document } = parseHTML(markup);
+  const rail = document.querySelector('.maka-assistant-answer .workhub-message-rail');
+  assert.ok(rail, 'the result reply must have the same clickable rail as its source Work');
+  assert.equal(rail.getAttribute('data-work-session-id'), target);
+  assert.doesNotMatch(rail.getAttribute('aria-label') ?? '', /Task result received|result-turn/);
+});
