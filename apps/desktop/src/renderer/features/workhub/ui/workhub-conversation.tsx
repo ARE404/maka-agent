@@ -92,6 +92,7 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
   }]));
   const turnContexts = useMemo(() => workHubTurnContexts(chat.messages), [chat.messages]);
   for (const [turnId, context] of turnContexts) {
+    if (context.answers.length === 0) continue;
     turnDecorations.set(turnId, {
       ...turnDecorations.get(turnId),
       context: <div className="workhub-turn-context">
@@ -101,10 +102,6 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
             <dt>{answer.question}</dt><dd>{answer.answer}</dd>
           </div>)}</dl>
         </TranscriptDisclosure>}
-        {context.handoffs.map((handoff) => <details key={handoff.id} className="workhub-handoff">
-          <summary>{copy.handoffContent} · {assignments.find((work) => work.targetSessionId === handoff.targetSessionId)?.targetSessionName ?? (handoff.targetSessionName || copy.work)}</summary>
-          <div className="workhub-handoff-text">{handoff.text}</div>
-        </details>)}
       </div>,
     });
   }

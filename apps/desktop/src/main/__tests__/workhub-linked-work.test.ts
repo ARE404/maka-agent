@@ -168,10 +168,7 @@ test('WorkHub restores actual answers and accepted handoffs without displaying p
   const { document } = parseHTML(markup);
   assert.match(document.querySelector('.workhub-clarification-summary')!.textContent!, /直接开练作业/);
   assert.doesNotMatch(document.querySelector('.workhub-turn-context')!.textContent!, /UNACCEPTED PROPOSAL|跳过的问题/);
-  const details = document.querySelector('details.workhub-handoff')!;
-  assert.equal(details.hasAttribute('open'), false);
-  assert.equal(details.querySelector('.workhub-handoff-text')!.textContent, assignment.delegationText);
-  assert.match(details.querySelector('summary')!.textContent!, /交接内容 · CS336 学习/);
+  assert.equal(document.querySelector('.workhub-handoff'), null);
 });
 
 
