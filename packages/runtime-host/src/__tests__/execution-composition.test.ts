@@ -2400,6 +2400,149 @@ test('WorkHub creates new work through the production assignment composition', a
   });
 });
 
+test('WorkHub steering preserves question policy through a physical successor but not a later user Turn', {
+  timeout: 20_000,
+}, async () => {
+  await withCompositionRoot(async ({ root, owner }) => {
+    const connectionId = await configureFakeDefaultTarget(owner);
+    const entered = deferred<void>();
+    const boundary = deferred<void>();
+    const policies: Array<string | undefined> = [];
+    let liveQuestions: (() => string | undefined) | undefined;
+    const { composition, manager } = await createCapturedExecutionComposition(owner, {
+      safeBoundaryResume: true,
+      primaryBackendFactory: (context) =>
+        new (class extends FakeBackend {
+          async prepareRunComposition(input: { runId: string; turnId: string }): Promise<void> {
+            await context.recordRunComposition!(input.runId, HANDOFF_TEST_COMPOSITION);
+          }
+
+          override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+            assert.ok(input.runId);
+            await this.prepareRunComposition({ runId: input.runId, turnId: input.turnId });
+            policies.push(context.executionPolicy?.questions);
+            if (policies.length === 1) {
+              liveQuestions = () => context.executionPolicy?.questions;
+              entered.resolve();
+              await boundary.promise;
+              assert.equal(
+                await input.handoffBoundary!(new AbortController().signal, null),
+                'pause',
+              );
+              return;
+            }
+            yield* super.send(input);
+          }
+        })(context),
+    });
+    const context = {
+      hostEpoch: 'execution-composition-test',
+      connectionId: 'steering-handoff-client',
+      principal: 'local_os_user' as const,
+      acquireResidency: () => ({ release() {} }),
+    };
+    try {
+      const target = await manager.createSession({
+        cwd: root,
+        llmConnectionId: connectionId,
+        llmConnectionSlug: 'fake',
+        model: 'fake-model',
+        permissionMode: 'bypass',
+        name: 'Steered work',
+      });
+      const started = await composition.handlers['turn.start'](
+        {
+          sessionId: target.id,
+          turnId: 'ordinary-steered-turn',
+          content: { text: 'start ordinary work' },
+        },
+        context,
+      );
+      assert.ok(started.ok && started.result.kind === 'started');
+      if (!started.ok || started.result.kind !== 'started') return;
+      await entered.promise;
+      await composition.handlers['workhub.coordination.resolve']({}, context);
+      const candidates = await composition.handlers['workhub.coordination.candidates']({}, context);
+      assert.ok(candidates.ok);
+      if (!candidates.ok) return;
+      const candidate = candidates.result.candidates.find(
+        ({ sessionId }) => sessionId === target.id,
+      );
+      assert.ok(candidate);
+      const steered = await actWorkHub(
+        composition,
+        {
+          actionId: 'steering-handoff-action',
+          userText: 'continue this work from WorkHub',
+          candidateSetId: candidates.result.candidateSetId,
+          proposal: { disposition: 'delegate_existing', candidateRef: candidate.candidateRef },
+        },
+        context,
+      );
+      assert.ok(
+        steered.ok && steered.result.disposition === 'delegate_existing' && steered.result.steered,
+      );
+      assert.equal(liveQuestions?.(), 'return');
+      const rootRunId = started.result.turn.runId;
+      const request = manager.requestRunHandoff(
+        target.id,
+        rootRunId,
+        {
+          protocol: 'runtime_handoff_pause_v1',
+          handoffId: 'steering-handoff',
+          hostEpoch: context.hostEpoch,
+          rootRunId,
+          successorRunId: 'steering-successor',
+          successorInvocationId: 'steering-successor',
+          claimId: 'steering-handoff-claim',
+        },
+        new AbortController().signal,
+      );
+      assert.ok(request);
+      boundary.resolve();
+      assert.equal(await request.ready, true);
+      assert.equal(request.commit(), true);
+      assert.equal(await request.sealed, true);
+      await waitFor(async () => {
+        const result = await composition.handlers['turn.query'](
+          { sessionId: target.id, turnId: 'ordinary-steered-turn' },
+          context,
+        );
+        return result.ok && result.result.status === 'completed';
+      });
+      assert.deepEqual(policies, [undefined, 'return']);
+      // The terminal fact can precede release of the Host admission lease.
+      await waitFor(async () => {
+        const later = await composition.handlers['turn.start'](
+          {
+            sessionId: target.id,
+            turnId: 'later-ordinary-turn',
+            content: { text: 'new ordinary work' },
+          },
+          context,
+        );
+        if (!later.ok) assert.equal(later.error.code, 'session_busy', JSON.stringify(later));
+        return later.ok;
+      });
+      await waitFor(async () => {
+        const result = await composition.handlers['turn.query'](
+          { sessionId: target.id, turnId: 'later-ordinary-turn' },
+          context,
+        );
+        return result.ok && result.result.status === 'completed';
+      });
+      assert.deepEqual(policies, [undefined, 'return', undefined]);
+      assert.equal(
+        (await manager.listSessions()).find(({ id }) => id === target.id)?.permissionMode,
+        'bypass',
+      );
+    } finally {
+      boundary.resolve();
+      await composition.close();
+    }
+  });
+});
+
 test('WorkHub Resume and Stop follow logical lineage across repeated physical handoffs', async () => {
   await withCompositionRoot(async ({ root, owner }) => {
     const connectionId = await configureFakeDefaultTarget(owner);

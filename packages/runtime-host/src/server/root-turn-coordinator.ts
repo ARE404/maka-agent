@@ -3089,14 +3089,13 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
       admission = await this.stores.agentRunStore.readRootTurnAdmission(sessionId, turnId);
     }
     const sources = new Set(admission?.sourceMessages.map((source) => source.messageId));
-    const assignments =
-      sources.size > 0
-        ? await this.stores.sessionStore.readActiveWorkHubAssignmentsByTarget(
-            [sessionId],
-            undefined,
-            true,
-          )
-        : [];
+    // An ordinary external Turn has no sourceMessages. WorkHub steering is
+    // still durable and belongs to that Turn through targetTurnId.
+    const assignments = await this.stores.sessionStore.readActiveWorkHubAssignmentsByTarget(
+      [sessionId],
+      undefined,
+      true,
+    );
     const delegated = assignments.filter(
       (assignment) =>
         (sources.has(assignment.targetMessageId) ||
@@ -3266,7 +3265,12 @@ export class RootTurnCoordinator implements HostedExecutionAuthority {
           active.continuation = plan.continuation;
         });
         stream = this.manager.resumeSafeBoundaryContinuation(active.continuation!, {
-          executionPolicy,
+          // WorkHub can steer an ordinary Turn after its initial policy was
+          // captured. A physical successor stays in that execution lineage.
+          executionPolicy: await this.readExecutionPolicyForRun(
+            input.sessionId,
+            active.continuation!.sourceRunId,
+          ),
           onRunStarted,
           stopBeforeDispatch: () => active.stopRequested,
         });
