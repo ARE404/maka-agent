@@ -979,10 +979,10 @@ export function ChatView(props: {
                           // The list's row gap does not reach inside the virtualizer.
                           // A tail transient is the next Turn before it lands, outside
                           // the virtualizer, where that gap supplies part of the space.
-                          // Result notices use the same 12px rhythm on both sides.
+                          // Keep result notices close to the preceding turn; their inner gap stays 12px.
                           paddingBlockEnd: index < turns.length - 1
                             ? turns[index + 1]?.user?.hostOrigin?.kind === 'workhub_result'
-                              ? 'var(--space-3)'
+                              ? 'var(--space-1)'
                               : 'var(--space-10)'
                             : tailTransientMessages.length > 0 ? 'calc(var(--space-10) - var(--spacing-4))' : undefined,
                           ...(decoration?.accentColor
