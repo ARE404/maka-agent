@@ -57,7 +57,7 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
   const promptTextByTurn = new Map(chat.messages?.flatMap((message) => message.type === 'user' ? [[message.turnId, message.text.slice(0, 80)] as const] : []));
   const turnDecorations = new Map<string, NonNullable<ComponentProps<typeof ChatView>['turnDecorations']> extends ReadonlyMap<string, infer V> ? V : never>([...worksByTurn].map(([turnId, works]) => [turnId, {
     accentColor: promptRailDecorations.get(turnId)?.accentColor ?? 'transparent',
-    messageRail: <>{works.map((work, index) => <Button key={work.targetSessionId}
+    messageRail: <div className="workhub-message-rails">{works.map((work, index) => <Button key={work.targetSessionId}
       variant="ghost" isIconOnly icon={<span aria-hidden="true" />} className="workhub-message-rail"
       style={{ insetBlockStart: `${index * 100 / works.length}%`, insetBlockEnd: 'auto', height: `${100 / works.length}%`,
         '--maka-turn-accent': `oklch(var(--workhub-${highlight.sessionId === work.targetSessionId ? 'highlight' : 'tone'}) ${workHubIdentityHue(work.targetSessionId)})`,
@@ -72,7 +72,7 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
       onFocus={() => highlight.highlight(work.targetSessionId)}
       onBlur={() => highlight.highlight(undefined)}
       onClick={() => highlight.toggleWork({ sessionId: work.targetSessionId, name: work.targetSessionName })}
-    />)}</>,
+    />)}</div>,
     header: <div className="workhub-turn-heading">
       {works.map((work) => <Link
         key={work.targetSessionId}
