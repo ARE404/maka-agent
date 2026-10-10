@@ -183,9 +183,9 @@ interface SearchDocument {
 /**
  * Immutable, backend-scoped bound-tool inventory and MiniSearch index.
  *
- * Mutable activation belongs to the per-send TurnScope and is passed to
- * prepare(). Constructing one AiSdkBackend therefore constructs one index; all
- * turns on that backend reuse it without sharing activation state.
+ * Mutable activation is passed into prepare(). One AiSdkBackend constructs one
+ * index; Turns on that backend share the Session activation map so later
+ * Turns keep previously activated schemas.
  */
 export class ToolAvailabilityRuntime {
   private readonly tools: readonly MakaTool[];
