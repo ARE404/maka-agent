@@ -2919,7 +2919,8 @@ test('production Host executes a canonical ai-sdk Session against a real provide
     assert.match(JSON.stringify(mainRequests[1]?.body), /HOSTED_SKILL_BODY_MUST_STAY_LAZY/);
     // Tavily is selected but no web-search credential exists, so the provider
     // must never see WebSearch in the effective root tool surface. Non-direct
-    // bound tools stay deferred behind tool_search until activated.
+    // bound tools stay deferred behind tool_search until activated, except
+    // request_sandbox_boundary which stays visible in sandboxed Sessions.
     assert.deepEqual(toolNames(request?.body), [
       'AskUserQuestion',
       'Bash',
@@ -2932,6 +2933,7 @@ test('production Host executes a canonical ai-sdk Session against a real provide
       'StopBackgroundTask',
       'WebFetch',
       'Write',
+      'request_sandbox_boundary',
       'tool_search',
     ]);
     assert.match(JSON.stringify(compactRequests[0]?.body), /context summarization assistant/);

@@ -127,6 +127,7 @@ import {
   REQUEST_SANDBOX_BOUNDARY_TOOL_NAME,
   SANDBOX_BOUNDARY_DENIED_FOR_TURN,
   SANDBOX_BOUNDARY_FINALIZATION_PROMPT,
+  requiredSandboxBoundaryToolNames,
 } from './sandbox-boundary-tool.js';
 import {
   buildRuntimeEventModelReplayPlan,
@@ -1137,7 +1138,11 @@ export class AiSdkTurn {
       if (toolMode === 'code_mode' && snapshot.hostTools.some((tool) => tool.name === 'exec')) {
         throw new Error('Tool name "exec" is reserved for Code Mode.');
       }
-      const basePlan = snapshot.runtime.prepare(this.activeTools, requiredOrchestrationTools);
+      const requiredTools = new Set([
+        ...requiredOrchestrationTools,
+        ...requiredSandboxBoundaryToolNames(snapshot.hostTools),
+      ]);
+      const basePlan = snapshot.runtime.prepare(this.activeTools, requiredTools);
       const nestedTools = nestableToolSnapshot(basePlan.providerTools, basePlan.activeTools);
       const plan = projectToolModePlan(basePlan, toolMode, codeModeExecTool);
       const modelTools: ModelToolSet = {};
