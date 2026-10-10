@@ -2873,18 +2873,20 @@ export class RuntimeKernel implements RuntimeKernelLike {
 
   private executionPolicyStore(targetSessionId: string, policy: TurnExecutionPolicy): SessionStore {
     const store = this.deps.store;
-    return new Proxy(store, {
-      get(target, property) {
+    // Host stores are frozen. Proxy invariants forbid replacing their own
+    // non-configurable methods, so intercept on an independent facade instead.
+    return new Proxy(Object.create(store) as SessionStore, {
+      get(_facade, property) {
         if (property === 'readHeader')
           return async (sessionId: string) => {
-            const header = await target.readHeader(sessionId);
+            const header = await store.readHeader(sessionId);
             return sessionId === targetSessionId
               ? { ...header, permissionMode: policy.permissionMode }
               : header;
           };
         if (property === 'readExecutionBoundary')
           return async (sessionId: string) => {
-            const boundary = await target.readExecutionBoundary(sessionId);
+            const boundary = await store.readExecutionBoundary(sessionId);
             if (
               sessionId === targetSessionId &&
               (policy.permissionMode === 'bypass' || boundary.kind === 'bypass')
@@ -2892,8 +2894,8 @@ export class RuntimeKernel implements RuntimeKernelLike {
               return createGenesisExecutionBoundary(policy.permissionMode);
             return boundary;
           };
-        const value = Reflect.get(target, property);
-        return typeof value === 'function' ? value.bind(target) : value;
+        const value = Reflect.get(store, property);
+        return typeof value === 'function' ? value.bind(store) : value;
       },
     });
   }

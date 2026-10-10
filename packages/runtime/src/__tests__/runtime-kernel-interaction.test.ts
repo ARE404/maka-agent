@@ -45,10 +45,18 @@ import {
 } from '../session-manager.js';
 import { waitFor as pollFor } from '@maka/core/test-only/async-primitives';
 
-test('delegated execution policy is scoped to the run and ordinary execution restores the saved policy', async () => {
+test('delegated execution policy supports a frozen Host store and ordinary execution restores the saved policy', async () => {
   const store = memoryStore();
   await store.updateHeader(SESSION_ID, { permissionMode: 'ask' });
   store.readExecutionBoundary = async () => createGenesisExecutionBoundary('ask');
+  // Production ExecutionStores freezes this facade, including its function properties.
+  Object.defineProperty(store, 'createSandboxBoundaryRequest', {
+    value: function () {
+      assert.equal(this, store);
+    },
+  });
+  Object.freeze(store);
+  let activationError: unknown;
   const backends = new BackendRegistry();
   const observed: Array<{
     permission: string;
@@ -58,6 +66,16 @@ test('delegated execution policy is scoped to the run and ordinary execution res
   }> = [];
   const instances: BlockingBackend[] = [];
   backends.register('ai-sdk', async (context) => {
+    try {
+      const request = context.store.createSandboxBoundaryRequest;
+      assert.ok(request);
+      await request.call(context.store, {} as never);
+      await context.store.readHeader(SESSION_ID);
+      await context.store.readExecutionBoundary(SESSION_ID);
+    } catch (error) {
+      activationError = error;
+      throw error;
+    }
     observed.push({
       permission: (await context.store.readHeader(SESSION_ID)).permissionMode,
       savedPermission: (await store.readHeader(SESSION_ID)).permissionMode,
@@ -84,6 +102,7 @@ test('delegated execution policy is scoped to the run and ordinary execution res
     },
   )) {
   }
+  assert.ifError(activationError);
   for await (const _ of kernel.startTurn(SESSION_ID, { turnId: 'ordinary', text: 'followup' })) {
   }
   assert.deepEqual(observed, [
