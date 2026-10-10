@@ -95,12 +95,12 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
     turnDecorations.set(turnId, {
       ...turnDecorations.get(turnId),
       context: <div className="workhub-turn-context">
-        {context.answers.length > 0 && <section aria-label={copy.clarifiedPreferences} className="workhub-clarification-summary">
-          <Text type="supporting" color="secondary">{copy.clarifiedPreferences}</Text>
+        {context.answers.length > 0 && <details className="workhub-clarification-summary">
+          <summary>{copy.selectedAnswers}：{context.answers.map((answer) => answer.answer).join(' · ')}</summary>
           <dl>{context.answers.map((answer) => <div key={answer.id}>
             <dt>{answer.question}</dt><dd>{answer.answer}</dd>
           </div>)}</dl>
-        </section>}
+        </details>}
         {context.handoffs.map((handoff) => <details key={handoff.id} className="workhub-handoff">
           <summary>{copy.handoffContent} · {assignments.find((work) => work.targetSessionId === handoff.targetSessionId)?.targetSessionName ?? (handoff.targetSessionName || copy.work)}</summary>
           <div className="workhub-handoff-text">{handoff.text}</div>
