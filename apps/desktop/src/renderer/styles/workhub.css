@@ -230,7 +230,7 @@ body:has(.workHubLive[data-placement='floating'][data-progress='true'])::after {
 .workhub-clarification-summary dl > div { display: flex; flex-wrap: wrap; column-gap: var(--space-2); }
 .workhub-clarification-summary dt { color: var(--muted-foreground); }
 .workhub-clarification-summary dd { margin: 0; white-space: pre-wrap; }
-:is(.workhub-handoff, .workhub-clarification-summary) summary { cursor: pointer; width: fit-content; max-width: 100%; border-radius: var(--radius-sm); }
-:is(.workhub-handoff, .workhub-clarification-summary) summary:hover { text-decoration: underline; }
-:is(.workhub-handoff, .workhub-clarification-summary) summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.workhub-handoff summary { cursor: pointer; width: fit-content; max-width: 100%; border-radius: var(--radius-sm); }
+.workhub-handoff summary:hover { text-decoration: underline; }
+.workhub-handoff summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
 .workhub-handoff-text { white-space: pre-wrap; max-width: 75ch; margin-block-start: var(--space-2); padding-inline-start: var(--space-3); border-inline-start: 1px solid var(--border); }

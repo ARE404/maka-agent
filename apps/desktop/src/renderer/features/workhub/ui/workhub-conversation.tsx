@@ -19,7 +19,7 @@
 import type { CSSProperties } from 'react';
 
 import { useContext, useMemo, type ComponentProps } from 'react';
-import { ChatView, useUiLocale } from '@maka/ui';
+import { ChatView, TranscriptDisclosure, useUiLocale } from '@maka/ui';
 import { Button, Link, Text } from '@astryxdesign/core';
 import { WorkHubHighlightContext, useWorkHubIdentityHue } from './workhub-work-identity.js';
 import type { WorkHubLinkedWork } from '../model/linked-work.js';
@@ -95,12 +95,12 @@ export function WorkHubConversation(props: ComponentProps<typeof ChatView> & { w
     turnDecorations.set(turnId, {
       ...turnDecorations.get(turnId),
       context: <div className="workhub-turn-context">
-        {context.answers.length > 0 && <details className="workhub-clarification-summary">
-          <summary>{copy.selectedAnswers}：{context.answers.map((answer) => answer.answer).join(' · ')}</summary>
+        {context.answers.length > 0 && <TranscriptDisclosure className="workhub-clarification-summary" statusBar
+          label={`${copy.selectedAnswers}：${context.answers.map((answer) => answer.answer).join(' · ')}`}>
           <dl>{context.answers.map((answer) => <div key={answer.id}>
             <dt>{answer.question}</dt><dd>{answer.answer}</dd>
           </div>)}</dl>
-        </details>}
+        </TranscriptDisclosure>}
         {context.handoffs.map((handoff) => <details key={handoff.id} className="workhub-handoff">
           <summary>{copy.handoffContent} · {assignments.find((work) => work.targetSessionId === handoff.targetSessionId)?.targetSessionName ?? (handoff.targetSessionName || copy.work)}</summary>
           <div className="workhub-handoff-text">{handoff.text}</div>

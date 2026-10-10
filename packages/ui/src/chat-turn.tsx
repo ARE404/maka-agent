@@ -20,6 +20,7 @@
 import { Fragment, memo, useEffect, useMemo, useRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react';
 import { ICON_SIZE, GitBranch, Pencil, RefreshCcw, Timer } from './icons.js';
 import { useClipboardCopyFeedback } from './clipboard-feedback.js';
+import { TranscriptDisclosure } from './transcript-disclosure.js';
 import { Markdown } from './markdown.js';
 import { formatTurnDuration } from './chat-display-helpers.js';
 import { formatAbsoluteTimestamp } from '@maka/core/relative-time';
@@ -1457,43 +1458,10 @@ const ProcessingBlock = memo(function ProcessingBlock(props: {
   initialLiveContent?: ReadonlyMap<string, string>;
 }) {
   const copy = getConversationCopy(useUiLocale()).messages;
-  // null follows the lifecycle: open while running, collapsed on completion.
-  // Settled reader choices survive appended events. Live work stays expanded.
-  // A failed tool is an ordinary row: no label and no reveal of its own.
-  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
-  const open = props.running || manualOpen === true;
-  const chevron = props.running ? null : (
-    <Icon icon="chevronRight" size="xsm" color="inherit" className="maka-processing-chevron" />
-  );
   return (
-    <details
-      className="maka-processing-sequence"
-      data-maka-transcript-boundary=""
-      open={open}
-    >
-      <summary
-        className="maka-processing-summary"
-        aria-expanded={open}
-        aria-disabled={props.running || undefined}
-        tabIndex={props.running ? -1 : 0}
-        onClick={(event) => {
-          event.preventDefault();
-          if (!props.running) setManualOpen(!open);
-        }}
-      >
-        {props.statusRow ? (
-          <span className="maka-turn-statusbar" data-turn-status={props.statusRow.status}>
-            <TurnStatusRow {...props.statusRow} />
-            {chevron}
-          </span>
-        ) : (
-          <>
-            <span>{copy.processDetails}</span>
-            {chevron}
-          </>
-        )}
-      </summary>
-      <div className="maka-processing-body">
+    <TranscriptDisclosure running={props.running} statusBar={Boolean(props.statusRow)} status={props.statusRow?.status}
+      label={props.statusRow ? <TurnStatusRow {...props.statusRow} /> : copy.processDetails}>
+      {(open) => <>
         {props.entries.map((entry, index) => (
           <TurnTimelineEntry
             key={timelineEntryKey(entry, index)}
@@ -1504,8 +1472,8 @@ const ProcessingBlock = memo(function ProcessingBlock(props: {
             initialLiveContent={props.initialLiveContent}
           />
         ))}
-      </div>
-    </details>
+      </>}
+    </TranscriptDisclosure>
   );
 });
 
