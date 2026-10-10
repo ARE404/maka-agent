@@ -1140,6 +1140,8 @@ const createLocalRuntimeHostManager = () => createRuntimeHostDesktopManager(
       releaseDesktopInteractionSession,
     },
     botRegistry,
+    readBotMessageHandling: async () => (await settingsStore.get()).botChat.messageHandling ?? 'task',
+    botWorkHubStateDirectory: join(userDataDir, 'workhub-remote'),
     resolveBotCreateTarget: async (target) => ({
       workspace: await currentDesktopWorkspaceTarget(target),
     }),
