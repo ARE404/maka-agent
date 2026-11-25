@@ -20,6 +20,8 @@ name: CI
 on:
   pull_request:
     branches: [main, rust-preview]
+  push:
+    branches: [main, rust-preview]
   schedule:
     # 03:17 Asia/Shanghai
     - cron: '17 19 * * *'
@@ -152,7 +154,7 @@ jobs:
           compression-level: 0
           if-no-files-found: ignore
       - uses: ./.github/actions/ci-cache
-        if: ${{ github.event_name == 'schedule' && !cancelled() && steps.archive.outcome == 'success' }}
+        if: ${{ github.event_name == 'push' && !cancelled() && steps.archive.outcome == 'success' }}
         with:
           key: ${{ steps.setup.outputs.compiled_key }}
           hit: ${{ steps.setup.outputs.compiled_hit }}
@@ -242,7 +244,7 @@ jobs:
             ${{ runner.temp }}/maka-ui-artifacts
           if-no-files-found: error
       - uses: ./.github/actions/ci-cache
-        if: ${{ github.event_name == 'schedule' && !cancelled() && matrix.compile && matrix.saveCache && steps.compile.outcome == 'success' }}
+        if: ${{ github.event_name == 'push' && !cancelled() && matrix.compile && matrix.saveCache && steps.compile.outcome == 'success' }}
         env:
           MAKA_CI_ROLE: ${{ matrix.id }}
         with:
