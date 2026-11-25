@@ -20,8 +20,9 @@ name: CI
 on:
   pull_request:
     branches: [main, rust-preview]
-  push:
-    branches: [main, rust-preview]
+  schedule:
+    # 03:17 Asia/Shanghai
+    - cron: '17 19 * * *'
   workflow_dispatch:
     inputs:
       worker:
@@ -49,6 +50,7 @@ env:
 
 jobs:
   plan:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       tooling: ${{ steps.plan.outputs.tooling }}
@@ -150,7 +152,7 @@ jobs:
           compression-level: 0
           if-no-files-found: ignore
       - uses: ./.github/actions/ci-cache
-        if: ${{ github.event_name == 'push' && !cancelled() && steps.archive.outcome == 'success' }}
+        if: ${{ github.event_name == 'schedule' && !cancelled() && steps.archive.outcome == 'success' }}
         with:
           key: ${{ steps.setup.outputs.compiled_key }}
           hit: ${{ steps.setup.outputs.compiled_hit }}
@@ -240,7 +242,7 @@ jobs:
             ${{ runner.temp }}/maka-ui-artifacts
           if-no-files-found: error
       - uses: ./.github/actions/ci-cache
-        if: ${{ github.event_name == 'push' && !cancelled() && matrix.compile && matrix.saveCache && steps.compile.outcome == 'success' }}
+        if: ${{ github.event_name == 'schedule' && !cancelled() && matrix.compile && matrix.saveCache && steps.compile.outcome == 'success' }}
         env:
           MAKA_CI_ROLE: ${{ matrix.id }}
         with:
@@ -266,8 +268,14 @@ jobs:
         with:
           node-version: "26"
           package-manager-cache: false
+      - name: Check Rust formatting
+        if: github.event_name == 'pull_request'
+        run: cargo fmt --all -- --check
+      - name: Check ASF license headers
+        if: github.event_name == 'pull_request'
+        run: node scripts/asf-license-headers.mjs check
       - name: Require a successful plan
-        if: needs.plan.result != 'success'
+        if: github.event_name != 'pull_request' && needs.plan.result != 'success'
         run: node -e 'throw new Error("CI planning did not succeed")'
       - uses: actions/download-artifact@v8
         if: needs.plan.result == 'success'
